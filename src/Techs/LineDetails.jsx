@@ -117,7 +117,7 @@ export default function LineDetails() {
                    <span style={{fontSize:'1.2rem', fontWeight:'bold', color: item.quantity <= item.minLevel ? '#ef4444' : '#16a34a'}}>
                      {item.quantity} <span style={{fontSize:'0.8rem', fontWeight:'normal', color:'#64748b'}}>in stock</span>
                    </span>
-                   <Link to="/inventory" style={{fontSize:'0.8rem', color:'#2563eb'}}>Manage</Link>
+                   <Link to="/techs/inventory" style={{fontSize:'0.8rem', color:'#2563eb'}}>Manage</Link>
                 </div>
               </div>
             ))}

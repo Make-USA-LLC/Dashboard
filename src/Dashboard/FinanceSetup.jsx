@@ -13,16 +13,32 @@ const FinanceSetup = () => {
     // Data State
     const [configData, setConfigData] = useState({
         costPerHour: 0,
+        // 4+ Employees (Standard)
         leaderPoolPercent: 0,
         workerPoolPercent: 0,
+        // 3 Employees
+        leaderPoolPercent_3: 0,
+        workerPoolPercent_3: 0,
+        // 2 Employees
+        leaderPoolPercent_2: 0,
+        workerPoolPercent_2: 0,
+        // 1 Employee
+        workerPoolPercent_1: 0, 
+
         agents: [],
-        projectTypes: []
+        projectTypes: [],
+        companyMap: {} // Maps Company Name -> Agent Name
     });
 
     // Local inputs for "Add" forms
     const [newAgentName, setNewAgentName] = useState('');
     const [newAgentComm, setNewAgentComm] = useState('');
     const [newType, setNewType] = useState('');
+
+    // Local inputs for "Auto-Assign" form
+    const [availableCompanies, setAvailableCompanies] = useState([]);
+    const [assignCompany, setAssignCompany] = useState('');
+    const [assignAgent, setAssignAgent] = useState('');
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -35,6 +51,21 @@ const FinanceSetup = () => {
             }
         });
         return () => unsubscribe();
+    }, []);
+
+    // Load available companies from ProjectOptions for the dropdown
+    useEffect(() => {
+        const fetchCompanies = async () => {
+            try {
+                const snap = await getDoc(doc(db, "config", "project_options"));
+                if (snap.exists()) {
+                    setAvailableCompanies(snap.data().companies || []);
+                }
+            } catch (e) {
+                console.error("Error fetching companies:", e);
+            }
+        };
+        fetchCompanies();
     }, []);
 
     const checkAccess = async (user) => {
@@ -59,7 +90,7 @@ const FinanceSetup = () => {
             setCanEdit(edit);
             startListener();
         } else {
-            setLoading(false); // Renders denied message
+            setLoading(false);
         }
     };
 
@@ -74,15 +105,31 @@ const FinanceSetup = () => {
                 const data = docSnap.data();
                 setConfigData({
                     costPerHour: data.costPerHour || 0,
+                    
                     leaderPoolPercent: data.leaderPoolPercent || 0,
                     workerPoolPercent: data.workerPoolPercent || 0,
+
+                    leaderPoolPercent_3: data.leaderPoolPercent_3 || 0,
+                    workerPoolPercent_3: data.workerPoolPercent_3 || 0,
+
+                    leaderPoolPercent_2: data.leaderPoolPercent_2 || 0,
+                    workerPoolPercent_2: data.workerPoolPercent_2 || 0,
+
+                    workerPoolPercent_1: data.workerPoolPercent_1 || 0,
+
                     agents: data.agents || [],
-                    projectTypes: data.projectTypes || []
+                    projectTypes: data.projectTypes || [],
+                    companyMap: data.companyMap || {}
                 });
             } else {
                 // Initialize if missing
                 setDoc(configRef, { 
-                    costPerHour: 0, leaderPoolPercent: 0, workerPoolPercent: 0, agents: [], projectTypes: [] 
+                    costPerHour: 0, 
+                    leaderPoolPercent: 0, workerPoolPercent: 0,
+                    leaderPoolPercent_3: 0, workerPoolPercent_3: 0,
+                    leaderPoolPercent_2: 0, workerPoolPercent_2: 0,
+                    workerPoolPercent_1: 0,
+                    agents: [], projectTypes: [], companyMap: {}
                 });
             }
             setLoading(false);
@@ -91,21 +138,28 @@ const FinanceSetup = () => {
 
     // --- HANDLERS ---
 
-    // 1. Save Scalar Values (Costs & Percentages)
     const handleSaveConstants = async () => {
         if (!canEdit) return;
         try {
             const configRef = doc(db, "config", "finance");
             await updateDoc(configRef, {
                 costPerHour: parseFloat(configData.costPerHour),
+                
                 leaderPoolPercent: parseFloat(configData.leaderPoolPercent),
-                workerPoolPercent: parseFloat(configData.workerPoolPercent)
+                workerPoolPercent: parseFloat(configData.workerPoolPercent),
+
+                leaderPoolPercent_3: parseFloat(configData.leaderPoolPercent_3),
+                workerPoolPercent_3: parseFloat(configData.workerPoolPercent_3),
+
+                leaderPoolPercent_2: parseFloat(configData.leaderPoolPercent_2),
+                workerPoolPercent_2: parseFloat(configData.workerPoolPercent_2),
+
+                workerPoolPercent_1: parseFloat(configData.workerPoolPercent_1),
             });
             alert("Configuration Saved");
         } catch(e) { alert("Error saving: " + e.message); }
     };
 
-    // 2. Agents
     const handleAddAgent = async () => {
         if (!canEdit || !newAgentName) return;
         const configRef = doc(db, "config", "finance");
@@ -123,7 +177,6 @@ const FinanceSetup = () => {
         await updateDoc(configRef, { agents: updatedAgents });
     };
 
-    // 3. Project Types
     const handleAddType = async () => {
         if (!canEdit || !newType) return;
         const configRef = doc(db, "config", "finance");
@@ -140,17 +193,83 @@ const FinanceSetup = () => {
         await updateDoc(configRef, { projectTypes: updatedTypes });
     };
 
+    // --- MAPPING HANDLERS ---
+
+    const handleAssignAgent = async () => {
+        if (!canEdit) return;
+        if (!assignCompany || !assignAgent) {
+            alert("Please select both a company and an agent.");
+            return;
+        }
+
+        const configRef = doc(db, "config", "finance");
+        const newMap = { ...configData.companyMap, [assignCompany]: assignAgent };
+        
+        try {
+            await updateDoc(configRef, { companyMap: newMap });
+            setAssignCompany('');
+            setAssignAgent('');
+        } catch (e) {
+            alert("Error saving assignment: " + e.message);
+        }
+    };
+
+    const handleDeleteAssignment = async (companyName) => {
+        if (!canEdit) return;
+        if (!window.confirm(`Remove auto-assignment for ${companyName}?`)) return;
+
+        const configRef = doc(db, "config", "finance");
+        const newMap = { ...configData.companyMap };
+        delete newMap[companyName];
+
+        try {
+            await updateDoc(configRef, { companyMap: newMap });
+        } catch (e) {
+            alert("Error removing assignment: " + e.message);
+        }
+    };
+
+
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
     if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Config...</div>;
-    if (!configData.costPerHour && configData.costPerHour !== 0) return <div className="fs-denied">Access Denied</div>; // Fallback
+    if (!configData.costPerHour && configData.costPerHour !== 0) return <div className="fs-denied">Access Denied</div>;
+
+    // Helper for rendering rows
+    const renderRow = (label, l_field, w_field) => (
+        <div className="fs-form-row" style={{borderBottom:'1px solid #eee', paddingBottom:'15px', marginBottom:'15px', alignItems:'center'}}>
+            <div style={{width:'150px', fontWeight:'bold', color:'#34495e'}}>{label}</div>
+            <div style={{flex:1}}>
+                <label className="fs-label" style={{color:'#2980b9'}}>Leader %</label>
+                <div className="fs-input-suffix">
+                    <input type="number" className="fs-input" step="0.1" 
+                        value={configData[l_field]}
+                        onChange={(e) => setConfigData({...configData, [l_field]: e.target.value})}
+                        disabled={!canEdit}
+                    />
+                    <span className="fs-suffix-text">%</span>
+                </div>
+            </div>
+            <div style={{flex:1, marginLeft:'15px'}}>
+                <label className="fs-label" style={{color:'#27ae60'}}>Pool %</label>
+                <div className="fs-input-suffix">
+                    <input type="number" className="fs-input" step="0.1" 
+                        value={configData[w_field]}
+                        onChange={(e) => setConfigData({...configData, [w_field]: e.target.value})}
+                        disabled={!canEdit}
+                    />
+                    <span className="fs-suffix-text">%</span>
+                </div>
+            </div>
+        </div>
+    );
 
     return (
         <div className="fs-wrapper">
             <div className="fs-top-bar">
-                <button onClick={() => navigate('/dashboard')} className="btn-back">&larr; Dashboard</button>
+                <button onClick={() => navigate('/')} className="btn-back">&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Finance Setup</div>
-
+                <button onClick={handleLogout} className="btn-back" style={{fontSize:'14px', color:'#e74c3c'}}>Sign Out</button>
             </div>
 
             <div className="fs-container">
@@ -171,54 +290,6 @@ const FinanceSetup = () => {
                             />
                         </div>
                     </div>
-                </div>
-
-                {/* BONUS STRUCTURE */}
-                <div className="fs-card" style={{borderLeft: '5px solid #3498db'}}>
-                    <h2>Standard Bonus Structure</h2>
-                    <div className="fs-section-desc">
-                        Bonuses are calculated as a percentage of <strong>Net Profit</strong>.<br/>
-                        <em>(Net Profit = Invoice - Labor Cost - Commissions)</em>
-                    </div>
-
-                    <div className="fs-form-row">
-                        <div style={{flex:1}}>
-                            <label className="fs-label" style={{color:'#2980b9'}}>Line Leader Pool</label>
-                            <div className="fs-input-suffix">
-                                <input 
-                                    type="number" 
-                                    className="fs-input" 
-                                    step="0.1" 
-                                    value={configData.leaderPoolPercent}
-                                    onChange={(e) => setConfigData({...configData, leaderPoolPercent: e.target.value})}
-                                    disabled={!canEdit}
-                                />
-                                <span className="fs-suffix-text">%</span>
-                            </div>
-                        </div>
-                        
-                        <div style={{flex:1}}>
-                            <label className="fs-label" style={{color:'#27ae60'}}>Worker Pool (Non-Leaders)</label>
-                            <div className="fs-input-suffix">
-                                <input 
-                                    type="number" 
-                                    className="fs-input" 
-                                    step="0.1" 
-                                    value={configData.workerPoolPercent}
-                                    onChange={(e) => setConfigData({...configData, workerPoolPercent: e.target.value})}
-                                    disabled={!canEdit}
-                                />
-                                <span className="fs-suffix-text">%</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <p style={{fontSize:'12px', color:'#999', marginTop:0}}>* Worker pool is split based on hours worked by default.</p>
-                    {canEdit && (
-                        <button className="btn btn-green" style={{width:'100%', marginTop:'10px'}} onClick={handleSaveConstants}>
-                            Save Configuration
-                        </button>
-                    )}
                 </div>
 
                 {/* COMMISSION AGENTS */}
@@ -244,8 +315,102 @@ const FinanceSetup = () => {
                                 {canEdit && <button className="btn-red-small" onClick={() => handleDeleteAgent(i)}>Del</button>}
                             </li>
                         ))}
-                        {configData.agents.length === 0 && <li style={{padding:'15px', color:'#999'}}>No agents defined.</li>}
                     </ul>
+                </div>
+
+                {/* AUTO ASSIGN */}
+                <div className="fs-card">
+                    <h2>Auto-Assign Agents</h2>
+                    <p style={{fontSize:'13px', color:'#7f8c8d'}}>
+                        Automatically select an agent for new projects based on company.
+                    </p>
+                    
+                    {canEdit && (
+                        <div className="fs-form-row" style={{alignItems:'flex-end', background:'#f9f9f9', padding:'10px', borderRadius:'5px'}}>
+                            <div style={{flex:1}}>
+                                <label className="fs-label">Select Company</label>
+                                <select 
+                                    className="fs-input" 
+                                    value={assignCompany} 
+                                    onChange={(e) => setAssignCompany(e.target.value)}
+                                >
+                                    <option value="">- Choose Company -</option>
+                                    {availableCompanies.map((c, i) => (
+                                        <option key={i} value={c}>{c}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{flex:1, marginLeft:'10px'}}>
+                                <label className="fs-label">Assign Agent</label>
+                                <select 
+                                    className="fs-input" 
+                                    value={assignAgent} 
+                                    onChange={(e) => setAssignAgent(e.target.value)}
+                                >
+                                    <option value="">- Choose Agent -</option>
+                                    {configData.agents.map((a, i) => (
+                                        <option key={i} value={a.name}>{a.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button className="btn btn-green" style={{marginLeft:'10px'}} onClick={handleAssignAgent}>
+                                Assign
+                            </button>
+                        </div>
+                    )}
+
+                    <div style={{marginTop:'15px'}}>
+                        <ul className="fs-list">
+                            {Object.keys(configData.companyMap).length === 0 && <li style={{color:'#999', fontStyle:'italic'}}>No assignments yet.</li>}
+                            
+                            {Object.entries(configData.companyMap).map(([comp, ag], i) => (
+                                <li key={i}>
+                                    <span>
+                                        <strong>{comp}</strong> &rarr; <span style={{color:'#8e44ad'}}>{ag}</span>
+                                    </span>
+                                    {canEdit && (
+                                        <button className="btn-red-small" onClick={() => handleDeleteAssignment(comp)}>Remove</button>
+                                    )}
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                </div>
+
+                {/* BONUS STRUCTURE */}
+                <div className="fs-card" style={{borderLeft: '5px solid #3498db'}}>
+                    <h2>Bonus Structure</h2>
+                    <div className="fs-section-desc">
+                        Define percentages of <strong>Net Profit</strong> based on team size.<br/>
+                    </div>
+                    
+                    {renderRow("4+ Employees", "leaderPoolPercent", "workerPoolPercent")}
+                    {renderRow("3 Employees", "leaderPoolPercent_3", "workerPoolPercent_3")}
+                    {renderRow("2 Employees", "leaderPoolPercent_2", "workerPoolPercent_2")}
+
+                    {/* 1 Employee (Big Box) */}
+                    <div className="fs-form-row" style={{alignItems:'center'}}>
+                        <div style={{width:'150px', fontWeight:'bold', color:'#34495e'}}>1 Employee</div>
+                        <div style={{flex:1}}>
+                            <label className="fs-label" style={{color:'#2c3e50'}}>Total Bonus %</label>
+                            <div className="fs-input-suffix">
+                                <input type="number" className="fs-input" step="0.1" 
+                                    style={{fontSize:'18px', padding:'10px', fontWeight:'bold'}}
+                                    value={configData.workerPoolPercent_1}
+                                    onChange={(e) => setConfigData({...configData, workerPoolPercent_1: e.target.value})}
+                                    disabled={!canEdit}
+                                />
+                                <span className="fs-suffix-text" style={{fontSize:'18px'}}>%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <p style={{fontSize:'12px', color:'#999', marginTop:'15px'}}>* Worker pool is split based on hours worked by default.</p>
+                    {canEdit && (
+                        <button className="btn btn-green" style={{width:'100%', marginTop:'10px'}} onClick={handleSaveConstants}>
+                            Save Configuration
+                        </button>
+                    )}
                 </div>
 
                 {/* PROJECT TYPES */}
@@ -267,7 +432,6 @@ const FinanceSetup = () => {
                                 {canEdit && <button className="btn-red-small" onClick={() => handleDeleteType(i)}>Del</button>}
                             </li>
                         ))}
-                        {configData.projectTypes.length === 0 && <li style={{padding:'15px', color:'#999'}}>No types defined.</li>}
                     </ul>
                 </div>
 

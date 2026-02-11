@@ -119,7 +119,7 @@ const StaffManagement = () => {
     return (
         <div className="sm-wrapper">
             <div className="sm-top-bar">
-                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', color:'#2c3e50'}}>
+                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', display:'flex', alignItems:'center', gap:'5px', color:'#2c3e50'}}>
                     <span className="material-icons">arrow_back</span> Dashboard
                 </button>
                 <div style={{fontWeight:'bold', fontSize:'18px'}}>Staff Access Manager</div>

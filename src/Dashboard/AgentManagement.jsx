@@ -82,9 +82,7 @@ const AgentManagement = () => {
     const handleImpersonate = () => {
         if (!impersonateTarget) return alert("Please select an agent.");
         
-        // OLD: window.open(`/agent_portal.html?viewAs=${encodeURIComponent(impersonateTarget)}`, '_blank');
-        
-        // NEW: Points to the React Route
+        // Use the React Route path, not the .html file
         const url = `/agent-portal?viewAs=${encodeURIComponent(impersonateTarget)}`;
         window.open(url, '_blank');
     };
@@ -99,9 +97,9 @@ const AgentManagement = () => {
     return (
         <div className="agent-page-wrapper">
             <div className="agent-top-bar">
-                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold', color:'#8e44ad'}}>Agent Management</div>
-               
+                <button onClick={handleLogout} className="btn-red-text">Sign Out</button>
             </div>
 
             <div className="agent-container">

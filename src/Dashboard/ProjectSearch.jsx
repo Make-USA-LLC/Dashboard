@@ -10,27 +10,43 @@ const FIELD_MAPPINGS = {
     'Line Leader': ['line leader', 'line leader_1', 'leader', 'lineleader'],
     'Desc': ['desc', 'financedesc', 'description', 'project', 'project name', 'item'],
     'CUSTOMER': ['customer', 'company', 'client', 'customer name'],
-    'PL#': ['pl#', 'pl', 'job id', 'job #', 'pl number'],
+    'PL#': ['pl#', 'pl', 'job id', 'job #', 'pl number', 'plnumber', 'jobid'],
     'Inv $': ['inv $', 'invoice amount', 'invoice total', 'total'],
-    'Profit/ loss': ['profit/ loss', 'p/l', 'profit', 'loss', 'net profit'],
+    'Profit/ loss': ['profit/ loss', 'p/l', 'profit', 'loss', 'net profit', 'netprofit'],
     'Labor HRS': ['labor hrs', 'hours', 'total hours'],
-    'Cost': ['cost', 'labor cost'],
-    'Units': ['units', 'total units', 'qty', 'quantity'],
+    'Cost': ['cost', 'labor cost', 'laborcost'],
+    'Units': ['units', 'total units', 'qty', 'quantity', 'totalunits'],
     'Unit/Sec': ['unit/sec', 'units per sec'],
     'Sec/Unit': ['sec/unit', 'efficiency', 'seconds per unit'],
     'Commission': ['commission', 'comm'],
     'Agent': ['agent', 'sales rep','agentname'],
     'Type': ['type', 'category', 'project type'],
     'Bonus': ['bonus', 'bonus amount'],
-    'Recommended price/unit': ['recommended price/unit', 'price/unit', 'unit price', 'recommendedprice']
+    
+    // 1. TARGET PRICE (Input from Queue/Excel)
+    'Target Price': [
+        'original quote', 'quote', 'target price', 'targetprice',
+        'priceperunit', 'price per unit', 'price/unit', 
+        'quotedprice', 'quoted price'
+    ],
+    
+    // 2. REALIZED PRICE (Calculated from Invoice)
+    'Realized Price': [
+        'recommended price/unit', 'recommendedprice', 
+        'calc price', 'unit price', 'calc. price/unit'
+    ],
+    
+    'Expected Units': ['expectedunits', 'expected units', 'targetunits', 'quotedunits']
 };
 
 const DEFAULT_COLUMNS = [
     'Line Leader', 'Date', 'CUSTOMER', 'PL#', 'Desc', 
+    'Target Price', 
+    'Expected Units',
     'Labor HRS', 'Cost', 'Inv $', 'Units', 
     'Unit/Sec', 'Commission', 'Agent', 
     'Profit/ loss', 'Sec/Unit', 'Type', 
-    'Recommended price/unit'
+    'Realized Price' 
 ];
 
 const ProjectSearch = () => {
@@ -43,6 +59,8 @@ const ProjectSearch = () => {
     const [filteredData, setFilteredData] = useState([]);
     const [categories, setCategories] = useState([]);
     const [allColumns, setAllColumns] = useState([]);
+    
+    // Initialize visible columns
     const [visibleColumns, setVisibleColumns] = useState(new Set([...DEFAULT_COLUMNS, 'Source']));
 
     // Filters
@@ -73,6 +91,16 @@ const ProjectSearch = () => {
         return () => unsubscribe();
     }, []);
 
+    // FORCE COLUMN UPDATE (Fixes browser holding onto old column list)
+    useEffect(() => {
+        setVisibleColumns(prev => {
+            const next = new Set(prev);
+            // Ensure every default column is definitely selected
+            DEFAULT_COLUMNS.forEach(col => next.add(col));
+            return next;
+        });
+    }, []);
+
     const checkAccess = async (user) => {
         const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
         if (!uSnap.exists()) return denyAccess();
@@ -101,9 +129,14 @@ const ProjectSearch = () => {
     const initData = async () => {
         setLoading(true);
         try {
-            // 1. Get Categories
+            // 1. Get Categories & Cost Config
+            let costPerHour = 0;
             const cSnap = await getDoc(doc(db, "config", "finance"));
-            if(cSnap.exists()) setCategories((cSnap.data().projectTypes || []).sort());
+            if(cSnap.exists()) {
+                const d = cSnap.data();
+                setCategories((d.projectTypes || []).sort());
+                costPerHour = parseFloat(d.costPerHour) || 0;
+            }
 
             // 2. Fetch Data
             const [archiveResult, reportsResult] = await Promise.allSettled([
@@ -132,6 +165,11 @@ const ProjectSearch = () => {
                     const secPerUnit = (units > 0 && secondsWorked > 0) ? (secondsWorked / units) : 0;
                     const unitPerSec = (secondsWorked > 0) ? (units / secondsWorked) : 0;
 
+                    // Calculate Finance Metrics
+                    const calculatedPricePerUnit = (units > 0) ? ((data.invoiceAmount || 0) / units) : 0;
+                    const estimatedCost = laborHrs * costPerHour;
+                    const estimatedProfit = (data.invoiceAmount || 0) - estimatedCost;
+
                     const enriched = {
                         ...data,
                         'Date': data.completedAt ? new Date(data.completedAt.seconds*1000).toLocaleDateString() : '-',
@@ -141,9 +179,21 @@ const ProjectSearch = () => {
                         'Inv $': data.invoiceAmount || 0,
                         'CUSTOMER': data.company,
                         'Desc': data.project,
-                        'Line Leader': data.leader, 
-                        'PL#': data.jobId,
-                        'Type': data.jobName || data.category || ''
+                        'Line Leader': data.leader,
+                        'PL#': data.jobId || data.plNumber, // Added Fallback
+                        'Type': data.jobName || data.category || '',
+                        
+                        // Explicitly Map Calculated Values
+                        'Units': units,
+                        'Cost': estimatedCost,
+                        'Profit/ loss': estimatedProfit,
+                        
+                        // 1. Realized (Calculated) Price
+                        'Realized Price': calculatedPricePerUnit,
+
+                        // 2. Target Price (Input from Queue)
+                        'Target Price': data.pricePerUnit || 0,
+                        'Expected Units': data.expectedUnits || 0
                     };
                     
                     let flat = flattenObject(enriched);
@@ -156,18 +206,42 @@ const ProjectSearch = () => {
             
             // Extract Columns
             const keys = new Set(['Source']);
+            
+            // Explicitly add Default Columns FIRST
             DEFAULT_COLUMNS.forEach(c => keys.add(c));
+            
             combined.slice(0, 100).forEach(row => {
                 Object.keys(row).forEach(k => {
+                    if (keys.has(k)) return; // Already added
+
                     const kLow = k.toLowerCase();
-                    const restricted = ['inv', 'cost', 'profit', 'bonus', 'commission', 'price', '$'];
-                    if(!k.startsWith('_') && !restricted.some(r => kLow.includes(r))) {
+                    
+                    // RELAXED FILTER: I removed 'price' from restricted list to ensure Target Price shows
+                    const restricted = ['inv', 'cost', 'profit', 'bonus', 'commission', '$'];
+                    const isRestricted = restricted.some(r => kLow.includes(r));
+                    
+                    if (!k.startsWith('_') && !isRestricted) {
                         keys.add(k);
                     }
                 });
             });
-            setAllColumns(Array.from(keys));
             
+            // Sort Columns
+            const sortedCols = Array.from(keys).sort((a, b) => {
+                if (a === 'Source') return -1;
+                if (b === 'Source') return 1;
+                
+                // Prioritize Defaults
+                const idxA = DEFAULT_COLUMNS.indexOf(a);
+                const idxB = DEFAULT_COLUMNS.indexOf(b);
+                if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+                if (idxA !== -1) return -1;
+                if (idxB !== -1) return 1;
+
+                return a.localeCompare(b);
+            });
+
+            setAllColumns(sortedCols);
             setCombinedData(combined);
             setFilteredData(combined); // Initial state
             
@@ -179,6 +253,20 @@ const ProjectSearch = () => {
     };
 
     // --- HELPERS ---
+    
+    // Check if column is numeric to force Right Alignment
+    const isNumericCol = (key) => {
+        const k = key.toLowerCase();
+        return (
+            k.includes('price') || k.includes('cost') || k.includes('$') || 
+            k.includes('inv') || k.includes('profit') || k.includes('hrs') || 
+            k.includes('sec/unit') || k.includes('commission') || 
+            k.includes('unit/sec') || k.includes('bonus') || 
+            k === 'units' || k === 'qty' || k === 'total units' || k.includes('amount') ||
+            k.includes('expected units') || k.includes('quote')
+        );
+    };
+
     const flattenObject = (ob, prefix = '', result = null) => {
         result = result || {};
         for (const i in ob) {
@@ -218,9 +306,14 @@ const ProjectSearch = () => {
         if (val === undefined || val === null) return '';
         if (typeof val === 'number') {
             const k = key.toLowerCase();
-            if (k.includes('price') || k.includes('cost') || k.includes('$') || k.includes('inv') || k.includes('profit') || k.includes('hrs') || k.includes('sec/unit') || k.includes('commission')||k.includes('unit/sec') || k.includes('bonus')) {
-                return val.toFixed(2);
-            }
+            const needsDecimals = k.includes('price') || k.includes('cost') || k.includes('$') || 
+                                  k.includes('inv') || k.includes('profit') || k.includes('hrs') || 
+                                  k.includes('sec/unit') || k.includes('commission')||
+                                  k.includes('unit/sec') || k.includes('bonus') ||
+                                  k.includes('quote');
+
+            // Intentionally excluding 'units' and 'qty' from decimal forcing if they are whole numbers
+            if (needsDecimals) return val.toFixed(2);
         }
         return val;
     };
@@ -246,7 +339,7 @@ const ProjectSearch = () => {
 
         setFilteredData(result);
         setCurrentPage(1);
-        handleSort(sortCol, result, sortAsc); // Re-apply sort
+        handleSort(sortCol, result, sortAsc); 
     };
 
     const handleClear = () => {
@@ -327,17 +420,18 @@ const ProjectSearch = () => {
         <div className="ps-wrapper">
             <div className="ps-top-bar">
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
-                    <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
+                    <button onClick={() => navigate('/')} className="btn-link">&larr; Dashboard</button>
                     <h3 style={{margin:0}}>Global Project Search</h3>
                 </div>
                 <div style={{display:'flex', alignItems:'center'}}>
-                    <button onClick={() => navigate('/dashboard/upload')} className="btn-upload">Upload Excel</button>
+                    <button onClick={() => navigate('/upload')} className="btn-upload">Upload Excel</button>
                     <button onClick={() => signOut(auth).then(() => navigate('/'))} className="btn-link" style={{color:'#e74c3c'}}>Sign Out</button>
                 </div>
             </div>
 
             <div className="ps-container">
                 <div className="ps-filter-card">
+                    {/* Inputs */}
                     <div className="ps-input-group" style={{flex:2}}>
                         <label className="ps-label">Search</label>
                         <input className="ps-input" value={searchText} onChange={e => setSearchText(e.target.value)} onKeyDown={e => e.key==='Enter' && handleSearch()} placeholder="Keyword..." />
@@ -357,25 +451,83 @@ const ProjectSearch = () => {
                         </div>
                     </div>
                     
-                    <button className="btn btn-search" onClick={handleSearch}>Search</button>
-                    <button className="btn btn-clear" onClick={handleClear}>Clear</button>
+                    {/* Grouped Actions for Alignment */}
+                    <div style={{display:'flex', alignItems:'flex-end', gap:'10px'}}>
+                        <button className="btn btn-search" onClick={handleSearch}>Search</button>
+                        <button className="btn btn-clear" onClick={handleClear}>Clear</button>
+                    </div>
                     
-                    <div style={{width:'1px', background:'#eee', height:'40px', margin:'0 10px'}}></div>
+                    {/* Divider */}
+                    <div style={{width:'1px', background:'#ddd', height:'32px', margin:'0 15px', alignSelf:'flex-end', marginBottom:'4px'}}></div>
                     
-                    <button className="btn btn-export" onClick={handleExport}>Export</button>
-                    
-                    <div style={{position:'relative'}}>
-                        <button className="btn btn-cols" onClick={() => setShowColMenu(!showColMenu)}>Columns</button>
-                        {showColMenu && (
-                            <div className="ps-col-dropdown">
-                                {allColumns.map(col => (
-                                    <div key={col} className="ps-col-option" onClick={() => toggleColumn(col)}>
-                                        <input type="checkbox" checked={visibleColumns.has(col)} readOnly />
-                                        <span>{col}</span>
+                    {/* Grouped Tools for Alignment */}
+                    <div style={{display:'flex', alignItems:'flex-end', gap:'10px'}}>
+                        <button className="btn btn-export" onClick={handleExport}>Export</button>
+                        
+                        <div style={{position:'relative'}}>
+                            <button className="btn btn-cols" onClick={() => setShowColMenu(!showColMenu)}>
+                                Columns {showColMenu ? '▲' : '▼'}
+                            </button>
+                            {showColMenu && (
+                                <div className="ps-col-dropdown" style={{
+                                    position: 'absolute', top: '45px', right: 0,
+                                    background: 'white', border: '1px solid #ccc',
+                                    borderRadius: '8px', padding: '15px', zIndex: 1000,
+                                    boxShadow: '0 4px 20px rgba(0,0,0,0.15)', width: '280px',
+                                    display: 'flex', flexDirection: 'column', textAlign:'left'
+                                }}>
+                                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'12px', paddingBottom:'8px', borderBottom:'1px solid #eee'}}>
+                                        <span style={{fontWeight:'bold', fontSize:'14px', color:'#2c3e50'}}>Select Columns</span>
+                                        <button onClick={() => setShowColMenu(false)} style={{border:'none', background:'none', cursor:'pointer', fontSize:'18px', color:'#999'}}>×</button>
                                     </div>
-                                ))}
-                            </div>
-                        )}
+                                    
+                                    <div style={{display:'flex', gap:'15px', marginBottom:'10px', fontSize:'12px', paddingLeft:'8px'}}>
+                                        <span onClick={() => setVisibleColumns(new Set(allColumns))} style={{color:'#3498db', cursor:'pointer', fontWeight:'bold'}}>All</span>
+                                        <span onClick={() => setVisibleColumns(new Set(DEFAULT_COLUMNS))} style={{color:'#3498db', cursor:'pointer'}}>Default</span>
+                                        <span onClick={() => setVisibleColumns(new Set(['Source']))} style={{color:'#e74c3c', cursor:'pointer'}}>None</span>
+                                    </div>
+
+                                    <div style={{maxHeight:'350px', overflowY:'auto', display:'flex', flexDirection:'column', gap:'2px'}}>
+                                        {allColumns.map(col => (
+                                            <label key={col} style={{
+                                                display:'flex', 
+                                                alignItems:'center', 
+                                                gap:'10px', 
+                                                padding:'6px 8px', 
+                                                cursor:'pointer', 
+                                                fontSize:'13px', 
+                                                userSelect:'none',
+                                                borderRadius:'4px',
+                                                transition:'background 0.2s'
+                                            }} 
+                                            onMouseEnter={e => e.currentTarget.style.background = '#f5f5f5'}
+                                            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                                            >
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={visibleColumns.has(col)} 
+                                                    onChange={() => toggleColumn(col)}
+                                                    style={{
+                                                        margin:0, 
+                                                        cursor:'pointer', 
+                                                        width:'16px', 
+                                                        height:'16px', 
+                                                        accentColor:'#2c3e50',
+                                                        flexShrink: 0 
+                                                    }} 
+                                                />
+                                                <span style={{
+                                                    color: visibleColumns.has(col) ? '#2c3e50' : '#7f8c8d',
+                                                    whiteSpace:'nowrap', 
+                                                    overflow:'hidden', 
+                                                    textOverflow:'ellipsis'
+                                                }}>{col}</span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -388,13 +540,23 @@ const ProjectSearch = () => {
                         </div>
                     </div>
 
-                    <div style={{overflowX:'auto'}}>
+                    <div style={{overflowY: 'auto', maxHeight: 'calc(100vh - 220px)'}}>
                         <table className="ps-table">
                             <thead>
                                 <tr>
                                     {allColumns.map(col => (
                                         visibleColumns.has(col) && (
-                                            <th key={col} onClick={() => handleSort(col, undefined, !sortAsc)}>
+                                            <th key={col} 
+                                                onClick={() => handleSort(col, undefined, !sortAsc)}
+                                                style={{
+                                                    textAlign: isNumericCol(col) ? 'right' : 'left',
+                                                    position: 'sticky',
+                                                    top: 0,
+                                                    background: '#f8f9fa',
+                                                    zIndex: 10,
+                                                    boxShadow: '0 2px 2px -1px rgba(0,0,0,0.1)'
+                                                }}
+                                            >
                                                 {col} {sortCol === col ? (sortAsc ? '↑' : '↓') : ''}
                                             </th>
                                         )
@@ -419,7 +581,7 @@ const ProjectSearch = () => {
                                                     );
                                                 }
                                                 return (
-                                                    <td key={col} style={{textAlign: typeof row[col]==='number' ? 'right' : 'left'}}>
+                                                    <td key={col} style={{textAlign: isNumericCol(col) || typeof row[col]==='number' ? 'right' : 'left'}}>
                                                         {formatValue(col, row[col])}
                                                     </td>
                                                 );

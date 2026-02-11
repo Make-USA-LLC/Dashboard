@@ -1,0 +1,24 @@
+.master-admin-layout { display: flex; height: 100vh; background: #f8fafc; }
+
+.admin-sidebar { width: 250px; background: #1e293b; color: white; padding: 20px; border-right: 1px solid #e2e8f0; }
+.role-item { padding: 12px; margin-bottom: 8px; cursor: pointer; border-radius: 6px; transition: 0.2s; }
+.role-item:hover { background: rgba(255,255,255,0.1); }
+.role-item.active { background: #2563eb; font-weight: bold; }
+
+.admin-main { flex: 1; padding: 40px; overflow-y: auto; }
+.admin-tabs { display: flex; gap: 10px; margin-bottom: 30px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px; }
+.admin-tabs button { background: none; border: none; padding: 10px 20px; cursor: pointer; font-weight: 600; color: #64748b; border-radius: 8px; }
+.admin-tabs button.active { background: #dbeafe; color: #2563eb; }
+
+.permission-grid { 
+    display: grid; 
+    grid-template-columns: 2fr 1fr 1fr; 
+    background: white; 
+    border-radius: 12px; 
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    overflow: hidden;
+}
+.grid-header { background: #f1f5f9; padding: 15px; font-weight: bold; border-bottom: 1px solid #e2e8f0; }
+.feature-label { padding: 15px; border-bottom: 1px solid #f1f5f9; font-weight: 500; }
+.checkbox-cell { padding: 15px; text-align: center; border-bottom: 1px solid #f1f5f9; }
+.checkbox-cell input { width: 20px; height: 20px; cursor: pointer; }

@@ -174,9 +174,9 @@ const BonusReports = () => {
     return (
         <div className="reports-page-wrapper">
             <div className="reports-top-bar">
-                <button onClick={() => navigate('/dashboard')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Bonus Reports</div>
-
+                <button onClick={handleLogout} style={{color:'#e74c3c', border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>Sign Out</button>
             </div>
 
             <div className="reports-container">
@@ -253,10 +253,20 @@ const BonusReports = () => {
                             </div>
 
                             <table className="slip-table">
-                                <thead><tr><th>Date</th><th>Project / Client</th><th>Role</th><th style={{textAlign:'right'}}>Hours</th><th style={{textAlign:'right'}}>Bonus</th></tr></thead>
+                                <thead>
+                                    <tr>
+                                        <th>Run Date</th>
+                                        <th>Pay Date</th>
+                                        <th>Project / Client</th>
+                                        <th>Role</th>
+                                        <th style={{textAlign:'right'}}>Hours</th>
+                                        <th style={{textAlign:'right'}}>Bonus</th>
+                                    </tr>
+                                </thead>
                                 <tbody>
                                     {emp.items.map((item, ix) => (
                                         <tr key={ix}>
+                                            <td>{item.originalDate}</td>
                                             <td>{item.payDate}</td>
                                             <td>
                                                 <div style={{fontWeight:'bold'}}>{item.project}</div>
