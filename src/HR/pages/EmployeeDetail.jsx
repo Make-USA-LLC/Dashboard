@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { 
-  doc, getDoc, updateDoc, collection, getDocs, onSnapshot, query, where
+  doc, getDoc, updateDoc, collection, getDocs, onSnapshot, query, where, setDoc, deleteDoc 
 } from 'firebase/firestore'; 
 import { db } from '../../firebase_config';
 import { logAudit } from '../utils/logger'; 
 import { useMsal } from "@azure/msal-react"; 
 import { useRole } from '../hooks/useRole';
 
-// ... (Keep your helper functions safeFormatDate, getYearlyAllowance unchanged) ...
-// (I will omit them here for brevity, but keep them in your file)
 const safeFormatDate = (dateVal) => {
     if (!dateVal) return null;
     try {
@@ -65,14 +63,13 @@ const getYearlyAllowance = (viewYear, hireTimestamp, salaryStartTimestamp) => {
 export default function EmployeeDetail() {
   const { id } = useParams();
   const navigate = useNavigate(); 
-  const location = useLocation(); // Used to get current path
+  const location = useLocation(); 
   const { instance, accounts, inProgress } = useMsal();
   
   // --- STATE ---
   const [activeTab, setActiveTab] = useState("timeoff"); 
   
-  // --- 1. RESTORE STATE AFTER REDIRECT ---
-  // If we just came back from Microsoft, check if we need to open 'documents'
+  // --- RESTORE STATE AFTER REDIRECT ---
   useEffect(() => {
       const returnTab = sessionStorage.getItem('msal_return_tab');
       if (returnTab === 'documents' && accounts.length > 0) {
@@ -82,19 +79,10 @@ export default function EmployeeDetail() {
       }
   }, [accounts]);
 
-  // --- 2. THE REDIRECT LOGIN FUNCTION ---
+  // --- MICROSOFT AUTH ---
   const handleMicrosoftLogin = async () => { 
       try { 
-          // A. Save our place ("Breadcrumb")
-          // We save the Tab preference so we know to open it on return
           sessionStorage.setItem('msal_return_tab', 'documents');
-          
-          // B. Note: If your App.jsx redirects to Root on reload, 
-          // you might need logic there to read 'window.location.pathname' 
-          // but usually React Router preserves location if not forced otherwise.
-          // If you get kicked to Dashboard, let me know, and we'll add a 'msal_return_path' check.
-
-          // C. Redirect
           await instance.loginRedirect({ 
               scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"],
               prompt: "select_account"
@@ -105,7 +93,6 @@ export default function EmployeeDetail() {
       } 
   };
 
-  // --- HELPER: Get Token (Robust) ---
   const getMsToken = useCallback(async () => {
       const request = { 
           scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], 
@@ -115,15 +102,10 @@ export default function EmployeeDetail() {
           const response = await instance.acquireTokenSilent(request); 
           return response.accessToken; 
       } catch (err) { 
-          // If silent fails, redirect (don't popup)
           await instance.acquireTokenRedirect(request);
       }
   }, [accounts, instance]);
 
-  // ... (REST OF YOUR COMPONENT LOGIC REMAINS UNCHANGED BELOW) ...
-  // Paste the rest of your component here (fetchSharePointFiles, useEffects, RBAC, etc.)
-  // I will provide the FULL file below to be safe.
-  
   const { checkAccess } = useRole(); 
 
   const canViewMoney = checkAccess('financials', 'view');
@@ -143,7 +125,6 @@ export default function EmployeeDetail() {
   const showDocuments = checkAccess('documents', 'view');
   
   const canEditHardware = checkAccess('assets_hardware', 'edit'); 
-  const canEditKeysLockers = checkAccess('assets_keys', 'edit') || checkAccess('assets_lockers', 'edit'); 
   const showKeysLockers = checkAccess('assets_keys', 'view') || checkAccess('assets_lockers', 'view');    
 
   const [employee, setEmployee] = useState(null); 
@@ -158,8 +139,10 @@ export default function EmployeeDetail() {
   const [assignAssetModal, setAssignAssetModal] = useState(false);
   const [availableKeyTypes, setAvailableKeyTypes] = useState([]);
   const [assignKeyModal, setAssignKeyModal] = useState(false);
+  
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editFormData, setEditFormData] = useState({});
+  
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [adjustAmount, setAdjustAmount] = useState(0);
@@ -274,7 +257,7 @@ export default function EmployeeDetail() {
       setIsLoadingFiles(true);
       try {
           const token = await getMsToken();
-          if(!token) return; // If token fails, user is redirecting
+          if(!token) return; 
           const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
           const safeName = `${employee.lastName}_${employee.firstName}`.replace(/[^a-zA-Z0-9_-]/g, "");
           const folderPath = `/sites/${SITE_ID}/drive/root:/Documents/HR/Personnel Folders/${safeName}:/children`;
@@ -366,7 +349,8 @@ export default function EmployeeDetail() {
           department: employee.department || "", 
           hireDate: formatDate(employee.hireDate), salaryStartDate: formatDate(employee.salaryStartDate), 
           birthday: formatDate(employee.birthday), lastReviewDate: formatDate(employee.lastReviewDate),
-          terminationDate: formatDate(employee.terminationDate) 
+          terminationDate: formatDate(employee.terminationDate),
+          cardId: employee.cardId || "" // Load cardId
       });
       setIsEditModalOpen(true);
   };
@@ -384,9 +368,24 @@ export default function EmployeeDetail() {
       if (editFormData.birthday) updates.birthday = new Date(editFormData.birthday + 'T12:00:00');
       if (editFormData.lastReviewDate) updates.lastReviewDate = new Date(editFormData.lastReviewDate + 'T12:00:00');
       if (editFormData.terminationDate) { updates.terminationDate = new Date(editFormData.terminationDate + 'T12:00:00'); } else { updates.terminationDate = null; }
+      
+      // Update Card ID
+      updates.cardId = editFormData.cardId;
 
       try {
           await updateDoc(doc(db, "employees", id), updates);
+          
+          // SYNC TO WORKERS COLLECTION (For iPad/Portal)
+          if (editFormData.cardId) {
+             // If cardId exists, ensure the workers doc exists with correct name/email
+             await setDoc(doc(db, "workers", editFormData.cardId), {
+                 name: updates.name,
+                 email: updates.email || "", // Enables Portal Login
+                 employeeDocId: id,
+                 syncedFromHR: true
+             });
+          }
+
           logAudit("Profile Edit", employee.name, "Updated profile details.");
           const newLocal = { ...employee, ...updates };
           if(updates.hireDate) newLocal.hireDate = { seconds: updates.hireDate.getTime()/1000 };
@@ -397,20 +396,48 @@ export default function EmployeeDetail() {
           else newLocal.terminationDate = null;
           setEmployee(newLocal);
           setIsEditModalOpen(false);
-      } catch (err) { console.error(err); alert("Error saving: Permission denied."); }
+      } catch (err) { console.error(err); alert("Error saving: " + err.message); }
   };
 
   const handleTerminateClick = () => { setTerminationDateInput(new Date().toISOString().split('T')[0]); setIsTerminateModalOpen(true); };
+  
+  // UPDATED: Confirm Termination Function
   const confirmTermination = async (e) => {
-      e.preventDefault(); if(!confirm("Are you sure?")) return;
+      e.preventDefault(); if(!confirm("Are you sure? This will remove iPad/Portal access immediately.")) return;
+      
+      // 1. Archive in HR
       const updates = { 
           status: "Inactive", 
           terminationDate: new Date(terminationDateInput + 'T12:00:00'),
           terminationReason: terminationReason 
       };
       await updateDoc(doc(db, "employees", id), updates);
-      logAudit("Employee Terminated", employee.name, `Terminated. Reason: ${terminationReason}`);
-      const newLocal = {...employee, ...updates}; newLocal.terminationDate = { seconds: updates.terminationDate.getTime()/1000 }; setEmployee(newLocal); setIsTerminateModalOpen(false);
+
+      // 2. Remove from iPad System (Workers Collection)
+      try {
+          // Find linked worker docs by employee ID
+          const qWorkers = query(collection(db, "workers"), where("employeeDocId", "==", id));
+          const workerSnaps = await getDocs(qWorkers);
+          
+          // Delete them
+          const deletePromises = workerSnaps.docs.map(w => deleteDoc(doc(db, "workers", w.id)));
+          await Promise.all(deletePromises);
+          
+          // Also try deleting by stored cardId just in case of sync drift
+          if (employee.cardId) {
+             await deleteDoc(doc(db, "workers", employee.cardId)).catch(() => {});
+          }
+      } catch (err) {
+          console.error("Error removing worker access:", err);
+          alert("Employee terminated, but failed to automatically remove iPad access. Please check manually.");
+      }
+
+      logAudit("Employee Terminated", employee.name, `Terminated. Reason: ${terminationReason}. Removed from iPad System.`);
+      
+      const newLocal = {...employee, ...updates}; 
+      newLocal.terminationDate = { seconds: updates.terminationDate.getTime()/1000 }; 
+      setEmployee(newLocal); 
+      setIsTerminateModalOpen(false);
   };
 
   const handleRehire = async () => {
@@ -426,9 +453,7 @@ export default function EmployeeDetail() {
       logAudit("Employee Rehired", employee.name, "Reactivated and reset logs.");
       const newLocal = {...employee, ...updates}; setEmployee(newLocal);
   };
-
   const saveSickCarryover = async (val) => { let num = parseFloat(val); if(isNaN(num)) num=0; if(num>5) num=5; if(num<0) num=0; setSickCarryover(num); await updateDoc(doc(db, "employees", id), { sickCarryover: num }); setEmployee({ ...employee, sickCarryover: num }); };
-  
   const toggleChecklist = async (type, item) => { 
       const currentList = employee[type] || {}; 
       const newVal = !currentList[item];
@@ -437,7 +462,6 @@ export default function EmployeeDetail() {
       setEmployee({ ...employee, [type]: updatedList }); 
       logAudit("Checklist Update", employee.name, `${newVal ? 'Checked' : 'Unchecked'} ${item} in ${type}`); 
   };
-  
   const addHourlyLog = async (e) => { e.preventDefault(); if(!logReason) return; const newEntry = { date: logDate, reason: logReason, paid: logPaidInitial, isDeleted: false, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.hourlyLog || [])]; await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); setEmployee({ ...employee, hourlyLog: updatedLog }); logAudit("Attendance Log", employee.name, `Added Call-In: ${logReason}`); setLogReason(""); }; 
   const addPtoLog = async (e) => { e.preventDefault(); const newEntry = { date: ptoDate, type: ptoType, amount: parseFloat(ptoAmount), note: ptoNote, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.ptoLog || [])]; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Log", employee.name, `Added ${ptoAmount} days ${ptoType}`); setPtoNote(""); }; 
   const togglePaidStatus = async (index) => { const updatedLog = [...employee.hourlyLog]; updatedLog[index].paid = !updatedLog[index].paid; await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); setEmployee({ ...employee, hourlyLog: updatedLog }); };
@@ -449,24 +473,8 @@ export default function EmployeeDetail() {
   const handleAdjustSubmit = async (e) => { e.preventDefault(); let entryDate = new Date().toISOString().split('T')[0]; const currentYearStr = new Date().getFullYear().toString(); if (String(viewYear) !== currentYearStr) entryDate = `${viewYear}-01-01`; const typeStr = adjustTarget === "Sick" ? "Sick Adjustment" : "PTO Adjustment"; const newEntry = { date: entryDate, type: typeStr, amount: parseFloat(adjustAmount), note: `Manual ${adjustTarget} Adjustment: ` + adjustNote, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.ptoLog || [])]; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Adjustment", employee.name, `Adjusted ${adjustTarget} by ${adjustAmount}`); setIsAdjustModalOpen(false); }; 
   const openLogEdit = (index, log) => { const realIndex = employee.ptoLog.findIndex(l => l.timestamp === log.timestamp && l.note === log.note); if(realIndex === -1) return; setEditingLogIndex(realIndex); setEditingLogData({ date: log.date, type: log.type, amount: log.amount, note: log.note || "" }); setIsLogEditModalOpen(true); };
   const saveLogEdit = async (e) => { e.preventDefault(); if (editingLogIndex === null) return; const updatedLog = [...employee.ptoLog]; updatedLog[editingLogIndex] = { ...updatedLog[editingLogIndex], date: editingLogData.date, type: editingLogData.type, amount: parseFloat(editingLogData.amount), note: editingLogData.note }; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Log", employee.name, "Edited existing time off entry"); setIsLogEditModalOpen(false); setEditingLogIndex(null); }; 
-
-  const handleAddCert = async (e) => {
-      e.preventDefault();
-      const newCert = { ...certData, id: Date.now() };
-      const updatedCerts = [...(employee.certifications || []), newCert];
-      await updateDoc(doc(db, "employees", id), { certifications: updatedCerts });
-      setEmployee({ ...employee, certifications: updatedCerts });
-      logAudit("Add Cert", employee.name, `Added ${certData.name}`);
-      setIsCertModalOpen(false);
-      setCertData({ name: "", issueDate: "", expireDate: "", notes: "" });
-  };
-  const deleteCert = async (certId) => {
-      if(!confirm("Remove this certification?")) return;
-      const updatedCerts = (employee.certifications || []).filter(c => c.id !== certId);
-      await updateDoc(doc(db, "employees", id), { certifications: updatedCerts });
-      setEmployee({ ...employee, certifications: updatedCerts });
-      logAudit("Remove Cert", employee.name, "Removed certification");
-  };
+  const handleAddCert = async (e) => { e.preventDefault(); const newCert = { ...certData, id: Date.now() }; const updatedCerts = [...(employee.certifications || []), newCert]; await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); setEmployee({ ...employee, certifications: updatedCerts }); logAudit("Add Cert", employee.name, `Added ${certData.name}`); setIsCertModalOpen(false); setCertData({ name: "", issueDate: "", expireDate: "", notes: "" }); };
+  const deleteCert = async (certId) => { if(!confirm("Remove this certification?")) return; const updatedCerts = (employee.certifications || []).filter(c => c.id !== certId); await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); setEmployee({ ...employee, certifications: updatedCerts }); logAudit("Remove Cert", employee.name, "Removed certification"); };
 
   if (!employee) return <div style={{padding: 20, fontWeight:'bold', color:'#64748b'}}>Loading Employee Profile...</div>;
 
@@ -530,7 +538,20 @@ export default function EmployeeDetail() {
                     {canStartReview && !isLocked && <button onClick={handleStartReview} style={{fontSize:'12px', color:'#ca8a04', border:'1px solid #ca8a04', padding:'2px 8px', borderRadius: 4, cursor:'pointer'}}>⭐ Start Review</button>}
                 </div>
                 {employee.department && <div style={{fontSize:'12px', color:'#334155', fontWeight:'bold', background:'#f1f5f9', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5}}>🏢 {employee.department}</div>}
-                {employee.terminationDate && (<div style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold', marginTop: 5}}>🚫 Terminated: {safeFormatDate(employee.terminationDate)}</div>)}
+                
+                {/* Display Card ID in Header */}
+                {employee.cardId && (
+                   <div style={{fontSize:'12px', color:'#15803d', fontWeight:'bold', background:'#f0fdf4', border:'1px solid #bbf7d0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5, marginLeft: 5}}>🆔 {employee.cardId}</div>
+                )}
+
+                {/* UPDATED: Termination Reason Display */}
+                {employee.terminationDate && (
+                    <div style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold', marginTop: 5}}>
+                        🚫 Terminated: {safeFormatDate(employee.terminationDate)}
+                        {employee.terminationReason && <span style={{color: '#991b1b', marginLeft: '5px'}}>({employee.terminationReason})</span>}
+                    </div>
+                )}
+
                 <p style={{color:'#64748b', margin:0}}>{employee.email || "No Email"} • {employee.phone || "No Phone"}</p>
                 <div style={{marginTop: 10, display:'flex', gap: 10, alignItems:'center'}}>
                     <span style={{background: employee.type === 'Salary' ? '#e0f2fe' : '#f0fdf4', color: employee.type === 'Salary' ? '#0284c7' : '#16a34a', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: 'bold'}}>{employee.type}</span>
@@ -538,6 +559,7 @@ export default function EmployeeDetail() {
                     {canViewMoney && employee.compensation && <span style={{color: '#334155', fontWeight:'bold', fontSize: '13px', marginLeft: 10}}>{employee.type === "Salary" ? `$${employee.compensation}/yr` : `$${employee.compensation}/hr`}</span>}
                 </div>
             </div>
+            {/* ... (Rest of header buttons) ... */}
             <div style={{textAlign:'right'}}>
                <div style={{marginTop: 20}}>
                    {employee.status === "Inactive" ? (
@@ -558,7 +580,7 @@ export default function EmployeeDetail() {
             {showDocuments  && <TabButton name="documents" label="Documents" icon="📁" />}
         </div>
 
-        {/* ... (TABS CONTENT) ... */}
+        {/* ... (All Tab contents remain unchanged) ... */}
         {activeTab === 'timeoff' && showTimeOff && (
             <div className="card" style={{marginBottom: '24px', opacity: isLocked ? 0.6 : 1}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
@@ -636,7 +658,7 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-        {/* ... (Other Tabs and Modals) ... */}
+        {/* ... (Other Tabs like Assets, Training, Checklists, Performance, Documents remain the same) ... */}
         {activeTab === 'assets' && showAssets && (
             <div className="card" style={{opacity: isLocked ? 0.7 : 1}}>
                 <h3>Assets & Resources</h3>
@@ -694,7 +716,7 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-        {/* TRAINING TAB */}
+        {/* ... (Training, Checklists, Performance, Documents remain the same) ... */}
         {activeTab === 'training' && showTraining && (
             <div className="card">
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom: 20}}>
@@ -761,7 +783,7 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-        {/* DOCUMENTS TAB - THIS IS WHERE THE MAGIC HAPPENS */}
+        {/* DOCUMENTS TAB */}
         {activeTab === 'documents' && showDocuments && (
             <div className="card">
                 <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
@@ -794,9 +816,8 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-      {/* --- MODALS (Edit, Terminate, Comp, Adjust, Assign Assets, Keys) --- */}
-      {/* (MODALS CODE IS SAME AS BEFORE) */}
-      
+      {/* --- MODALS --- */}
+      {/* (Key, Asset Modals removed for brevity, keep as is) */}
       {assignKeyModal && (
         <div className="modal-overlay" onClick={(e) => {if(e.target.className === 'modal-overlay') setAssignKeyModal(false)}}>
           <div className="modal">
@@ -842,6 +863,20 @@ export default function EmployeeDetail() {
                     <div style={{flex:1}}><label>First Name</label><input value={editFormData.firstName} onChange={e => setEditFormData({...editFormData, firstName: e.target.value})} required disabled={!canEditGeneralInfo} style={{background: !canEditGeneralInfo ? '#f1f5f9' : 'white'}}/></div>
                     <div style={{flex:1}}><label>Last Name</label><input value={editFormData.lastName} onChange={e => setEditFormData({...editFormData, lastName: e.target.value})} required disabled={!canEditGeneralInfo} style={{background: !canEditGeneralInfo ? '#f1f5f9' : 'white'}}/></div>
                 </div>
+                
+                {/* ADDED: Card ID Input to Edit Modal */}
+                <div style={{marginTop: 10, marginBottom: 10, background: '#f0fdf4', padding: 10, borderRadius: 6, border: '1px solid #bbf7d0'}}>
+                    <label style={{fontSize:'12px', fontWeight:'bold', display:'block', color:'#166534'}}>RFID Card Assignment & Portal Sync</label>
+                    <input 
+                        placeholder="Scan Card or Enter ID..." 
+                        value={editFormData.cardId} 
+                        onChange={e => setEditFormData({...editFormData, cardId: e.target.value})} 
+                        style={{width: '100%', marginTop: 5, border: '1px solid #16a34a'}} 
+                        disabled={!canEditGeneralInfo}
+                    />
+                    <div style={{fontSize:'10px', color:'#15803d', marginTop: 4}}>* Updating this ID will sync Name & Email to the iPad System.</div>
+                </div>
+
                 <div style={{display:'flex', gap: 10}}>
                     <div style={{flex:1}}><label>Start Date</label><input type="date" value={editFormData.hireDate} onChange={e => setEditFormData({...editFormData, hireDate: e.target.value})} required disabled={!canEditGeneralInfo} /></div>
                     <div style={{flex:1}}><label>Salary Start Date</label><input type="date" value={editFormData.salaryStartDate} onChange={e => setEditFormData({...editFormData, salaryStartDate: e.target.value})} disabled={!canEditGeneralInfo} /></div>
@@ -862,7 +897,7 @@ export default function EmployeeDetail() {
                     <label style={{fontWeight: 'bold', color: '#b91c1c'}}>Termination Date (Optional)</label>
                     <input type="date" value={editFormData.terminationDate} onChange={e => setEditFormData({...editFormData, terminationDate: e.target.value})} style={{border: '1px solid #f87171'}} disabled={!canEditGeneralInfo}/>
                 </div>
-                <label style={{marginTop:10, display:'block'}}>Email</label><input value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} disabled={!canEditGeneralInfo} />
+                <label style={{marginTop:10, display:'block'}}>Email (Portal Login)</label><input value={editFormData.email} onChange={e => setEditFormData({...editFormData, email: e.target.value})} disabled={!canEditGeneralInfo} />
                 <label>Phone</label><input value={editFormData.phone} onChange={e => setEditFormData({...editFormData, phone: e.target.value})} disabled={!canEditGeneralInfo} />
                 <label style={{marginTop:10, fontWeight:'bold', display:'block'}}>Mailing Address</label><input placeholder="Street" value={editFormData.addressStreet} onChange={e => setEditFormData({...editFormData, addressStreet: e.target.value})} disabled={!canEditGeneralInfo} /><div style={{display:'flex', gap: 10}}><input placeholder="City" value={editFormData.addressCity} onChange={e => setEditFormData({...editFormData, addressCity: e.target.value})} style={{flex:2}} disabled={!canEditGeneralInfo}/><input placeholder="State" value={editFormData.addressState} onChange={e => setEditFormData({...editFormData, addressState: e.target.value})} style={{flex:1}} disabled={!canEditGeneralInfo}/><input placeholder="Zip" value={editFormData.addressZip} onChange={e => setEditFormData({...editFormData, addressZip: e.target.value})} style={{flex:1}} disabled={!canEditGeneralInfo}/></div>
                 <div style={{marginTop: 20, display:'flex', gap: 10}}><button type="button" onClick={() => setIsEditModalOpen(false)} style={{flex:1}}>Cancel</button><button type="submit" className="primary" style={{flex:1}}>Save Changes</button></div>
@@ -871,6 +906,7 @@ export default function EmployeeDetail() {
         </div>
       )}
 
+      {/* ... (Comp, Adjust, Terminate, Cert Modals remain the same) ... */}
       {isCompModalOpen && (
         <div className="modal-overlay" onClick={(e) => {if(e.target.className === 'modal-overlay') setIsCompModalOpen(false)}}>
           <div className="modal" style={{maxHeight: '90vh', overflowY: 'auto', maxWidth: '95%'}}>
@@ -943,7 +979,6 @@ export default function EmployeeDetail() {
         </div>
       )}
 
-      {/* NEW CERTIFICATION MODAL */}
       {isCertModalOpen && (
         <div className="modal-overlay" onClick={(e) => {if(e.target.className === 'modal-overlay') setIsCertModalOpen(false)}}>
           <div className="modal">

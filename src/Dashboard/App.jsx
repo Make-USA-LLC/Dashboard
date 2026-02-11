@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
 import Dashboard from './Dashboard';
 import Login from './Login';
 import Admin from './Admin';
@@ -31,15 +31,13 @@ import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, signOut } from './fi
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
-  const location = useLocation();
-
+  
   // 1. DETERMINE DOMAIN CONTEXT
   const host = window.location.hostname;
   const isEmployeeDomain = host.includes("portal.make"); 
   const isAgentDomain = host.includes("agent") || host.includes("commission");
 
-  // 2. Auth Listener (Just updates state, DOES NOT REDIRECT)
+  // 2. Auth Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
@@ -66,7 +64,6 @@ function App() {
     try {
       const userDoc = await getDoc(doc(db, "users", emailKey));
       if (!userDoc.exists()) {
-         // We allow the Portals to handle "access denied" internally now
          setUser(null);
       } else {
         const data = userDoc.data();
@@ -87,9 +84,6 @@ function App() {
 
   if (loading) return <div style={{color:'white', background:'#1e3c72', height:'100vh', display:'flex', justifyContent:'center', alignItems:'center'}}>Loading System...</div>;
 
-  // --- HELPER: MAIN DASHBOARD PROTECTION ---
-  // Only the Main Dashboard forces the Blue Login here.
-  // Portals handle their own login internally.
   const DashboardGuard = ({ children }) => {
       if (!user) return <Login type="admin" />;
       return children;
@@ -97,58 +91,62 @@ function App() {
 
   return (
     <Routes>
-      {/* --- PUBLIC ROUTES --- */}
+      {/* --- PUBLIC / PORTAL ROUTES (Keep at Root) --- */}
+      {/* These must be absolute paths because they are outside the dashboard scope */}
       <Route path="/kiosk" element={<Kiosk />} />
       <Route path="/kiosk.html" element={<Kiosk />} />
+      <Route path="/logout" element={<Logout />} />
+      
+      {/* Portals */}
+      <Route path="/employee-portal" element={<EmployeePortal />} />
+      <Route path="/agent-portal" element={<AgentPortal />} />
 
-      {/* --- ROOT PATH (Domain Aware) --- */}
+      {/* Root Redirection for Portals */}
       <Route path="/" element={
           isEmployeeDomain ? <EmployeePortal /> :
           isAgentDomain ? <AgentPortal /> :
-          <DashboardGuard><Dashboard /></DashboardGuard>
+          <Navigate to="/dashboard" replace />
       } />
 
-      {/* --- DIRECT PORTAL ACCESS --- */}
-      <Route path="/employee-portal" element={<EmployeePortal />} />
-      <Route path="/EmployeePortal" element={<EmployeePortal />} />
+      {/* --- DASHBOARD INTERNAL ROUTES --- 
+          Since this App component is mounted at "/dashboard/*" by the Root App,
+          we use RELATIVE paths here. (e.g., path="admin" becomes /dashboard/admin)
+      */}
       
-      <Route path="/agent-portal" element={<AgentPortal />} />
-      <Route path="/AgentPortal" element={<AgentPortal />} />
+      {/* Main Dashboard View (at /dashboard/) */}
+      <Route index element={<DashboardGuard><Dashboard /></DashboardGuard>} />
+      
+      {/* Fix for the "dashboard/dashboard" issue - Redirect relative 'dashboard' back to index */}
+      <Route path="dashboard" element={<Navigate to="/dashboard" replace />} />
 
-      {/* --- PROTECTED DASHBOARD ROUTES --- */}
+      {/* Management */}
+      <Route path="admin" element={<DashboardGuard><Admin /></DashboardGuard>} />
+      <Route path="workers" element={<DashboardGuard><Workers /></DashboardGuard>} />
+      <Route path="staff-management" element={<DashboardGuard><StaffManagement /></DashboardGuard>} />
+      <Route path="agent-management" element={<DashboardGuard><AgentManagement /></DashboardGuard>} />
 
-      <Route path="/dashboard.html" element={<DashboardGuard><Dashboard /></DashboardGuard>} />
-      <Route path="/admin" element={<DashboardGuard><Admin /></DashboardGuard>} />
-      <Route path="/agent-management" element={<DashboardGuard><AgentManagement /></DashboardGuard>} />
-      <Route path="/bonuses" element={<DashboardGuard><Bonuses /></DashboardGuard>} />
-      <Route path="/bonus-reports" element={<DashboardGuard><BonusReports /></DashboardGuard>} />
-      <Route path="/commisions" element={<DashboardGuard><Commisions /></DashboardGuard>} /> 
-       <Route path="/Dashboard" element={<DashboardGuard><Dashboard /></DashboardGuard>} /> 
-      <Route path="/manual-ingest" element={<DashboardGuard><ManualIngest /></DashboardGuard>} />
-      <Route path="/manual_ingest" element={<DashboardGuard><ManualIngest /></DashboardGuard>} />
-      <Route path="/production-input" element={<DashboardGuard><ProductionInput /></DashboardGuard>} />
-      <Route path="/ProjectOptions" element={<DashboardGuard><ProjectOptions /></DashboardGuard>} />
-<Route path="/Project-Options" element={<DashboardGuard><ProjectOptions /></DashboardGuard>} />
-      <Route path="/finance-input" element={<DashboardGuard><FinanceInput /></DashboardGuard>} />
-      <Route path="/financial-report" element={<DashboardGuard><FinancialReport /></DashboardGuard>} />
-      <Route path="/FinancialReport" element={<DashboardGuard><FinancialReport /></DashboardGuard>} />
-      <Route path="/FinanceSetup" element={<DashboardGuard><FinanceSetup /></DashboardGuard>} />
-<Route path="/Finance-Setup" element={<DashboardGuard><FinanceSetup /></DashboardGuard>} />
-      <Route path="/iPad/:id" element={<DashboardGuard><IpadControl /></DashboardGuard>} />
-      <Route path="/ipad-control/:id" element={<DashboardGuard><IpadControl /></DashboardGuard>} />
-      <Route path="/project-search" element={<DashboardGuard><ProjectSearch /></DashboardGuard>} />
-      <Route path="/upload" element={<DashboardGuard><ArchiveUpload /></DashboardGuard>} />
-      <Route path="/staff-management" element={<DashboardGuard><StaffManagement /></DashboardGuard>} />
-      <Route path="/StaffManagement" element={<DashboardGuard><StaffManagement /></DashboardGuard>} />
-      <Route path="/project-summary" element={<DashboardGuard><ProjectSummary /></DashboardGuard>} />
-      <Route path="/ProjectSummary" element={<DashboardGuard><ProjectSummary /></DashboardGuard>} />
-      <Route path="/upcoming-projects" element={<DashboardGuard><UpcomingProjects /></DashboardGuard>} />
-      <Route path="/UpcomingProjects" element={<DashboardGuard><UpcomingProjects /></DashboardGuard>} />
-      <Route path="/workers" element={<DashboardGuard><Workers /></DashboardGuard>} />
-      <Route path="/AgentReports" element={<DashboardGuard><AgentReports /></DashboardGuard>} />
-      <Route path="/agent-reports" element={<DashboardGuard><AgentReports /></DashboardGuard>} />
+      {/* Finance */}
+      <Route path="manual-ingest" element={<DashboardGuard><ManualIngest /></DashboardGuard>} />
+      <Route path="production-input" element={<DashboardGuard><ProductionInput /></DashboardGuard>} />
+      <Route path="finance-input" element={<DashboardGuard><FinanceInput /></DashboardGuard>} />
+      <Route path="financial-report" element={<DashboardGuard><FinancialReport /></DashboardGuard>} />
+      <Route path="finance-setup" element={<DashboardGuard><FinanceSetup /></DashboardGuard>} />
+      <Route path="bonuses" element={<DashboardGuard><Bonuses /></DashboardGuard>} />
+      <Route path="bonus-reports" element={<DashboardGuard><BonusReports /></DashboardGuard>} />
+      <Route path="commisions" element={<DashboardGuard><Commisions /></DashboardGuard>} />
+      <Route path="agent-reports" element={<DashboardGuard><AgentReports /></DashboardGuard>} />
 
-      <Route path="/logout" element={<Logout />} />
+      {/* Projects & Queue */}
+      <Route path="project-search" element={<DashboardGuard><ProjectSearch /></DashboardGuard>} />
+      <Route path="upload" element={<DashboardGuard><ArchiveUpload /></DashboardGuard>} />
+      <Route path="upcoming-projects" element={<DashboardGuard><UpcomingProjects /></DashboardGuard>} />
+      <Route path="project-summary" element={<DashboardGuard><ProjectSummary /></DashboardGuard>} />
+      <Route path="project-options" element={<DashboardGuard><ProjectOptions /></DashboardGuard>} />
+
+      {/* iPads */}
+      <Route path="ipad-control/:id" element={<DashboardGuard><IpadControl /></DashboardGuard>} />
+
+      {/* Fallback */}
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

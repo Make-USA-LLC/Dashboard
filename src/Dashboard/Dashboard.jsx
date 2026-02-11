@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './Dashboard.css';
 import Sortable from 'sortablejs';
 import { useNavigate } from 'react-router-dom'; 
-import { db, auth, loadUserData, newIpadDefaults } from './firebase_config'; // Ensure path is correct
+import { db, auth, loadUserData, newIpadDefaults } from './firebase_config'; 
 import { 
   doc, 
   collection, 
@@ -13,6 +13,8 @@ import {
   getDoc 
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+
+const BASE = "/dashboard";
 
 const Dashboard = () => {
   const navigate = useNavigate(); 
@@ -39,7 +41,7 @@ const Dashboard = () => {
            setLoading(false);
         });
       } else {
-        window.location.href = 'index.html'; // Redirect if not logged in
+        window.location.href = '/'; 
       }
     });
     return () => unsubscribe();
@@ -172,7 +174,7 @@ const Dashboard = () => {
     const data = { ...newIpadDefaults, lastUpdateTime: serverTimestamp() };
     try {
       await setDoc(doc(db, "ipads", newIpadId.trim()), data);
-      navigate(`/ipad-control/${newIpadId.trim()}`);
+      navigate(`${BASE}/ipad-control/${newIpadId.trim()}`);
       setNewIpadId('');
     } catch (error) {
       alert("Error creating iPad: " + error.message);
@@ -233,22 +235,22 @@ const Dashboard = () => {
             <div className="section-header">Management</div>
             
             {hasPerm('admin', 'view') && (
-                <li className="nav-item" onClick={() => navigate('/admin')}>
+                <li className="nav-item" onClick={() => navigate(`${BASE}/admin`)}>
                     <div className="nav-item-main"><span className="material-icons">admin_panel_settings</span> Admin Panel</div>
                 </li>
             )}
              {hasPerm('workers', 'view') && (
-                <li className="nav-item" onClick={() => navigate('/workers')}>
+                <li className="nav-item" onClick={() => navigate(`${BASE}/workers`)}>
                     <div className="nav-item-main"><span className="material-icons">people</span> Manage Workers</div>
                 </li>
             )}
              {(hasPerm('admin', 'edit') || hasPerm('workers', 'edit')) && (
-                <li className="nav-item" onClick={() => navigate('/staff-management')}>
+                <li className="nav-item" onClick={() => navigate(`${BASE}/staff-management`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#f39c12'}}>manage_accounts</span> Staff Access</div>
                 </li>
             )}
              {(hasPerm('admin', 'edit') || hasPerm('finance', 'edit')) && (
-                <li className="nav-item" onClick={() => navigate('/agent-management')}>
+                <li className="nav-item" onClick={() => navigate(`${BASE}/agent-management`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>support_agent</span> Agent Management</div>
                 </li>
             )}
@@ -260,21 +262,21 @@ const Dashboard = () => {
                     
                     {/* Manual Ingest */}
                     {(hasPerm('admin', 'edit') || hasPerm('queue', 'edit')) && (
-                         <li className="nav-item" onClick={() => navigate('/manual-ingest')}>
+                         <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
                         </li>
                     )}
 
                     {/* Production Input */}
                     {(hasPerm('queue', 'edit') || hasPerm('admin', 'edit')) && (
-                         <li className="nav-item" onClick={() => navigate('/production-input')}>
+                         <li className="nav-item" onClick={() => navigate(`${BASE}/production-input`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#3498db'}}>input</span> Production Input</div>
                         </li>
                     )}
 
-                    {/* Finance Input - Fixed Label */}
+                    {/* Finance Input */}
                     {hasPerm('finance', 'view') && (
-                        <li className="nav-item" onClick={() => navigate('/finance-input')}>
+                        <li className="nav-item" onClick={() => navigate(`${BASE}/finance-input`)}>
                             <div className="nav-item-main">
                                 <span className="material-icons" style={{color:'#f1c40f'}}>monetization_on</span> 
                                 Finance Input
@@ -284,7 +286,7 @@ const Dashboard = () => {
 
                     {/* Financial Report */}
                     {hasPerm('finance', 'view') && (
-                        <li className="nav-item" onClick={() => navigate('/financial-report')}>
+                        <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
                         </li>
                     )}
@@ -292,10 +294,10 @@ const Dashboard = () => {
                     {/* Bonuses */}
                     {hasPerm('bonuses', 'view') && (
                         <>
-                            <li className="nav-item" onClick={() => navigate('/bonuses')}>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/bonuses`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#9b59b6'}}>emoji_events</span> Bonuses</div>
                             </li>
-                            <li className="nav-item" onClick={() => navigate('/bonus-reports')}>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/bonus-reports`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>description</span> Bonus Reports</div>
                             </li>
                         </>
@@ -304,18 +306,18 @@ const Dashboard = () => {
                     {/* Commissions */}
                     {(hasPerm('commissions', 'view') || hasPerm('finance', 'view')) && (
                         <>
-                            <li className="nav-item" onClick={() => navigate('/commisions')}>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
                             </li>
-                            <li className="nav-item" onClick={() => navigate('/agent-reports')}>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/agent-reports`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>summarize</span> Agent Reports</div>
                             </li>
                         </>
                     )}
 
-                    {/* Finance Setup - Restored */}
+                    {/* Finance Setup */}
                     {hasPerm('finance', 'edit') && (
-                        <li className="nav-item" onClick={() => navigate('/finance-setup')}>
+                        <li className="nav-item" onClick={() => navigate(`${BASE}/finance-setup`)}>
                             <div className="nav-item-main">
                                 <span className="material-icons" style={{color:'#3498db'}}>settings</span> 
                                 Finance Setup
@@ -327,7 +329,7 @@ const Dashboard = () => {
 
             {/* PROJECT ARCHIVE */}
             {hasPerm('search', 'view') && (
-                <li className="nav-item" onClick={() => navigate('/project-search')}>
+                <li className="nav-item" onClick={() => navigate(`${BASE}/project-search`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#e67e22'}}>history</span> Project Archive</div>
                 </li>
             )}
@@ -337,17 +339,17 @@ const Dashboard = () => {
                 <>
                     <div className="section-header">Production Planning</div>
                     {hasPerm('queue', 'view') && (
-                         <li className="nav-item" onClick={() => navigate('/upcoming-projects')}>
+                         <li className="nav-item" onClick={() => navigate(`${BASE}/upcoming-projects`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#3498db'}}>queue</span> Project Queue</div>
                         </li>
                     )}
                      {hasPerm('summary', 'view') && (
-                         <li className="nav-item" onClick={() => navigate('/project-summary')}>
+                         <li className="nav-item" onClick={() => navigate(`${BASE}/project-summary`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>summarize</span> Production Summary</div>
                         </li>
                     )}
                     {hasPerm('queue', 'edit') && (
-                            <li className="nav-item" onClick={() => navigate('/project-options')}>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/project-options`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#16a085'}}>list_alt</span> Edit Dropdowns</div>
                         </li>
                     )}
@@ -363,12 +365,12 @@ const Dashboard = () => {
                         const isLive = (Date.now() - lastHb < 75000);
                         return (
                             <li key={ipad.id} className="nav-item">
-                                <div className="nav-item-main" onClick={() => navigate(`/ipad-control/${ipad.id}`)}>
+                                <div className="nav-item-main" onClick={() => navigate(`${BASE}/ipad-control/${ipad.id}`)}>
                                     <span className={`status-dot ${isLive ? 'dot-green' : 'dot-gray'}`}></span>
                                     <span style={{fontWeight:500}}>{ipad.id}</span>
                                 </div>
                                 <div className="action-group">
-                                    <span className="material-icons icon-btn" onClick={() => navigate(`/ipad-control/${ipad.id}`)}>edit</span>
+                                    <span className="material-icons icon-btn" onClick={() => navigate(`${BASE}/ipad-control/${ipad.id}`)}>edit</span>
                                     {hasPerm('fleet', 'edit') && (
                                         <span className="material-icons icon-btn delete" onClick={(e) => handleDeleteIpad(ipad.id, e)}>delete</span>
                                     )}
@@ -425,23 +427,23 @@ const Dashboard = () => {
                      
                      let statusClass = 'st-idle';
                      let statusText = 'IDLE';
-                     let timerClass = 'timer-idle'; // Default to Gray/Idle
+                     let timerClass = 'timer-idle';
 
                      if (isActive) {
                          if (isPaused) {
                              statusClass = 'st-paused';
                              statusText = 'PAUSED';
-                             timerClass = 'timer-paused'; // Yellow
+                             timerClass = 'timer-paused';
                          } else {
                              statusClass = 'st-active';
                              statusText = 'RUNNING';
-                             timerClass = 'timer-running'; // Green
+                             timerClass = 'timer-running';
                          }
                      }
 
                      return (
                         <div key={ipad.id} className="ipad-card" data-id={ipad.id} onClick={(e) => {
-                             if (!e.currentTarget.classList.contains('sortable-drag')) navigate(`/ipad-control/${ipad.id}`);
+                             if (!e.currentTarget.classList.contains('sortable-drag')) navigate(`${BASE}/ipad-control/${ipad.id}`);
                         }}>
                              <div className="card-header">
                                 <div className="card-id">{ipad.id}</div>

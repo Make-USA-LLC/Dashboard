@@ -1,7 +1,5 @@
 import React from "react";
 import { Routes, Route, Link, Navigate } from "react-router-dom"; 
-// Note: We use relative links now, no duplicate BrowserRouter or Auth needed!
-
 import Dashboard from "./Dashboard";
 import LineDetails from "./LineDetails";
 import Inventory from "./Inventory"; 
@@ -21,26 +19,24 @@ function App() {
         </div>
         
         <div className="user-menu" style={{display:'flex', gap:'20px'}}>
-          {/* NAV LINKS - Notice we don't need 'to="/techs/..."', relative works too if set up right, 
-              but using BASE is safer for sub-apps */}
+          {/* Use the BASE constant to ensure absolute routing within the sub-app */}
           <Link to={`${BASE}`} style={{color: '#cbd5e1', textDecoration:'none', fontWeight: 500}}>Lines</Link>
           <Link to={`${BASE}/inventory`} style={{color: '#cbd5e1', textDecoration:'none', fontWeight: 500}}>Inventory</Link>
           
           <span className="divider" style={{opacity:0.3, color:'white'}}>|</span>
           
-          {/* We rely on the Main App for actual logout, but you can link back to Home */}
+          {/* This link remains "/" to return to the main Command Center */}
           <Link to="/" style={{color: '#ef4444', textDecoration:'none', fontWeight:'bold'}}>Exit</Link>
         </div>
       </header>
 
       <div className="main-content" style={{padding: '20px'}}>
         <Routes>
-          {/* Note: Paths are relative to /techs */}
+          {/* These paths remain relative to the parent Route defined in the root App.jsx */}
           <Route path="" element={<Dashboard />} />
           <Route path="line/:id" element={<LineDetails />} />
           <Route path="inventory" element={<Inventory />} />
           
-          {/* Fallback */}
           <Route path="*" element={<Navigate to={`${BASE}`} />} />
         </Routes>
       </div>

@@ -12,7 +12,7 @@ import HRApp from './hr/App';
 import TechApp from './Techs/App'; 
 import DashboardApp from './dashboard/App';
 import ShedApp from './shed/App';
-import QCApp from './qc/App';
+// QC App Removed
 import MasterAdmin from './Dashboard/Admin'; // The unified admin
 
 function GlobalLogin() {
@@ -86,13 +86,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* QC - Needs 'view' on 'qc' feature within 'production' system */}
-        {checkAccess('production', 'qc', 'view') && (
-          <Link to="/qc" style={cardStyle}>
-            <div style={{...iconBox, background: '#fee2e2', color: '#dc2626'}}>🛡️</div>
-            <div><div style={titleStyle}>Quality Control</div></div>
-          </Link>
-        )}
+        {/* QC Section Removed */}
 
         {/* Shed - Needs 'view' on 'shed' feature within 'production' system */}
         {checkAccess('production', 'shed', 'view') && (
@@ -127,7 +121,7 @@ export default function App() {
               <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
               <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
               <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
-              <Route path="/qc/*" element={<RoleRoute system="production" feature="qc"><QCApp /></RoleRoute>} />
+              {/* QC Route Removed */}
               <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
             </Routes>
           </div>

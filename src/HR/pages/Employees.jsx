@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { collection, addDoc, onSnapshot, getDoc, doc, writeBatch } from 'firebase/firestore';
+// Add setDoc to imports
+import { collection, addDoc, onSnapshot, getDoc, doc, writeBatch, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase_config';
 import { logAudit } from '../utils/logger'; 
-import { useRole } from '../hooks/useRole'; // <--- IMPORT
+import { useRole } from '../hooks/useRole'; 
 
 export default function Employees() {
   const [employees, setEmployees] = useState([]);
@@ -22,11 +23,13 @@ export default function Employees() {
   const { checkAccess } = useRole();
   const canEdit = checkAccess('employees', 'edit'); 
   const canViewMoney = checkAccess('financials', 'view');
-  const canViewArchived = checkAccess('employees', 'view'); // Assuming standard view access allows archives
+  const canViewArchived = checkAccess('employees', 'view'); 
 
+  // ADDED: cardId to state
   const [formData, setFormData] = useState({ 
     firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", 
-    type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "" 
+    type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "",
+    cardId: "" 
   });
 
   useEffect(() => {
@@ -55,9 +58,7 @@ export default function Employees() {
   const getDisplayName = (emp) => (emp.firstName && emp.lastName) ? `${emp.firstName} ${emp.lastName}` : (emp.name || "Unknown");
 
   const visibleEmployees = employees.filter(emp => {
-      // Security Filter
       if (!canViewArchived && emp.status === "Inactive") return false;
-
       if (!showInactive && emp.status === "Inactive") return false;
       if (showInactive && emp.status !== "Inactive") return false; 
       if (deptFilter !== "All" && emp.department !== deptFilter) return false;
@@ -66,7 +67,9 @@ export default function Employees() {
           const searchLower = searchTerm.toLowerCase();
           const fullName = getDisplayName(emp).toLowerCase();
           const email = (emp.email || "").toLowerCase();
-          return fullName.includes(searchLower) || email.includes(searchLower);
+          // Added: Search by Card ID too
+          const card = (emp.cardId || "").toLowerCase();
+          return fullName.includes(searchLower) || email.includes(searchLower) || card.includes(searchLower);
       }
       return true;
   });
@@ -85,20 +88,41 @@ export default function Employees() {
     let properBirthday = null; if (formData.birthday) properBirthday = new Date(formData.birthday + 'T12:00:00');
     const properReviewDate = new Date(); 
 
-    await addDoc(collection(db, "employees"), {
+    const fullName = `${formData.firstName} ${formData.lastName}`;
+
+    // 1. Create Employee Record
+    const newEmpRef = await addDoc(collection(db, "employees"), {
       firstName: formData.firstName, lastName: formData.lastName, email: formData.email || "", phone: formData.phone || "",
       addressStreet: formData.addressStreet || "", addressCity: formData.addressCity || "", addressState: formData.addressState || "", addressZip: formData.addressZip || "",
       type: formData.type, department: formData.department || "", status: "Active", compensation: formData.compensation,
-      name: `${formData.firstName} ${formData.lastName}`, hireDate: properHireDate, birthday: properBirthday, lastReviewDate: properReviewDate,
-      onboarding: initialOnboarding, offboarding: initialOffboarding, assignedKeyId: null, assignedLockerId: null, ptoLog: []
+      name: fullName, hireDate: properHireDate, birthday: properBirthday, lastReviewDate: properReviewDate,
+      onboarding: initialOnboarding, offboarding: initialOffboarding, assignedKeyId: null, assignedLockerId: null, ptoLog: [],
+      cardId: formData.cardId || "" // Save Card ID
     });
 
-    logAudit("Create Employee", `${formData.firstName} ${formData.lastName}`, "Manual Creation via Directory");
+    // 2. Sync to Workers Collection (For iPad/Portal)
+    if (formData.cardId) {
+        try {
+            await setDoc(doc(db, "workers", formData.cardId), {
+                name: fullName,
+                email: formData.email || "", // This enables Portal Access
+                employeeDocId: newEmpRef.id,
+                syncedFromHR: true
+            });
+            logAudit("Sync Worker", fullName, `Linked Card ID ${formData.cardId} to HR Profile`);
+        } catch (err) {
+            console.error("Failed to sync worker card", err);
+            alert("Employee created, but failed to sync RFID card. Please edit profile to retry.");
+        }
+    }
+
+    logAudit("Create Employee", fullName, "Manual Creation via Directory");
     setIsModalOpen(false);
-    setFormData({ firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "" });
+    setFormData({ firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "", cardId: "" });
   };
 
   const handleFileUpload = async (e) => {
+      // ... (Keep existing CSV import logic mostly same, unless you want to parse Card ID from CSV too)
       if (!canEdit) return;
       const file = e.target.files[0]; if (!file) return;
       setImporting(true); 
@@ -113,6 +137,7 @@ export default function Employees() {
   };
 
   const parseCSVFull = (text) => {
+    // ... (Keep existing CSV parser)
     const rows = []; let currentRow = []; let currentVal = ""; let inQuotes = false;
     for (let i = 0; i < text.length; i++) {
         const char = text[i]; const nextChar = text[i + 1];
@@ -128,6 +153,7 @@ export default function Employees() {
   };
 
   const parseFlexibleDate = (dateString) => {
+      // ... (Keep existing date parser)
       if (!dateString) return null;
       const cleanDate = dateString.replace(/(\r\n|\n|\r)/gm, "").trim();
       if (cleanDate.includes('/')) {
@@ -142,6 +168,9 @@ export default function Employees() {
   };
 
   const processCSV = async (csvText) => {
+      // ... (Keep existing CSV process logic)
+      // Note: If you want CSV to import Card IDs, you'd add it to the map here.
+      // For brevity, I'll leave the bulk import as-is for now.
       console.log("Starting CSV Import...");
       const rows = parseCSVFull(csvText);
       if (rows.length < 2) { alert("File empty."); return; }
@@ -192,7 +221,8 @@ export default function Employees() {
               email: getVal("Email", 2), phone: getVal("Phone", 3),
               addressStreet: getVal("Street Address", 4), addressCity: getVal("City", 5), addressState: getVal("State", 6), addressZip: getVal("Zip", 7),
               birthday: bdayDate, compensation: compValue, type: typeValue, department: deptRaw || "",
-              lastReviewDate: reviewDate, hireDate: hireDateValue
+              lastReviewDate: reviewDate, hireDate: hireDateValue,
+              cardId: "" // Default empty for bulk import
           };
           empData.name = `${empData.firstName} ${empData.lastName}`.trim();
           
@@ -224,7 +254,7 @@ export default function Employees() {
           </div>
 
           <div style={{display:'flex', gap: 10, alignItems:'center', whiteSpace:'nowrap'}}>
-              <input type="text" placeholder="🔍 Search name or email..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{padding: '10px', width: '300px', border: '1px solid #cbd5e1', borderRadius: 6}} />
+              <input type="text" placeholder="🔍 Search name, email, or card ID..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{padding: '10px', width: '300px', border: '1px solid #cbd5e1', borderRadius: 6}} />
               <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{padding: '10px', borderRadius: 6, border: '1px solid #cbd5e1', minWidth:'180px'}}>
                   <option value="All">All Departments</option>
                   {departmentOptions.map(d => <option key={d} value={d}>{d}</option>)}
@@ -262,6 +292,10 @@ export default function Employees() {
                             <span style={{background: emp.status === 'Inactive' ? '#94a3b8' : (emp.type === 'Salary' ? '#e0f2fe' : '#f0fdf4'), color: emp.status === 'Inactive' ? 'white' : (emp.type === 'Salary' ? '#0284c7' : '#16a34a'), padding: '2px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: 'bold'}}>{emp.status === 'Inactive' ? 'Inactive' : emp.type}</span>
                         </div>
                         {emp.department && <div style={{fontSize:'11px', color:'#334155', fontWeight:'bold', background:'#f8fafc', border:'1px solid #e2e8f0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginBottom: 10}}>🏢 {emp.department}</div>}
+                        
+                        {/* Added: Card ID Display */}
+                        {emp.cardId && <div style={{fontSize:'11px', color:'#64748b', marginBottom: 5}}>🆔 Card: {emp.cardId}</div>}
+                        
                         <div style={{fontSize:'12px', color:'#475569', marginTop: 5, marginBottom: 10}}>Last Review: <strong>{reviewDisplay}</strong></div>
                         {canViewMoney && emp.compensation && (<div style={{fontSize: '13px', color: '#334155', fontWeight:'bold', marginBottom:'15px'}}>{emp.type === 'Salary' ? `Salary: $${emp.compensation}/yr` : `Rate: $${emp.compensation}/hr`}</div>)}
                     </div>
@@ -279,11 +313,22 @@ export default function Employees() {
             <h3>New Hire</h3>
             <form onSubmit={handleAdd}>
               <div style={{display:'flex', gap:'10px'}}><input placeholder="First Name *" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /><input placeholder="Last Name *" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
+              
+              {/* Added: Card ID Input */}
+              <div style={{marginTop: 10, background: '#f0fdf4', padding: 10, borderRadius: 6, border: '1px solid #bbf7d0'}}>
+                  <label style={{fontSize:'12px', fontWeight:'bold', display:'block', color:'#166534'}}>RFID Card Assignment</label>
+                  <input placeholder="Scan Card or Enter ID..." value={formData.cardId} onChange={e => setFormData({...formData, cardId: e.target.value})} style={{width: '100%', marginTop: 5, border: '1px solid #16a34a'}} />
+                  <div style={{fontSize:'10px', color:'#15803d', marginTop: 4}}>* Assigning a card here will automatically enable iPad access.</div>
+              </div>
+
               <div style={{display:'flex', gap:'10px'}}><div style={{flex:1}}><label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Start Date</label><input type="date" value={formData.hireDate} onChange={e => setFormData({...formData, hireDate: e.target.value})} required /></div><div style={{flex:1}}><label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Date of Birth</label><input type="date" value={formData.birthday} onChange={e => setFormData({...formData, birthday: e.target.value})} /></div></div>
               <label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Compensation</label><input type="number" placeholder="0.00" value={formData.compensation} onChange={e => setFormData({...formData, compensation: e.target.value})} />
               <label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Department</label><select value={formData.department} onChange={e => setFormData({...formData, department: e.target.value})}><option value="">-- None --</option>{departmentOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select>
               <label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block', borderTop:'1px solid #eee', paddingTop: 10}}>Mailing Address (Optional)</label><input placeholder="Street Address" value={formData.addressStreet} onChange={e => setFormData({...formData, addressStreet: e.target.value})} /><div style={{display:'flex', gap:'10px'}}><input placeholder="City" style={{flex: 2}} value={formData.addressCity} onChange={e => setFormData({...formData, addressCity: e.target.value})} /><input placeholder="State" style={{flex: 1}} value={formData.addressState} onChange={e => setFormData({...formData, addressState: e.target.value})} /><input placeholder="Zip" style={{flex: 1}} value={formData.addressZip} onChange={e => setFormData({...formData, addressZip: e.target.value})} /></div>
-              <label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Contact Info (Optional)</label><input type="email" placeholder="Email Address" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /><input type="tel" placeholder="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+              <label style={{fontSize:'12px', fontWeight:'bold', marginTop:10, display:'block'}}>Contact Info</label>
+              <input type="email" placeholder="Email Address" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+              <input type="tel" placeholder="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
+              
               <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', fontSize:'12px', marginTop: 10}}>Employee Type</label><select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Salary">Salary (Full Benefits)</option><option value="Hourly">Hourly (Time Log)</option></select>
               <div style={{marginTop:'20px', display:'flex', gap:'10px'}}><button type="button" onClick={() => setIsModalOpen(false)} style={{flex:1, background:'#f1f5f9', color:'black'}}>Cancel</button><button type="submit" className="primary" style={{flex:1}}>Add Employee</button></div>
             </form>

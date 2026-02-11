@@ -97,7 +97,7 @@ export default function LineDetails() {
 
   return (
     <div className="page">
-      <Link to="/" className="back-link">← Back to Dashboard</Link>
+      <Link to="/techs" className="back-link">← Back to Dashboard</Link>
       <div className="header-flex">
         <h1>{lineName}</h1>
       </div>
@@ -106,7 +106,9 @@ export default function LineDetails() {
       <div className="card" style={{marginBottom: 24, borderLeft: '5px solid #2563eb'}}>
         <h3>Live Inventory / Spares</h3>
         {linkedInventory.length === 0 ? (
-          <p style={{color:'#94a3b8', fontStyle:'italic'}}>No inventory assigned to this machine. Go to the <Link to="/inventory" style={{color:'#2563eb'}}>Inventory Page</Link> to assign items.</p>
+          <p style={{color:'#94a3b8', fontStyle:'italic'}}>
+            No inventory assigned to this machine. Go to the <Link to="/techs/inventory" style={{color:'#2563eb'}}>Inventory Page</Link> to assign items.
+          </p>
         ) : (
           <div className="grid" style={{gridTemplateColumns:'repeat(auto-fill, minmax(200px, 1fr))', marginTop: 15}}>
             {linkedInventory.map(item => (
@@ -180,7 +182,7 @@ export default function LineDetails() {
 
       <button className="fab" onClick={() => setShowModal(true)}>+</button>
 
-      {/* MODAL (Unchanged logic, just keeping it here for completeness) */}
+      {/* MODAL */}
       {showModal && (
         <div className="modal-overlay">
           <div className="modal-box">

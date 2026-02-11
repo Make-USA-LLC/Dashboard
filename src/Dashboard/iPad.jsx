@@ -14,6 +14,11 @@ const IPad = () => {
     const [workersMap, setWorkersMap] = useState({});
     const [dropdowns, setDropdowns] = useState({ companies: [], categories: [], sizes: [] });
     
+    // Tech Stop Options
+    const [machineOptions, setMachineOptions] = useState([]);
+    const [showTechModal, setShowTechModal] = useState(false);
+    const [selectedMachine, setSelectedMachine] = useState("");
+
     // Tab State
     const [activeTab, setActiveTab] = useState('live');
     
@@ -22,16 +27,16 @@ const IPad = () => {
 
     // Timer Logic
     const [displayTime, setDisplayTime] = useState("00:00:00");
-    const [now, setNow] = useState(new Date()); // Tracks live time for worker rows
+    const [now, setNow] = useState(new Date()); 
     
     // Forms
     const [leaderEditMode, setLeaderEditMode] = useState(false);
     const [newLeaderId, setNewLeaderId] = useState('');
-    const [setupMode, setSetupMode] = useState('queue'); // 'queue' or 'manual'
+    const [setupMode, setSetupMode] = useState('queue'); 
     const [selectedQueueIdx, setSelectedQueueIdx] = useState('');
     
     // Worker Edit State
-    const [editingWorker, setEditingWorker] = useState(null); // { id, h, m }
+    const [editingWorker, setEditingWorker] = useState(null); 
 
     // Manual Form State
     const [manualForm, setManualForm] = useState({
@@ -71,7 +76,7 @@ const IPad = () => {
     };
 
     const initListeners = async () => {
-        // 1. Listen to iPad
+        // 1. Listen to iPad Data
         const unsubIpad = onSnapshot(doc(db, "ipads", id), (snap) => {
             if (snap.exists()) {
                 setIpadData(snap.data());
@@ -82,7 +87,7 @@ const IPad = () => {
             }
         });
 
-        // 2. Listen to Queue
+        // 2. Listen to Project Queue
         const qQueue = query(collection(db, "project_queue"), orderBy("createdAt", "asc"));
         const unsubQueue = onSnapshot(qQueue, (snap) => {
             const list = [];
@@ -90,11 +95,21 @@ const IPad = () => {
             setProjectQueue(list);
         });
 
-        // 3. Fetch Configs & Workers
+        // 3. Listen to Machines (Lines) - CHANGED TO SNAPSHOT FOR RELIABILITY
+        const qLines = query(collection(db, "lines"), orderBy("name"));
+        const unsubLines = onSnapshot(qLines, (snap) => {
+            const mList = snap.docs.map(d => d.data().name);
+            // Client-side sort to be safe
+            mList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+            setMachineOptions(mList);
+        }, (err) => {
+            console.error("Error listening to lines:", err);
+        });
+
+        // 4. Fetch Dropdowns & Workers (Static)
         const cSnap = await getDoc(doc(db, "config", "project_options"));
         if (cSnap.exists()) setDropdowns(cSnap.data());
 
-        // --- FIXED WORKER MAPPING HERE ---
         const wSnap = await getDocs(collection(db, "workers"));
         const wMap = {};
         wSnap.forEach(d => {
@@ -104,13 +119,18 @@ const IPad = () => {
         });
         setWorkersMap(wMap);
 
-        return () => { unsubIpad(); unsubQueue(); };
+        // Return cleanup function for all listeners
+        return () => { 
+            unsubIpad(); 
+            unsubQueue(); 
+            unsubLines(); 
+        };
     };
 
     // --- TIMER LOGIC ---
     useEffect(() => {
         const interval = setInterval(() => {
-            setNow(new Date()); // Update local 'now' for worker calculations
+            setNow(new Date()); 
             if (!ipadData) return;
             
             let seconds = ipadData.secondsRemaining || 0;
@@ -134,14 +154,13 @@ const IPad = () => {
         return () => clearInterval(interval);
     }, [ipadData]);
 
-    // --- WORKER TIME CALCULATIONS ---
+    // --- WORKER TIME LOGIC ---
     const getWorkerTimeData = (wid) => {
         if (!ipadData || !ipadData.scanHistory) return { totalMinutes: 0, currentMinutes: 0, bankedMinutes: 0 };
         
         let bankedSeconds = 0;
         let lastClockIn = null;
         
-        // Sort history safely
         const history = [...ipadData.scanHistory].sort((a,b) => (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0));
 
         history.forEach(scan => {
@@ -155,7 +174,6 @@ const IPad = () => {
         });
 
         let currentSeconds = 0;
-        // If currently active, add time since last Clock In
         if (lastClockIn && ipadData.activeWorkers && ipadData.activeWorkers.includes(wid)) {
             currentSeconds = Math.max(0, (now.getTime()/1000) - lastClockIn);
         }
@@ -184,11 +202,7 @@ const IPad = () => {
     const saveWorkerTime = async () => {
         if (!editingWorker) return;
         const wid = editingWorker.id;
-        
-        // 1. Calculate desired Total
         const targetTotalMinutes = (parseInt(editingWorker.h)||0) * 60 + (parseInt(editingWorker.m)||0);
-        
-        // 2. Get current active session duration to subtract it
         const data = getWorkerTimeData(wid);
         const newBankedMinutes = targetTotalMinutes - data.currentMinutes;
 
@@ -201,33 +215,31 @@ const IPad = () => {
         }
     };
 
-    // --- ACTIONS ---
-
+    // --- CONTROLS ---
     const sendCommand = async (action) => {
         if (!perms.timer) return alert("Permission Denied");
-        
         let cmd = action;
-        const isPaused = ipadData.isPaused;
-        const activeWorkers = ipadData.activeWorkers || [];
-
-        // FINISH Logic
         if (action === 'FINISH') {
             if (!window.confirm("Are you sure you want to FINISH this project?")) return;
-            try {
-                // Dashboard no longer writes the report. iPad handles it.
-            } catch(e) { 
-                console.error(e); 
-                alert("Error saving report."); 
-                return; 
-            }
         } else if (action === 'RESET' || action === 'SAVE') {
             if(!window.confirm(`Are you sure you want to ${action}?`)) return;
         }
-
         await updateDoc(doc(db, "ipads", id), {
             remoteCommand: cmd,
             commandTimestamp: serverTimestamp()
         });
+    };
+
+    const submitTechPause = async () => {
+        if (!selectedMachine) return alert("Please select a machine.");
+        if (!perms.timer) return alert("Permission Denied");
+        const cmd = `TECH_PAUSE|${selectedMachine}`;
+        await updateDoc(doc(db, "ipads", id), {
+            remoteCommand: cmd,
+            commandTimestamp: serverTimestamp()
+        });
+        setShowTechModal(false);
+        setSelectedMachine("");
     };
 
     const handleClockOut = async (cardId) => {
@@ -255,12 +267,10 @@ const IPad = () => {
         }
     };
 
-    // --- SETUP ACTIONS ---
-
+    // --- SETUP ---
     const initFromQueue = async () => {
         if (!selectedQueueIdx) return alert("Select a job");
         const job = projectQueue[selectedQueueIdx];
-        
         const timeBudget = job.originalSeconds || job.seconds || 0;
         const timeRemaining = job.seconds || timeBudget;
 
@@ -275,7 +285,6 @@ const IPad = () => {
             commandTimestamp: serverTimestamp(),
             scanHistory: job.scanHistory || [],
             projectEvents: job.projectEvents || [],
-            // Pass pricing info to iPad for reporting
             pricePerUnit: job.pricePerUnit || 0,
             expectedUnits: job.expectedUnits || 0
         };
@@ -289,7 +298,6 @@ const IPad = () => {
     const initManual = async () => {
         const { company, project, category, size, h, m, s } = manualForm;
         if (!company || !project || !category || !size) return alert("Fill all fields");
-        
         const totalSec = (parseInt(h||0)*3600) + (parseInt(m||0)*60) + parseInt(s||0);
         if (totalSec <= 0) return alert("Set time");
 
@@ -317,13 +325,13 @@ const IPad = () => {
 
     if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Controller...</div>;
 
-const isActive = !!ipadData?.projectName && ipadData?.projectName !== "No Project Loaded";
-const activeWorkers = ipadData?.activeWorkers || [];
+    const isActive = !!ipadData?.projectName && ipadData?.projectName !== "No Project Loaded";
+    const activeWorkers = ipadData?.activeWorkers || [];
 
     return (
         <div className="ipc-wrapper">
             <div className="ipc-top-bar">
-                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', cursor:'pointer'}}>
+                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', cursor:'pointer'}}>
                     &larr; Back to Dashboard
                 </button>
                 <h1 style={{margin:0, fontSize:'20px'}}>iPad: {id}</h1>
@@ -339,7 +347,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                     )}
                 </div>
 
-                {/* --- TAB: LIVE --- */}
                 {activeTab === 'live' && (
                     <div style={{display: 'grid', gridTemplateColumns: '2fr 3fr', gap: '25px'}}>
                         <div className="ipc-card">
@@ -373,7 +380,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                             <div className="ipc-timer-display">{displayTime}</div>
 
                             <div className={`ipc-control-grid ${!perms.timer ? 'disabled-overlay' : ''}`}>
-                                {/* ROW 1: Standard Controls */}
                                 <button className={`ipc-ctrl-btn ${ipadData.isPaused ? 'btn-paused' : 'btn-run'}`} onClick={() => sendCommand('TOGGLE')}>
                                     {ipadData.isPaused ? 'RESUME' : 'PAUSE'}
                                 </button>
@@ -381,7 +387,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                 <button className="ipc-ctrl-btn btn-save" onClick={() => sendCommand('SAVE')}>SAVE</button>
                                 <button className="ipc-ctrl-btn btn-reset" onClick={() => sendCommand('RESET')}>RESET</button>
 
-                                {/* ROW 2: PROCEDURES */}
                                 <button 
                                     className="ipc-ctrl-btn" 
                                     style={{background:'#8e44ad', color:'white', fontSize:'11px', fontWeight:'bold'}}
@@ -403,7 +408,7 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                 <button 
                                     className="ipc-ctrl-btn" 
                                     style={{background:'#f39c12', color:'white', fontSize:'11px', fontWeight:'bold'}}
-                                    onClick={() => sendCommand('TECH_PAUSE')}
+                                    onClick={() => setShowTechModal(true)}
                                 >
                                     TECH ISSUE
                                 </button>
@@ -420,7 +425,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                     NO BONUS
                                 </button>
 
-                                {/* ROW 3: Finish */}
                                 <button className="ipc-ctrl-btn btn-finish" style={{gridColumn:'span 2'}} onClick={() => sendCommand('FINISH')}>FINISH</button>
                             </div>
                         </div>
@@ -479,11 +483,9 @@ const activeWorkers = ipadData?.activeWorkers || [];
                     </div>
                 )}
 
-                {/* --- TAB: DATA LOGS --- */}
                 {activeTab === 'data' && (
                     <div className="ipc-card">
                         <div style={{fontSize:'18px', fontWeight:'bold', marginBottom:'10px'}}>Project Activity Logs</div>
-                        
                         <div className="ipc-log-section">Events (Pause/Lunch)</div>
                         <table className="ipc-table">
                             <thead><tr><th>Time</th><th>Event Type</th></tr></thead>
@@ -497,7 +499,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                 ))}
                             </tbody>
                         </table>
-
                         <div className="ipc-log-section">Scan History</div>
                         <table className="ipc-table">
                             <thead><tr><th>Time</th><th>Worker</th><th>Action</th></tr></thead>
@@ -517,19 +518,16 @@ const activeWorkers = ipadData?.activeWorkers || [];
                     </div>
                 )}
 
-                {/* --- TAB: APP SETTINGS --- */}
                 {activeTab === 'app' && (
                     <div>
                         <div className={`ipc-card ${!perms.settings ? 'disabled-overlay' : ''}`}>
                             <div style={{fontSize:'18px', fontWeight:'bold', marginBottom:'20px', borderBottom:'1px solid #eee', paddingBottom:'10px'}}>Project Configuration</div>
-                            
                             {isActive && (
                                 <div className="locked-msg">
                                     <span className="material-icons" style={{fontSize:'16px', verticalAlign:'middle', marginRight:'5px'}}>lock</span> 
                                     Project is Active. Settings are locked. Reset timer to edit.
                                 </div>
                             )}
-
                             <div className={isActive ? 'disabled-overlay' : ''}>
                                 {setupMode === 'queue' ? (
                                     <div>
@@ -581,9 +579,7 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                                 </select>
                                             </div>
                                         </div>
-
                                         <br/>
-
                                         <div className="ipc-time-set-box">
                                             <label style={{fontWeight:'bold', fontSize:'14px', color:'#2c3e50'}}>SET TIME ALLOCATION</label>
                                             <div className="ipc-time-inputs">
@@ -592,7 +588,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                                 <input type="number" className="ipc-time-input" placeholder="00" value={manualForm.s} onChange={e => setManualForm({...manualForm, s: e.target.value})} />
                                             </div>
                                         </div>
-
                                         <button className="ipc-save-btn" onClick={initManual}>Initialize Manually</button>
                                         <div style={{marginTop:'20px', textAlign:'center'}}>
                                             <button style={{background:'none', border:'none', color:'#e74c3c', fontWeight:'bold', cursor:'pointer'}} onClick={() => setSetupMode('queue')}>Cancel & Return to Queue</button>
@@ -601,7 +596,6 @@ const activeWorkers = ipadData?.activeWorkers || [];
                                 )}
                             </div>
                         </div>
-
                         {perms.fleet && (
                             <div style={{marginTop:'20px'}}>
                                 <button style={{background:'transparent', color:'#e74c3c', border:'1px solid #e74c3c', padding:'8px 15px', borderRadius:'6px', cursor:'pointer'}} onClick={handleDeleteDevice}>
@@ -612,6 +606,45 @@ const activeWorkers = ipadData?.activeWorkers || [];
                     </div>
                 )}
             </div>
+
+            {/* --- TECH PAUSE MODAL --- */}
+            {showTechModal && (
+                <div style={{
+                    position:'fixed', top:0, left:0, right:0, bottom:0, 
+                    background:'rgba(0,0,0,0.8)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:9999
+                }}>
+                    <div style={{background:'white', padding:'25px', borderRadius:'8px', width:'350px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)'}}>
+                        <h3 style={{marginTop:0, color:'#c0392b'}}>Report Technical Issue</h3>
+                        <p style={{color:'#666', fontSize:'14px'}}>Select the machine that is causing the issue.</p>
+                        
+                        <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', color:'#333'}}>Affected Machine</label>
+                        <select 
+                            style={{width:'100%', padding:'12px', marginBottom:'20px', fontSize:'16px', borderRadius:'4px', border:'1px solid #ccc'}}
+                            value={selectedMachine} 
+                            onChange={(e) => setSelectedMachine(e.target.value)}
+                        >
+                            <option value="">-- Select Machine --</option>
+                            {machineOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                        </select>
+                        
+                        <div style={{display:'flex', gap:'10px'}}>
+                            <button 
+                                onClick={() => { setShowTechModal(false); setSelectedMachine(""); }}
+                                style={{flex:1, padding:'12px', background:'#ecf0f1', color:'#333', border:'none', borderRadius:'4px', cursor:'pointer', fontWeight:'bold'}}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={submitTechPause}
+                                disabled={!selectedMachine}
+                                style={{flex:1, padding:'12px', background:'#e74c3c', color:'white', border:'none', borderRadius:'4px', fontWeight:'bold', cursor: !selectedMachine ? 'not-allowed' : 'pointer', opacity: !selectedMachine ? 0.5 : 1}}
+                            >
+                                CONFIRM STOP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
