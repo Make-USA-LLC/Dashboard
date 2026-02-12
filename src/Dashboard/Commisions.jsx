@@ -153,7 +153,7 @@ const Commissions = () => {
     return (
         <div className="commissions-page-wrapper">
             <div className="commissions-top-bar">
-                <button onClick={() => navigate('/')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
                 <div className="view-toggle">
                     <button className={`toggle-btn ${view==='unpaid'?'active':''}`} onClick={() => setView('unpaid')}>Pending</button>
                     <button className={`toggle-btn ${view==='paid'?'active paid':''}`} onClick={() => setView('paid')}>History</button>

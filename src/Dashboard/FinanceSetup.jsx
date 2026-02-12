@@ -267,7 +267,7 @@ const FinanceSetup = () => {
     return (
         <div className="fs-wrapper">
             <div className="fs-top-bar">
-                <button onClick={() => navigate('/')} className="btn-back">&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} className="btn-back">&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Finance Setup</div>
                 <button onClick={handleLogout} className="btn-back" style={{fontSize:'14px', color:'#e74c3c'}}>Sign Out</button>
             </div>

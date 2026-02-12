@@ -7,12 +7,12 @@ import RoleManager from '../components/RoleManager';
 
 export default function Admin() {
   const { checkAccess } = useRole();
-  const canEditUsers = checkAccess('settings_security', 'edit');
-
+  
   const [users, setUsers] = useState([]);
-  const [rolesList, setRolesList] = useState([]); 
+  const [rolesList, setRolesList] = useState(["Admin", "Employee", "Manager"]); // Default roles
+  
   const [newUserEmail, setNewUserEmail] = useState("");
-  const [newUserRole, setNewUserRole] = useState("Manager"); 
+  const [newUserRole, setNewUserRole] = useState("Employee"); 
   const [currentUserEmail, setCurrentUserEmail] = useState("");
   const [activeTab, setActiveTab] = useState("users");
 
@@ -20,6 +20,7 @@ export default function Admin() {
       if(auth.currentUser) setCurrentUserEmail(auth.currentUser.email);
   }, []);
 
+  // Listen for Users
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "authorized_users"), (snap) => {
       setUsers(snap.docs.map(d => ({ email: d.id, ...d.data() })));
@@ -27,12 +28,13 @@ export default function Admin() {
     return () => unsubscribe();
   }, []);
 
+  // Listen for Roles
   useEffect(() => {
       const unsubRoles = onSnapshot(collection(db, "roles"), (snap) => {
           const list = snap.docs.map(d => d.id);
-          setRolesList(list);
-          if (list.length > 0 && !list.includes(newUserRole) && newUserRole !== "Manager") {
-             setNewUserRole(list[0]);
+          if (list.length > 0) {
+              setRolesList(list);
+              setNewUserRole(prev => list.includes(prev) ? prev : list[0]);
           }
       });
       return () => unsubRoles();
@@ -40,81 +42,109 @@ export default function Admin() {
 
   const addUser = async (e) => {
     e.preventDefault();
-    if (!canEditUsers) return alert("Permission Denied");
     const email = newUserEmail.trim().toLowerCase();
     if(!email) return;
 
-    await setDoc(doc(db, "authorized_users", email), { 
-      role: newUserRole, 
-      addedAt: new Date() 
-    });
-    logAudit("Access Control", "System", `Granted ${newUserRole} access to ${email}`);
-    setNewUserEmail("");
+    try {
+        await setDoc(doc(db, "authorized_users", email), { role: newUserRole });
+        logAudit("Access Control", "System", `Granted ${newUserRole} access to ${email}`);
+        setNewUserEmail("");
+    } catch (e) {
+        alert("Error: " + e.message);
+    }
   };
 
   const updateUserRole = async (email, newRole) => {
-      if (!canEditUsers) return;
       if (email === currentUserEmail) return alert("You cannot change your own role.");
       await updateDoc(doc(db, "authorized_users", email), { role: newRole });
-      logAudit("Access Control", "System", `Changed ${email} role to ${newRole}`);
   };
 
   const removeUser = async (email) => {
-    if (!canEditUsers) return;
     if (email === currentUserEmail) return alert("You cannot revoke your own access.");
     if (confirm(`Revoke ALL access for ${email}?`)) {
       await deleteDoc(doc(db, "authorized_users", email));
-      logAudit("Access Control", "System", `Revoked access for ${email}`);
     }
   };
 
   return (
-    <div>
-      <div style={{marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+    <div style={{ width: '100%', textAlign: 'left' }}>
+      {/* HEADER */}
+      <div style={{ marginBottom: 30, display:'flex', justifyContent:'space-between', alignItems:'center', borderBottom: '1px solid #e2e8f0', paddingBottom: '15px' }}>
           <div>
-            <h2>Administration</h2>
-            <p style={{color: '#64748b', margin:0}}>Manage users and system roles.</p>
+            <h2 style={{margin:0, color: '#1e293b'}}>Administration</h2>
+            <p style={{color: '#64748b', margin:0, fontSize: '14px'}}>Manage authorized users and permissions.</p>
           </div>
           <div style={{display:'flex', gap: 10}}>
-              <button onClick={() => setActiveTab("users")} style={{padding:'10px 20px', fontWeight: activeTab === 'users' ? 'bold' : 'normal', borderBottom: activeTab === 'users' ? '3px solid #2563eb' : '3px solid transparent', background:'transparent', border:'none', cursor:'pointer', color: activeTab === 'users' ? '#2563eb' : '#64748b'}}>Authorized Users</button>
-              <button onClick={() => setActiveTab("roles")} style={{padding:'10px 20px', fontWeight: activeTab === 'roles' ? 'bold' : 'normal', borderBottom: activeTab === 'roles' ? '3px solid #2563eb' : '3px solid transparent', background:'transparent', border:'none', cursor:'pointer', color: activeTab === 'roles' ? '#2563eb' : '#64748b'}}>Role Definitions</button>
+              <button onClick={() => setActiveTab("users")} style={activeTab === 'users' ? activeTabStyle : tabStyle}>Users</button>
+              <button onClick={() => setActiveTab("roles")} style={activeTab === 'roles' ? activeTabStyle : tabStyle}>Roles</button>
           </div>
       </div>
       
       {activeTab === "users" && (
           <div className="animate-fade">
-              {canEditUsers && (
-                  <form onSubmit={addUser} className="card" style={{ display: 'flex', gap: '10px', alignItems:'flex-end', background:'#f8fafc', border:'1px solid #e2e8f0' }}>
-                    <div style={{flex: 2}}>
-                        <label style={{fontSize:'12px', fontWeight:'bold', display:'block', marginBottom: 5}}>Google Email</label>
-                        <input type="email" placeholder="employee@makeusa.us" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} required style={{ marginBottom: 0, width: '100%' }} />
-                    </div>
-                    <div style={{flex: 1}}>
-                        <label style={{fontSize:'12px', fontWeight:'bold', display:'block', marginBottom: 5}}>Role</label>
-                        <select value={newUserRole} onChange={e => setNewUserRole(e.target.value)} style={{ marginBottom: 0, width: '100%' }}>
-                            {rolesList.map(r => <option key={r} value={r}>{r}</option>)}
-                        </select>
-                    </div>
-                    <button type="submit" className="primary" style={{ whiteSpace: 'nowrap', height: '42px' }}>+ Authorize User</button>
-                  </form>
-              )}
+              {/* ADD USER BAR - Using CSS Grid for perfect spacing */}
+              <div style={{ 
+                  display: 'grid', 
+                  gridTemplateColumns: '2fr 1fr auto', 
+                  gap: '15px', 
+                  alignItems: 'end', 
+                  background: '#f8fafc', 
+                  border: '1px solid #e2e8f0', 
+                  padding: '20px', 
+                  borderRadius: '8px',
+                  marginBottom: '30px' 
+              }}>
+                <div>
+                    <label style={{fontSize:'12px', fontWeight:'bold', display:'block', marginBottom: 5, color: '#475569'}}>User Email</label>
+                    <input 
+                        type="email" 
+                        placeholder="new.user@makeusa.us" 
+                        value={newUserEmail} 
+                        onChange={e => setNewUserEmail(e.target.value)} 
+                        style={inputStyle} 
+                    />
+                </div>
+                <div>
+                    <label style={{fontSize:'12px', fontWeight:'bold', display:'block', marginBottom: 5, color: '#475569'}}>Role</label>
+                    <select 
+                        value={newUserRole} 
+                        onChange={e => setNewUserRole(e.target.value)} 
+                        style={inputStyle}
+                    >
+                        {rolesList.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                </div>
+                <button onClick={addUser} style={btnPrimary}>+ Add User</button>
+              </div>
 
-              <div className="card-grid" style={{marginTop: 30}}>
+              {/* USER GRID */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '20px' }}>
                 {users.map(u => {
                     const isMe = u.email === currentUserEmail;
                     return (
-                        <div key={u.email} className="card" style={{display: 'flex', flexDirection:'column', gap: 15, borderLeft: `5px solid #64748b`}}>
-                            <div>
-                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start'}}>
-                                    <strong style={{fontSize: '1.1rem', wordBreak:'break-all'}}>{u.email}</strong>
-                                    {isMe && <span style={{fontSize:'10px', background:'#0f172a', color:'white', padding:'2px 6px', borderRadius: 4}}>YOU</span>}
+                        <div key={u.email} style={cardStyle}>
+                            <div style={{marginBottom: '10px'}}>
+                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                    <strong style={{color: '#334155', fontSize: '14px'}}>{u.email}</strong>
+                                    {isMe && <span style={badgeStyle}>YOU</span>}
                                 </div>
                             </div>
-                            <div style={{display:'flex', gap: 10, alignItems:'center', justifyContent:'space-between'}}>
-                                <select value={u.role} onChange={(e) => updateUserRole(u.email, e.target.value)} disabled={isMe || !canEditUsers} style={{fontWeight: 'bold', border: '1px solid #cbd5e1', fontSize: '12px', padding: '5px', borderRadius: '6px', cursor: (isMe || !canEditUsers) ? 'not-allowed' : 'pointer', width: 'auto', marginBottom: 0}}>
+                            <div style={{display:'flex', gap: '8px', alignItems:'center'}}>
+                                <select 
+                                    value={u.role} 
+                                    onChange={(e) => updateUserRole(u.email, e.target.value)} 
+                                    disabled={isMe} 
+                                    style={{...inputStyle, flex: 1, cursor: isMe ? 'not-allowed' : 'pointer'}}
+                                >
                                     {rolesList.map(r => <option key={r} value={r}>{r}</option>)}
                                 </select>
-                                <button onClick={() => removeUser(u.email)} disabled={isMe || !canEditUsers} style={{background: 'transparent', color: (isMe||!canEditUsers) ? '#cbd5e1' : '#ef4444', border: 'none', fontSize: '18px', cursor: (isMe||!canEditUsers) ? 'not-allowed' : 'pointer', padding: '0 10px'}} title="Revoke Access">&times;</button>
+                                <button 
+                                    onClick={() => removeUser(u.email)} 
+                                    disabled={isMe} 
+                                    style={{...btnDestructive, opacity: isMe ? 0.3 : 1, cursor: isMe ? 'not-allowed' : 'pointer'}}
+                                >
+                                    Revoke
+                                </button>
                             </div>
                         </div>
                     )
@@ -125,9 +155,32 @@ export default function Admin() {
 
       {activeTab === "roles" && (
           <div className="animate-fade">
-              {canEditUsers ? <RoleManager /> : <p style={{padding:20}}>View Only Access to Roles.</p>}
+              <RoleManager />
           </div>
       )}
     </div>
   );
 }
+
+// STYLES
+const tabStyle = {
+    padding:'8px 16px', background:'transparent', border:'none', cursor:'pointer', color: '#64748b', fontWeight: '500'
+};
+const activeTabStyle = {
+    ...tabStyle, color: '#2563eb', background: '#eff6ff', borderRadius: '6px', fontWeight: 'bold'
+};
+const inputStyle = {
+    width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', background: 'white'
+};
+const btnPrimary = {
+    padding: '10px 20px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold', height: '42px'
+};
+const btnDestructive = {
+    padding: '10px', background: '#fee2e2', color: '#dc2626', border: 'none', borderRadius: '6px', fontWeight: 'bold'
+};
+const cardStyle = {
+    background: 'white', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '15px', boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
+};
+const badgeStyle = {
+    fontSize:'10px', background:'#0f172a', color:'white', padding:'2px 6px', borderRadius: '4px', fontWeight: 'bold'
+};

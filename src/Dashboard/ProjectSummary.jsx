@@ -10,13 +10,13 @@ const FIELD_MAPPINGS = {
     'Line Leader': ['line leader', 'line leader_1', 'leader', 'lineleader'],
     'Desc': ['desc', 'financedesc', 'description', 'project', 'project name', 'item'],
     'CUSTOMER': ['customer', 'company', 'client', 'customer name'],
-    'PL#': ['pl#', 'pl', 'job id', 'job #', 'pl number'],
+    'PL#': ['pl#', 'pl', 'job id', 'job #', 'pl number', 'plnumber'],
     'Labor HRS': ['labor hrs', 'hours', 'total hours'],
     'Units': ['units', 'total units', 'qty', 'quantity'],
     'Unit/Sec': ['unit/sec', 'units per sec'],
     'Sec/Unit': ['sec/unit', 'efficiency', 'seconds per unit'],
     'Agent': ['agent', 'sales rep','agentname'],
-    'Type': ['type', 'category', 'project type'],
+    'Type': ['type', 'category', 'project type', 'projecttype'],
     
     // NEW MAPPING
     'Target Price': [
@@ -28,7 +28,7 @@ const FIELD_MAPPINGS = {
 
 const DEFAULT_COLUMNS = [
     'Line Leader', 'Date', 'CUSTOMER', 'PL#', 'Desc', 
-    'Target Price', // <--- Added here
+    'Target Price', 
     'Labor HRS', 'Units', 'Unit/Sec', 'Sec/Unit', 'Type', 'Agent'
 ];
 
@@ -151,10 +151,12 @@ const ProjectSummary = () => {
                         'CUSTOMER': data.company,
                         'Desc': data.project,
                         'Line Leader': data.leader, 
-                        'PL#': data.jobId,
-                        'Type': data.jobName || data.category || '',
+                        // FIXED: Check plNumber first, then fallback to jobId
+                        'PL#': data.plNumber || data.jobId || '-', 
+                        // FIXED: Check projectType first (from Production Input)
+                        'Type': data.projectType || data.jobName || data.category || '',
                         'Agent': data.agentName,
-                        'Target Price': data.pricePerUnit || 0 // <--- Mapped here
+                        'Target Price': data.pricePerUnit || 0 
                     };
                     
                     let flat = flattenObject(enriched);
@@ -377,7 +379,7 @@ const ProjectSummary = () => {
         <div className="ps-wrapper">
             <div className="ps-top-bar">
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
-                    <button onClick={() => navigate('/')} className="btn-link">&larr; Dashboard</button>
+                    <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
                     <h3 style={{margin:0}}>Production Summary</h3>
                 </div>
                 <div style={{display:'flex', alignItems:'center'}}>
@@ -455,7 +457,7 @@ const ProjectSummary = () => {
                                                 userSelect:'none',
                                                 borderRadius:'4px',
                                                 transition:'background 0.2s'
-                                            }}
+                                            }} 
                                             onMouseEnter={e => e.currentTarget.style.background = '#f5f5f5'}
                                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                                             >

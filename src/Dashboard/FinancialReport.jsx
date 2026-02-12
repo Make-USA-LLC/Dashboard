@@ -180,7 +180,7 @@ const FinancialReport = () => {
     return (
         <div className="fr-wrapper">
             <div className="fr-top-bar">
-                <button onClick={() => navigate('/')} style={{background:'none', border:'none', cursor:'pointer', fontSize:'14px', fontWeight:'bold', color:'#333'}}>
+                <button onClick={() => navigate('/dashbaord')} style={{background:'none', border:'none', cursor:'pointer', fontSize:'14px', fontWeight:'bold', color:'#333'}}>
                     &larr; Dashboard
                 </button>
                 

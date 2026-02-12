@@ -245,7 +245,7 @@ const ManualIngest = () => {
     return (
         <div className="manual-ingest-wrapper">
             <div className="mi-top-bar">
-                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Raw Data Ingest</div>
                 <button onClick={handleLogout} className="btn-red-text">Sign Out</button>
             </div>

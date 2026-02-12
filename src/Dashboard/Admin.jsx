@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // 1. Import Hook
+import { useNavigate } from 'react-router-dom'; 
 import './Admin.css';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { 
@@ -27,9 +27,8 @@ const FEATURES = [
     { id: 'admin', label: 'Admin Panel' }
 ];
 
-// 2. Remove props, use internal navigation
 const Admin = () => {
-    const navigate = useNavigate(); // 3. Initialize Hook
+    const navigate = useNavigate(); 
 
     const [activeTab, setActiveTab] = useState('users');
     const [users, setUsers] = useState([]);
@@ -52,7 +51,7 @@ const Admin = () => {
                     await checkAccess(user);
                 });
             } else {
-                navigate('/'); // Redirect to home/login
+                navigate('/'); // Redirect to home/login if not logged in
             }
         });
         return () => unsubscribe();
@@ -75,7 +74,7 @@ const Admin = () => {
 
                 if (!hasAccess) {
                     alert("Access Denied.");
-                    navigate('/'); // Go back if denied
+                    navigate('/dashboard'); // FIXED: Go back to Dashboard if denied, not root
                     return;
                 }
                 
@@ -187,9 +186,9 @@ const Admin = () => {
         <div className="admin-page-wrapper" style={{background:'#f4f7f6', minHeight:'100vh'}}>
             <div className="admin-top-bar">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    {/* 4. BUTTON FIXED: Uses navigate('/') */}
+                    {/* FIXED: Point explicitly to /dashboard */}
                     <button 
-                        onClick={() => navigate('/')} 
+                        onClick={() => navigate('/dashboard')} 
                         style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}
                     >
                         &larr; Dashboard

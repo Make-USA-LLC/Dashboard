@@ -19,7 +19,8 @@ import Settings from './pages/Settings';
 import Schedule from './pages/Schedule'; 
 
 // 2. DEFINE THE BASE PATH
-const BASE = "/hr";
+const isSubdomain = window.location.hostname.toLowerCase().startsWith('hr.');
+const BASE = isSubdomain ? "" : "/hr"; // If on hr.domain.com, base is root. Else /hr.
 
 // 3. ROLE GUARD
 function RoleRoute({ children, resource, action = 'view' }) {

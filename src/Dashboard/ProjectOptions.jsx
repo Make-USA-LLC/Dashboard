@@ -146,7 +146,7 @@ const DropdownManager = () => {
     return (
         <div className="dm-wrapper">
             <div className="dm-top-bar">
-                <button onClick={() => navigate('/')} className="btn-text">&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} className="btn-text">&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Dropdown Options Manager</div>
                 <div /> {/* Spacer for layout balance */}
             </div>

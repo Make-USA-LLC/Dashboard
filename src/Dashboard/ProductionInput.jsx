@@ -296,7 +296,7 @@ const ProductionInput = () => {
     return (
         <div className="pi-wrapper">
             <div className="pi-top-bar">
-                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50', display:'flex', alignItems:'center', gap:'5px'}}>
+                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50', display:'flex', alignItems:'center', gap:'5px'}}>
                     <span className="material-icons">arrow_back</span> Dashboard
                 </button>
                 <div style={{fontWeight:'bold', color:'#3498db', display:'flex', alignItems:'center', gap:'8px'}}>

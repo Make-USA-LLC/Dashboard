@@ -174,7 +174,7 @@ const BonusReports = () => {
     return (
         <div className="reports-page-wrapper">
             <div className="reports-top-bar">
-                <button onClick={() => navigate('/')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Bonus Reports</div>
                 <button onClick={handleLogout} style={{color:'#e74c3c', border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>Sign Out</button>
             </div>

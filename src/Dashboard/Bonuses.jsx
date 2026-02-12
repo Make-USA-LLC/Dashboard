@@ -430,7 +430,7 @@ const Bonuses = () => {
     return (
         <div className="bonuses-page-wrapper">
             <div className="bonuses-top-bar">
-                <div><button onClick={() => navigate('/')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button></div>
+                <div><button onClick={() => navigate('/dashboard')} style={{border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>&larr; Dashboard</button></div>
                 <div style={{display:'flex', justifyContent:'center'}}>
                     <div className="view-toggle">
                         <button className={`toggle-btn ${view==='unpaid'?'active':''}`} onClick={() => setView('unpaid')}>Pending</button>

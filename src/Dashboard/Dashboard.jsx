@@ -422,6 +422,16 @@ const Dashboard = () => {
 
             <div id="ipadGrid" className="ipad-grid" ref={gridRef} style={{display: liveIpads.length > 0 ? 'grid' : 'none'}}>
                 {liveIpads.map(ipad => {
+                     // NEW LOGIC FOR NEGATIVE DETECTION
+                     let seconds = ipad.secondsRemaining || 0;
+                     if (!ipad.isPaused && ipad.lastUpdateTime && (ipad.activeWorkers || []).length > 0) {
+                        const lastUpdate = ipad.lastUpdateTime.seconds * 1000;
+                        const elapsedWallSecs = Math.floor((now - lastUpdate) / 1000);
+                        const burnRate = ipad.activeWorkers.length;
+                        seconds = seconds - (elapsedWallSecs * burnRate);
+                     }
+                     const isNegative = seconds < 0;
+
                      const isActive = ipad.secondsRemaining !== 0;
                      const isPaused = ipad.isPaused === true;
                      
@@ -433,11 +443,13 @@ const Dashboard = () => {
                          if (isPaused) {
                              statusClass = 'st-paused';
                              statusText = 'PAUSED';
-                             timerClass = 'timer-paused';
+                             // If negative, show negative color, otherwise paused color
+                             timerClass = isNegative ? 'timer-negative' : 'timer-paused';
                          } else {
                              statusClass = 'st-active';
                              statusText = 'RUNNING';
-                             timerClass = 'timer-running';
+                             // If negative, show negative color, otherwise running color
+                             timerClass = isNegative ? 'timer-negative' : 'timer-running';
                          }
                      }
 

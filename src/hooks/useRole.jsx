@@ -5,46 +5,52 @@ import { doc, onSnapshot } from 'firebase/firestore';
 const RoleContext = createContext();
 
 export function RoleProvider({ children }) {
-  const [roleData, setRoleData] = useState(null);
+  const [access, setAccess] = useState({ ipad: null, hr: null, tech: false, shed: false, master: false });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // 1. Get user's role name from /users/{email}
-        const userRef = doc(db, "users", user.email.toLowerCase());
-        const unsubUser = onSnapshot(userRef, (userSnap) => {
-          const roleName = userSnap.data()?.role || 'guest';
+        const email = user.email.toLowerCase();
+        
+        // --- EMERGENCY BYPASS ---
+        if (email === 'daniel.s@makeit.buzz') {
+          setAccess({ ipad: 'admin', hr: 'Admin', tech: true, shed: true, master: true });
+          setLoading(false);
+          return;
+        }
 
-          // 2. Get permissions for that role from /config/roles
-          const rolesRef = doc(db, "config", "roles");
-          const unsubRoles = onSnapshot(rolesRef, (rolesSnap) => {
-            const allRoles = rolesSnap.data() || {};
-            setRoleData({
-              name: roleName,
-              permissions: allRoles[roleName] || {}
-            });
-            setLoading(false);
-          });
-          return () => unsubRoles();
-        });
-        return () => unsubUser();
+        const unsubs = [
+          onSnapshot(doc(db, "users", email), (s) => setAccess(v => ({ ...v, ipad: s.data()?.role })), () => {}),
+          onSnapshot(doc(db, "authorized_users", email), (s) => setAccess(v => ({ ...v, hr: s.data()?.role })), () => {}),
+          onSnapshot(doc(db, "tech_access", email), (s) => setAccess(v => ({ ...v, tech: s.exists() })), () => {}),
+          onSnapshot(doc(db, "shed_access", email), (s) => setAccess(v => ({ ...v, shed: s.exists() })), () => {}),
+          onSnapshot(doc(db, "master_admin_access", email), (s) => {
+             setAccess(v => ({ ...v, master: s.exists() }));
+             setLoading(false); 
+          }, () => setLoading(false))
+        ];
+        return () => unsubs.forEach(un => un());
       } else {
+        setAccess({ ipad: null, hr: null, tech: false, shed: false, master: false });
         setLoading(false);
       }
     });
     return () => unsubscribeAuth();
   }, []);
 
-  // The actual checker function
-  const checkAccess = (system, feature, action = 'view') => {
-    if (roleData?.name === 'admin') return true;
-    // Checks path like: roleData.permissions.hr.employees_view
-    return roleData?.permissions?.[system]?.[`${feature}_${action}`] === true;
+  const checkAccess = (system, feature) => {
+    if (access.master) return true;
+    if (system === 'techs') return access.tech;
+    if (system === 'production' && feature === 'shed') return access.shed;
+    if (system === 'ipad') return !!access.ipad;
+    if (system === 'hr') return !!access.hr;
+    if (system === 'admin') return access.master;
+    return false;
   };
 
   return (
-    <RoleContext.Provider value={{ checkAccess, loading, role: roleData?.name }}>
+    <RoleContext.Provider value={{ checkAccess, loading }}>
       {children}
     </RoleContext.Provider>
   );

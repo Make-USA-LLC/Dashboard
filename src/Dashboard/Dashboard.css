@@ -174,6 +174,12 @@
     color: white; 
 }
 
+/* NEW: Negative Time */
+.dashboard-layout .card-timer.timer-negative { 
+    background: #e74c3c; /* Red for Negative */
+    color: white; 
+}
+
 /* CONTROLS */
 .btn-green { background: #27ae60; color: white; border:none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; width: 100%; display: block; box-sizing: border-box; }
 .btn-blue { background: #3498db; color: white; border:none; padding: 10px; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 13px; width: 100%; display: block; box-sizing: border-box; }

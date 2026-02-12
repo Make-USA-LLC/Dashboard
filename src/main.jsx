@@ -1,6 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import App from './App.jsx';
+import HubApp from './App.jsx';
+import HRApp from './HR/App.jsx'; // Import the HR entry point
 
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import { MsalProvider } from "@azure/msal-react";
@@ -15,14 +16,18 @@ msalInstance.addEventCallback((event) => {
     }
 });
 
+// SUBDOMAIN CHECK
+const isHRSubdomain = window.location.hostname.toLowerCase().startsWith('hr.');
+
 msalInstance.initialize().then(() => {
-    // Handle the redirect response (the return trip from Microsoft)
     msalInstance.handleRedirectPromise().then((tokenResponse) => {
-        // Render the App
+        // Choose which App to render based on subdomain
+        const RootApp = isHRSubdomain ? HRApp : HubApp;
+
         ReactDOM.createRoot(document.getElementById('root')).render(
             <React.StrictMode>
                 <MsalProvider instance={msalInstance}>
-                    <App />
+                    <RootApp />
                 </MsalProvider>
             </React.StrictMode>,
         );

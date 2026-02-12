@@ -137,7 +137,7 @@ const ArchiveUpload = () => {
         <div className="au-wrapper">
             <div className="au-top-bar">
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
-                    <button onClick={() => navigate('/')} className="btn-link">&larr; Dashboard</button>
+                    <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
                     <button onClick={() => navigate('/finance-setup')} className="btn-blue-outline">Finance Setup</button>
                 </div>
                 <button onClick={handleLogout} className="btn-link" style={{color:'#e74c3c'}}>Sign Out</button>

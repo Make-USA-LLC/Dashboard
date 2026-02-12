@@ -580,9 +580,17 @@ const ProjectSearch = () => {
                                                         </td>
                                                     );
                                                 }
+                                                // FIXED: Check for negative values and apply red color
+                                                const val = row[col];
+                                                const isNegative = typeof val === 'number' && val < 0;
+                                                
                                                 return (
-                                                    <td key={col} style={{textAlign: isNumericCol(col) || typeof row[col]==='number' ? 'right' : 'left'}}>
-                                                        {formatValue(col, row[col])}
+                                                    <td key={col} style={{
+                                                        textAlign: isNumericCol(col) || typeof val==='number' ? 'right' : 'left',
+                                                        color: isNegative ? '#e74c3c' : 'inherit',
+                                                        fontWeight: isNegative ? 'bold' : 'normal'
+                                                    }}>
+                                                        {formatValue(col, val)}
                                                     </td>
                                                 );
                                             })}

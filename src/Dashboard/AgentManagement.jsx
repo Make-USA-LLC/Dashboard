@@ -97,7 +97,7 @@ const AgentManagement = () => {
     return (
         <div className="agent-page-wrapper">
             <div className="agent-top-bar">
-                <button onClick={() => navigate('/')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
+                <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold', color:'#8e44ad'}}>Agent Management</div>
                 <button onClick={handleLogout} className="btn-red-text">Sign Out</button>
             </div>

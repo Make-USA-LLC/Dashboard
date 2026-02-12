@@ -377,7 +377,7 @@ const FinanceInput = () => {
     <>
       <div className="top-bar">
         <div 
-          onClick={() => navigate('/')} 
+          onClick={() => navigate('/dashboard')} 
           style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '5px', color: '#2c3e50', fontWeight: 'bold' }}
         >
           <span className="material-icons">arrow_back</span> Dashboard
