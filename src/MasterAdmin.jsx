@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-// FIX: Ensure this path is correct. If this file is in src/, use ./firebase_config
 import { db, auth } from './firebase_config'; 
 import { collection, doc, setDoc, deleteDoc, getDoc, onSnapshot, updateDoc, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import { Globe } from 'lucide-react'; // Import Icon
 
 const MasterAdmin = () => {
     const navigate = useNavigate();
@@ -15,19 +15,16 @@ const MasterAdmin = () => {
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             if (user) {
-                // IMMEDIATE BYPASS for your email
                 if (user.email.toLowerCase() === 'daniel.s@makeit.buzz') {
                     setupListeners();
                     return;
                 }
-                
-                // For everyone else, check the DB
                 getDoc(doc(db, "master_admin_access", user.email.toLowerCase()))
                     .then(snap => {
                         if (snap.exists()) setupListeners();
                         else navigate('/');
                     })
-                    .catch(() => navigate('/')); // Fail safe
+                    .catch(() => navigate('/')); 
             } else {
                 navigate('/');
             }
@@ -36,11 +33,10 @@ const MasterAdmin = () => {
     }, []);
 
     const setupListeners = () => {
-        // Safe listener helper
         const listen = (coll, key, mapFn) => {
             onSnapshot(collection(db, coll), 
                 (s) => setLists(prev => ({ ...prev, [key]: s.docs.map(mapFn) })),
-                (err) => console.log(`Waiting for ${coll}...`) // Suppress scary red errors
+                (err) => console.log(`Waiting for ${coll}...`) 
             );
         };
 
@@ -50,7 +46,6 @@ const MasterAdmin = () => {
         listen("shed_access", "shed", d => ({email: d.id}));
         listen("master_admin_access", "admin", d => ({email: d.id}));
         
-        // Load Roles (One time fetch)
         getDoc(doc(db, "config", "roles")).then(s => s.exists() && setRoles(p => ({...p, ipad: Object.keys(s.data())})));
         getDocs(collection(db, "roles")).then(s => setRoles(p => ({...p, hr: s.docs.map(d => d.id)})));
         
@@ -82,8 +77,25 @@ const MasterAdmin = () => {
 
     return (
         <div style={{ padding: '20px', background: '#f1f5f9', minHeight: '100vh', fontFamily: 'sans-serif' }}>
+            
+            {/* Header Section */}
             <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'30px'}}>
-                <h2 style={{color: '#1e293b', margin:0}}>System Access Console</h2>
+                <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
+                    <h2 style={{color: '#1e293b', margin:0}}>System Access Console</h2>
+                    
+                    {/* NEW BUTTON FOR LINKS MANAGER */}
+                    <button 
+                        onClick={() => navigate('/admin/links')} 
+                        style={{
+                            display:'flex', alignItems:'center', gap:'6px',
+                            background: '#3b82f6', color:'white', border:'none', 
+                            padding:'8px 16px', borderRadius:'20px', cursor:'pointer', fontWeight:'bold'
+                        }}
+                    >
+                        <Globe size={16} /> Manage Links
+                    </button>
+                </div>
+
                 <button onClick={() => navigate('/')} style={{padding:'8px 16px', background:'#64748b', color:'white', border:'none', borderRadius:'4px', cursor:'pointer'}}>Exit</button>
             </div>
 

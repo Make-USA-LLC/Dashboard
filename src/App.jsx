@@ -9,7 +9,11 @@ import {
   Warehouse, 
   ShieldAlert, 
   LogOut 
-} from 'lucide-react'; // IMPORT ICONS
+} from 'lucide-react'; 
+
+// --- NEW IMPORTS ---
+import DomainRouter from './components/DomainRouter';
+import LinksManager from './LinksManager';
 
 // --- ROLE SYSTEM ---
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
@@ -19,7 +23,7 @@ import RoleRoute from './components/RoleRoute.jsx';
 import HRApp from './hr/App'; 
 import TechApp from './Techs/App'; 
 import DashboardApp from './dashboard/App';
-import Kiosk from './dashboard/Kiosk'; // Import Kiosk directly
+import Kiosk from './dashboard/Kiosk'; 
 import ShedApp from './shed/App';
 import MasterAdmin from './MasterAdmin'; 
 
@@ -111,11 +115,6 @@ function SelectionGrid({ user }) {
   );
 }
 
-/**
- * ProtectedMainApp
- * This component handles the Main System UI (Header, etc.) and enforces Authentication.
- * Only routes nested inside here will require the Master Login.
- */
 function ProtectedMainApp() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -149,7 +148,10 @@ function ProtectedMainApp() {
 
       <Routes>
         <Route path="/" element={<SelectionGrid user={user} />} />
-        <Route path="/admin/*" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
+        <Route path="/admin" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
+        {/* NEW LINKS MANAGER ROUTE */}
+        <Route path="/admin/links" element={<RoleRoute system="admin" feature="panel"><LinksManager /></RoleRoute>} />
+        
         <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
         <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
@@ -163,19 +165,16 @@ export default function App() {
   return (
     <RoleProvider>
       <BrowserRouter>
+        {/* INJECT DOMAIN ROUTER HERE (Run logic on every page load) */}
+        <DomainRouter />
+        
         <Routes>
-          {/* --- PUBLIC ACCESS ROUTES (No Master Login Required) --- */}
-          
-          {/* Redirect /kiosk -> /dashboard/kiosk */}
+          {/* Public / Semi-Public Routes */}
           <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
-          
-          {/* Load Kiosk Component Directly */}
           <Route path="/dashboard/kiosk" element={<Kiosk />} />
 
-
-          {/* --- PROTECTED ROUTES (Require Master Login) --- */}
+          {/* Protected Routes */}
           <Route path="/*" element={<ProtectedMainApp />} />
-          
         </Routes>
       </BrowserRouter>
     </RoleProvider>
