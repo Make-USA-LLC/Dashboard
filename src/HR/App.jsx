@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
+import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useRole, RoleProvider } from './hooks/useRole'; 
 import './HR.css'; 
 
@@ -16,11 +16,9 @@ import Logs from './pages/Logs';
 import Settings from './pages/Settings'; 
 import Schedule from './pages/Schedule'; 
 
-// Check if we are running as the root app (Subdomain)
-const isSubdomain = window.location.hostname.toLowerCase().startsWith('hr.');
-const BASE = isSubdomain ? "" : "/hr"; 
+// Since we are always nested inside the main app, the base is fixed
+const BASE = "/hr"; 
 
-// --- Helper Components ---
 function RoleRoute({ children, resource, action = 'view' }) {
   const { checkAccess, loading } = useRole();
   if (loading) return <div style={{padding:20}}>Verifying permissions...</div>;
@@ -69,7 +67,7 @@ function NavBar() {
         {canSettings && <Link to={`${BASE}/settings`} style={{textDecoration:'none', fontSize:'18px'}}>⚙️</Link>}
         {canAdmin && <NavLink to="/admin">Admin</NavLink>}
         <div style={{width: '1px', height: '15px', background: '#cbd5e1'}}></div>
-        <a href="https://makeusa.us" style={{textDecoration:'none', color:'#2563eb', fontWeight:'bold'}}>Exit to Hub</a>
+        <Link to="/" style={{textDecoration:'none', color:'#2563eb', fontWeight:'bold'}}>Exit to Hub</Link>
       </div>
     </nav>
   );
@@ -77,13 +75,15 @@ function NavBar() {
 
 // --- Main Component ---
 export default function App() {
-  // Define the core content of the HR App
-  const appContent = (
+  // Pure routing component - relies on Parent 'App.jsx' for Router & Auth
+  return (
     <RoleProvider>
       <div style={{minHeight: '100vh', background: '#f8fafc'}}>
+        
         <div style={{maxWidth: '100%', padding: '0 20px', margin: '0 auto'}}>
           <NavBar />
         </div>
+
         <div style={{ maxWidth: '100%', margin: '0 auto', padding: '20px' }}>
           <Routes>
             <Route path="" element={<Dashboard />} />
@@ -97,19 +97,12 @@ export default function App() {
             <Route path="assets" element={<RoleRoute resource="assets_hardware"><Assets /></RoleRoute>} />
             <Route path="settings" element={<RoleRoute resource="settings_general"><Settings /></RoleRoute>} />
             <Route path="admin" element={<RoleRoute resource="settings_security" action="edit"><Admin /></RoleRoute>} />
+            
+            {/* Redirect unknown paths back to HR Dashboard */}
             <Route path="*" element={<Navigate to={`${BASE}`} />} />
           </Routes>
         </div>
       </div>
     </RoleProvider>
   );
-
-  // LOGIC: If we are on the subdomain, we are the ROOT app, so we MUST provide the Router.
-  if (isSubdomain) {
-    return <BrowserRouter>{appContent}</BrowserRouter>;
-  }
-
-  // If we are NOT on the subdomain, we are likely nested inside the Main Hub's router.
-  // We MUST NOT render another Router.
-  return appContent;
 }

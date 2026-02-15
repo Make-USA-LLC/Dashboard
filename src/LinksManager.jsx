@@ -100,7 +100,7 @@ const LinksManager = () => {
                         <div>
                             <label style={labelStyle}>Incoming Source</label>
                             <input 
-                                placeholder="e.g. hr.makeusa.com OR makeusa.us/kiosk" 
+                                placeholder="e.g. hr.makeusa.us OR makeusa.us/kiosk" 
                                 value={input.domain}
                                 onChange={e => setInput({...input, domain: e.target.value})}
                                 style={inputStyle} 
