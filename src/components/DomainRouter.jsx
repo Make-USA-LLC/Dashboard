@@ -11,30 +11,24 @@ const DomainRouter = () => {
     const checkRouting = async () => {
       try {
         // 1. Get current URL parts
-        const currentHost = window.location.hostname.toLowerCase(); // e.g. hr.makeusa.com
-        const currentPath = window.location.pathname.toLowerCase(); // e.g. /kiosk
+        const currentHost = window.location.hostname.toLowerCase();
+        const currentPath = window.location.pathname.toLowerCase();
         
-        // Remove trailing slash from path for cleaner matching
         const cleanPath = currentPath.endsWith('/') && currentPath.length > 1 ? currentPath.slice(0, -1) : currentPath;
         
-        // Construct "Host + Path" (e.g. makeusa.com/kiosk)
-        // We strip the leading slash from pathname to join cleanly if needed, or just append.
-        // Let's standard format: hostname + pathname
+        // Construct "Host + Path"
         const fullSource = (currentHost + cleanPath);
 
         const routesSnapshot = await getDocs(collection(db, "config_routing"));
         
         routesSnapshot.forEach(doc => {
           const rule = doc.data();
-          const ruleSource = rule.source.toLowerCase().replace(/\/$/, ''); // Remove trailing slash from rule
+          const ruleSource = rule.source.toLowerCase().replace(/\/$/, ''); 
 
-          // 2. Check for Match (Either Domain Match OR Full URL Match)
-          // Match 1: "hr.makeusa.com" === "hr.makeusa.com"
-          // Match 2: "makeusa.com/kiosk" === "makeusa.com/kiosk"
-          
           if (currentHost === ruleSource || fullSource === ruleSource) {
             
             // 3. Prevent Loop: Only redirect if we aren't already at the target
+            // Note: Since we only run on mount now, this simply sets the "Default Entry" for the domain
             if (!location.pathname.startsWith(rule.destination)) {
               console.log(`[DomainRouter] Redirecting ${ruleSource} -> ${rule.destination}`);
               navigate(rule.destination);
@@ -47,7 +41,9 @@ const DomainRouter = () => {
     };
 
     checkRouting();
-  }, [location.pathname]); // Re-run if path changes (optional, but good for SPA)
+    // CHANGED: Empty dependency array ensures this only runs on initial site load.
+    // This allows the user to navigate away (e.g. to "/") without being forced back.
+  }, []); 
 
   return null;
 };
