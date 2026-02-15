@@ -8,8 +8,9 @@ export default function Inventory() {
   const [lines, setLines] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
+  const [editingId, setEditingId] = useState(null); // NEW: Editing State
 
-  // Form State - Added 'reorderLink'
+  // Form State
   const [form, setForm] = useState({
     name: "", partNumber: "", location: "", 
     quantity: 0, minLevel: 5, supplier: "", notes: "",
@@ -32,6 +33,13 @@ export default function Inventory() {
     return () => { unsubInv(); unsubLines(); };
   }, []);
 
+  // EDIT HANDLER
+  const handleEdit = (item) => {
+    setForm(item);
+    setEditingId(item.id);
+    setShowModal(true);
+  };
+
   const handleAdd = async (e) => {
     e.preventDefault();
     
@@ -39,12 +47,22 @@ export default function Inventory() {
     const selectedLine = lines.find(l => l.id === form.lineId);
     const lineName = selectedLine ? selectedLine.name : "General Stock";
 
-    await addDoc(collection(db, "inventory"), {
+    const payload = {
       ...form,
       quantity: parseInt(form.quantity),
       minLevel: parseInt(form.minLevel),
       lineName: lineName
-    });
+    };
+
+    if (editingId) {
+        // UPDATE Existing
+        const { id, ...cleanPayload } = payload; // Remove ID from payload
+        await updateDoc(doc(db, "inventory", editingId), cleanPayload);
+    } else {
+        // ADD New
+        await addDoc(collection(db, "inventory"), payload);
+    }
+    
     closeModal();
   };
 
@@ -62,7 +80,7 @@ export default function Inventory() {
 
   const closeModal = () => {
     setShowModal(false);
-    // Reset Form
+    setEditingId(null); // RESET
     setForm({ 
       name: "", partNumber: "", location: "", 
       quantity: 0, minLevel: 5, supplier: "", 
@@ -99,7 +117,10 @@ export default function Inventory() {
                   <h3>{item.name}</h3>
                   <div className="sku">#{item.partNumber}</div>
                 </div>
-                <button onClick={() => handleDelete(item.id)} className="delete-x">×</button>
+                <div style={{display:'flex', gap: 5}}>
+                    <button onClick={() => handleEdit(item)} className="edit-btn">✏️</button>
+                    <button onClick={() => handleDelete(item.id)} className="delete-x">×</button>
+                </div>
               </div>
 
               <div className="inv-body">
@@ -146,7 +167,7 @@ export default function Inventory() {
           <div className="modal-box">
             <button className="close-modal" onClick={closeModal}>×</button>
             <form onSubmit={handleAdd} className="modal-form">
-              <h2>Add Inventory Item</h2>
+              <h2>{editingId ? "Edit Item" : "Add Inventory Item"}</h2>
               
               <label style={{fontSize:'0.9rem', fontWeight:'bold', color:'#64748b'}}>Linked Machine</label>
               <select 
@@ -189,7 +210,7 @@ export default function Inventory() {
               </div>
 
               <textarea placeholder="Notes..." value={form.notes} onChange={e => setForm({...form, notes: e.target.value})} />
-              <button type="submit" className="save-btn">Save to Inventory</button>
+              <button type="submit" className="save-btn">{editingId ? "Update Item" : "Save to Inventory"}</button>
             </form>
           </div>
         </div>

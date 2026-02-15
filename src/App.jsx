@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
 import { auth } from './firebase_config'; 
 import { 
@@ -19,6 +19,7 @@ import RoleRoute from './components/RoleRoute.jsx';
 import HRApp from './hr/App'; 
 import TechApp from './Techs/App'; 
 import DashboardApp from './dashboard/App';
+import Kiosk from './dashboard/Kiosk'; // Import Kiosk directly
 import ShedApp from './shed/App';
 import MasterAdmin from './MasterAdmin'; 
 
@@ -39,21 +40,6 @@ function GlobalLogin() {
       </div>
     </div>
   );
-}
-
-function RequireAuth({ children }) {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
-  if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
-  if (!user) return <GlobalLogin />;
-  return children;
 }
 
 function SelectionGrid({ user }) {
@@ -125,39 +111,72 @@ function SelectionGrid({ user }) {
   );
 }
 
-export default function App() {
+/**
+ * ProtectedMainApp
+ * This component handles the Main System UI (Header, etc.) and enforces Authentication.
+ * Only routes nested inside here will require the Master Login.
+ */
+function ProtectedMainApp() {
   const [user, setUser] = useState(null);
-  useEffect(() => onAuthStateChanged(auth, setUser), []);
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+      setUser(currentUser);
+      setLoading(false);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
+  if (!user) return <GlobalLogin />;
+
+  return (
+    <div style={{ fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
+      {/* Header */}
+      <div style={{background:'#1e293b', padding:'15px 30px', display:'flex', justifyContent:'space-between', alignItems:'center', color: 'white'}}>
+        <Link to="/" style={{textDecoration: 'none', color: 'white', fontWeight:'bold', fontSize: '18px', display:'flex', alignItems:'center', gap:'10px'}}>
+          <ShieldAlert size={20} />
+          Make USA | Command Center
+        </Link>
+        <button 
+          onClick={() => signOut(auth)} 
+          style={{background:'rgba(255,255,255,0.1)', color:'white', border:'none', padding:'8px 16px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px'}}
+        >
+          <LogOut size={16} /> Sign Out
+        </button>
+      </div>
+
+      <Routes>
+        <Route path="/" element={<SelectionGrid user={user} />} />
+        <Route path="/admin/*" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
+        <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
+        <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
+        <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
+        <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
+      </Routes>
+    </div>
+  );
+}
+
+export default function App() {
   return (
     <RoleProvider>
       <BrowserRouter>
-        <RequireAuth>
-          <div style={{ fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
-            {/* Header */}
-            <div style={{background:'#1e293b', padding:'15px 30px', display:'flex', justifyContent:'space-between', alignItems:'center', color: 'white'}}>
-              <Link to="/" style={{textDecoration: 'none', color: 'white', fontWeight:'bold', fontSize: '18px', display:'flex', alignItems:'center', gap:'10px'}}>
-                <ShieldAlert size={20} />
-                Make USA | Command Center
-              </Link>
-              <button 
-                onClick={() => signOut(auth)} 
-                style={{background:'rgba(255,255,255,0.1)', color:'white', border:'none', padding:'8px 16px', borderRadius:'6px', cursor:'pointer', display:'flex', alignItems:'center', gap:'8px'}}
-              >
-                <LogOut size={16} /> Sign Out
-              </button>
-            </div>
+        <Routes>
+          {/* --- PUBLIC ACCESS ROUTES (No Master Login Required) --- */}
+          
+          {/* Redirect /kiosk -> /dashboard/kiosk */}
+          <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
+          
+          {/* Load Kiosk Component Directly */}
+          <Route path="/dashboard/kiosk" element={<Kiosk />} />
 
-            <Routes>
-              <Route path="/" element={<SelectionGrid user={user} />} />
-              <Route path="/admin/*" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
-              <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
-              <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
-              <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
-              <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
-            </Routes>
-          </div>
-        </RequireAuth>
+
+          {/* --- PROTECTED ROUTES (Require Master Login) --- */}
+          <Route path="/*" element={<ProtectedMainApp />} />
+          
+        </Routes>
       </BrowserRouter>
     </RoleProvider>
   );

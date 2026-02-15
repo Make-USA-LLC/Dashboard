@@ -13,6 +13,7 @@ export default function LineDetails() {
   
   const [showModal, setShowModal] = useState(false);
   const [modalStep, setModalStep] = useState("selection");
+  const [editingId, setEditingId] = useState(null); // NEW: Track what we are editing
 
   // --- TRACKING STATES ---
   const [usageDate, setUsageDate] = useState("");
@@ -66,7 +67,6 @@ export default function LineDetails() {
             setTestInterval(data.microInterval);
             setIsUsingGlobal(false);
         } else {
-            // Will be updated when globalInterval loads, but set logic here too
             setIsUsingGlobal(true);
         }
       }
@@ -104,25 +104,29 @@ export default function LineDetails() {
       }
   }, [globalInterval, isUsingGlobal]);
 
+  // --- EDIT MACHINE NAME ---
+  const handleEditMachine = async () => {
+    const newName = prompt("Enter new machine name:", lineData?.name);
+    if (newName && newName !== lineData.name) {
+      await updateDoc(doc(db, "lines", id), { name: newName });
+    }
+  };
+
   // --- TRACKING ACTIONS ---
-  
   const saveInterval = async () => {
-    // If they saved the same value as global, maybe we should remove the override?
-    // For now, let's just save it as a specific override if they clicked Save.
     await updateDoc(doc(db, "lines", id), { microInterval: parseInt(testInterval) });
     setIsUsingGlobal(false);
     alert("Custom Interval Saved!");
   };
 
   const resetToGlobal = async () => {
-    await updateDoc(doc(db, "lines", id), { microInterval: null }); // Remove field to fallback
+    await updateDoc(doc(db, "lines", id), { microInterval: null }); 
     setIsUsingGlobal(true);
     setTestInterval(globalInterval);
   };
 
   const logUsage = async () => {
     if(!usageDate) return alert("Select a date");
-    
     const [y, m, d] = usageDate.split('-').map(Number);
     const dateObj = new Date(y, m - 1, d, 12, 0, 0); 
     
@@ -190,7 +194,7 @@ export default function LineDetails() {
     }
   };
 
-  // --- GENERAL ACTIONS ---
+  // --- CONTACTS & PARTS ACTIONS ---
   const handleAddMsg = (e) => {
     e.preventDefault();
     if(!msgHandle) return;
@@ -204,15 +208,44 @@ export default function LineDetails() {
     setCForm({...cForm, messaging: newMsg});
   };
 
+  // EDIT SETUP
+  const editContact = (contact) => {
+    setCForm(contact);
+    setEditingId(contact.id);
+    setModalStep("contact");
+    setShowModal(true);
+  };
+
+  const editPart = (part) => {
+    setPForm(part);
+    setEditingId(part.id);
+    setModalStep("part");
+    setShowModal(true);
+  };
+
   const submitContact = async (e) => {
     e.preventDefault();
-    await addDoc(collection(db, "lines", id, "contacts"), cForm);
+    if (editingId) {
+      // UPDATE
+      const { id: _, ...data } = cForm; // Remove ID from data payload
+      await updateDoc(doc(db, "lines", id, "contacts", editingId), data);
+    } else {
+      // CREATE
+      await addDoc(collection(db, "lines", id, "contacts"), cForm);
+    }
     closeModal();
   };
 
   const submitPart = async (e) => {
     e.preventDefault();
-    await addDoc(collection(db, "lines", id, "parts"), pForm);
+    if (editingId) {
+      // UPDATE
+      const { id: _, ...data } = pForm;
+      await updateDoc(doc(db, "lines", id, "parts", editingId), data);
+    } else {
+      // CREATE
+      await addDoc(collection(db, "lines", id, "parts"), pForm);
+    }
     closeModal();
   };
 
@@ -225,6 +258,7 @@ export default function LineDetails() {
   const closeModal = () => {
     setShowModal(false);
     setModalStep("selection");
+    setEditingId(null); // RESET EDITING
     setCForm({ firstName: "", lastName: "", phone: "", email: "", notes: "", messaging: [] });
     setPForm({ name: "", partNumber: "", supplier: "", description: "", link: "", price: "", leadTime: "", criticality: "Medium" });
     setMsgService("WeChat");
@@ -237,7 +271,12 @@ export default function LineDetails() {
     <div className="page">
       <Link to="/techs" className="back-link">← Back to Dashboard</Link>
       <div className="header-flex">
-        <h1>{lineData?.name || "Loading..."}</h1>
+        <h1>
+          {lineData?.name || "Loading..."}
+          <button onClick={handleEditMachine} style={{background:'none', border:'none', cursor:'pointer', marginLeft: 10, fontSize: '1.2rem'}}>
+            ✏️
+          </button>
+        </h1>
       </div>
 
       {/* --- TRACKING SECTION --- */}
@@ -245,7 +284,6 @@ export default function LineDetails() {
         <h3>Machine Tracking & Logs</h3>
         
         <div className="grid" style={{marginTop: 15, gap: 20}}>
-          
           {/* USAGE TRACKER */}
           <div style={{background:'#f8fafc', padding: 15, borderRadius: 8}}>
             <h4 style={{marginTop:0, color:'#475569'}}>Machine Usage</h4>
@@ -265,12 +303,10 @@ export default function LineDetails() {
               Last Swab: <strong>{fmtDate(lineData?.lastMicroTestDate)}</strong>
             </div>
             
-            {/* INPUT ROW 1: Date */}
             <div style={{display:'flex', gap: 5, marginBottom: 5}}>
               <input type="date" value={testDate} onChange={e=>setTestDate(e.target.value)} style={{flex:1}} />
             </div>
 
-            {/* TOGGLE: RESULTS NOW OR LATER */}
             <div style={{marginBottom: 10, fontSize:'0.85rem'}}>
                 <label style={{display:'flex', alignItems:'center', cursor:'pointer'}}>
                     <input 
@@ -283,7 +319,6 @@ export default function LineDetails() {
                 </label>
             </div>
 
-            {/* INPUT ROW 2: Results */}
             {hasResult && (
                 <div style={{marginBottom: 10}}>
                     <div style={{display:'flex', gap: 5, marginBottom: 5}}>
@@ -305,7 +340,6 @@ export default function LineDetails() {
                 {hasResult ? "Log Test & Result" : "Log Sample Taken (Pending)"}
             </button>
             
-            {/* INTERVAL SETTING */}
             <div style={{display:'flex', alignItems:'center', gap: 10, fontSize:'0.8rem', borderTop:'1px solid #e2e8f0', paddingTop: 10, marginTop:10}}>
               <label>Frequency (Days):</label>
               <input 
@@ -316,7 +350,7 @@ export default function LineDetails() {
               />
               <button onClick={saveInterval} style={{fontSize:'0.7rem', padding:'2px 5px'}}>Save</button>
               {!isUsingGlobal && (
-                  <button onClick={resetToGlobal} style={{fontSize:'0.7rem', padding:'2px 5px', color:'#ef4444'}}>Reset to Default</button>
+                  <button onClick={resetToGlobal} style={{fontSize:'0.7rem', padding:'2px 5px', color:'#ef4444'}}>Reset</button>
               )}
             </div>
             {isUsingGlobal && <div style={{fontSize:'0.7rem', color:'#64748b', marginTop:2}}>Using Global Default</div>}
@@ -369,11 +403,10 @@ export default function LineDetails() {
               )}
             </div>
           </div>
-
         </div>
       </div>
 
-      {/* NEW: Inventory Section */}
+      {/* INVENTORY SECTION */}
       <div className="card" style={{marginBottom: 24, borderLeft: '5px solid #2563eb'}}>
         <h3>Live Inventory / Spares</h3>
         {linkedInventory.length === 0 ? (
@@ -390,6 +423,7 @@ export default function LineDetails() {
                    <span style={{fontSize:'1.2rem', fontWeight:'bold', color: item.quantity <= item.minLevel ? '#ef4444' : '#16a34a'}}>
                      {item.quantity} <span style={{fontSize:'0.8rem', fontWeight:'normal', color:'#64748b'}}>in stock</span>
                    </span>
+                   {/* Link to Inventory Page for Editing */}
                    <Link to="/techs/inventory" style={{fontSize:'0.8rem', color:'#2563eb'}}>Manage</Link>
                 </div>
               </div>
@@ -398,8 +432,8 @@ export default function LineDetails() {
         )}
       </div>
 
-      {/* OTHER SECTIONS (CONTACTS, PARTS) - SAME AS BEFORE */}
       <div className="split-view">
+        {/* CONTACTS */}
         <div className="section">
           <h3>Contacts</h3>
           {contacts.length === 0 && <p className="empty-state">No contacts added.</p>}
@@ -408,7 +442,10 @@ export default function LineDetails() {
               <div key={c.id} className="item-card">
                 <div className="item-header">
                   <strong>{c.firstName} {c.lastName}</strong>
-                  <button onClick={() => deleteItem("contacts", c.id)} className="delete-x">×</button>
+                  <div style={{display:'flex', gap:5}}>
+                    <button onClick={() => editContact(c)} className="edit-btn">✏️</button>
+                    <button onClick={() => deleteItem("contacts", c.id)} className="delete-x">×</button>
+                  </div>
                 </div>
                 <div className="item-details">
                   {c.phone && <div>📞 {c.phone}</div>}
@@ -423,6 +460,7 @@ export default function LineDetails() {
           </div>
         </div>
 
+        {/* REFERENCE PARTS */}
         <div className="section">
           <h3>Reference Parts List</h3>
           <p style={{fontSize:'0.8rem', color:'#94a3b8', marginBottom:10}}>Use this list for parts that you need to order but don't stock.</p>
@@ -432,7 +470,10 @@ export default function LineDetails() {
               <div key={p.id} className="item-card">
                  <div className="item-header">
                   <strong>{p.name}</strong>
-                  <button onClick={() => deleteItem("parts", p.id)} className="delete-x">×</button>
+                  <div style={{display:'flex', gap:5}}>
+                    <button onClick={() => editPart(p)} className="edit-btn">✏️</button>
+                    <button onClick={() => deleteItem("parts", p.id)} className="delete-x">×</button>
+                  </div>
                 </div>
                 <div className="item-sub">#{p.partNumber} • {p.supplier}</div>
                 <div className="item-details">
@@ -469,7 +510,7 @@ export default function LineDetails() {
 
             {modalStep === "contact" && (
               <form onSubmit={submitContact} className="modal-form">
-                <h2>New Contact</h2>
+                <h2>{editingId ? "Edit Contact" : "New Contact"}</h2>
                 <div className="form-row">
                   <input placeholder="First Name" value={cForm.firstName} onChange={e=>setCForm({...cForm, firstName:e.target.value})} required />
                   <input placeholder="Last Name" value={cForm.lastName} onChange={e=>setCForm({...cForm, lastName:e.target.value})} required />
@@ -500,13 +541,13 @@ export default function LineDetails() {
                 </div>
 
                 <textarea placeholder="Notes / Role Description..." value={cForm.notes} onChange={e=>setCForm({...cForm, notes:e.target.value})} />
-                <button type="submit" className="save-btn">Save Contact</button>
+                <button type="submit" className="save-btn">{editingId ? "Update Contact" : "Save Contact"}</button>
               </form>
             )}
 
             {modalStep === "part" && (
               <form onSubmit={submitPart} className="modal-form">
-                <h2>New Reference Part</h2>
+                <h2>{editingId ? "Edit Reference Part" : "New Reference Part"}</h2>
                 <p style={{fontSize:'0.85rem', color:'#64748b', marginBottom:15}}>
                   Note: This adds to the reference list. To add trackable stock, use the Inventory page.
                 </p>
@@ -529,7 +570,7 @@ export default function LineDetails() {
                 </div>
                 <input placeholder="Order Link (http://...)" value={pForm.link} onChange={e=>setPForm({...pForm, link:e.target.value})} />
                 <textarea placeholder="Part Description..." value={pForm.description} onChange={e=>setPForm({...pForm, description:e.target.value})} />
-                <button type="submit" className="save-btn">Save Part</button>
+                <button type="submit" className="save-btn">{editingId ? "Update Part" : "Save Part"}</button>
               </form>
             )}
           </div>
@@ -543,7 +584,6 @@ export default function LineDetails() {
                 <button className="close-modal" onClick={() => setShowResultModal(false)}>×</button>
                 <h2>Enter Swab Results</h2>
                 <p style={{fontSize:'0.9rem', color:'#64748b'}}>For sample taken on {fmtDate(targetLog?.date)}</p>
-                
                 <label style={{fontWeight:'bold', display:'block', marginTop: 15}}>Result</label>
                 <select 
                     value={updateResultVal} 
@@ -553,7 +593,6 @@ export default function LineDetails() {
                     <option value="Pass">Pass</option>
                     <option value="Fail">Fail</option>
                 </select>
-
                 <label style={{fontWeight:'bold', display:'block', marginTop: 15}}>Notes / RLU</label>
                 <input 
                     value={updateNotesVal} 
@@ -561,7 +600,6 @@ export default function LineDetails() {
                     placeholder="e.g. RLU 50, Cleaned area..."
                     style={{width:'100%', padding: 8, marginTop: 5, boxSizing:'border-box'}}
                 />
-
                 <button onClick={saveResultUpdate} className="save-btn" style={{marginTop: 20}}>Save Result</button>
             </div>
         </div>
