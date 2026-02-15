@@ -23,7 +23,9 @@ import RoleRoute from './components/RoleRoute.jsx';
 import HRApp from './hr/App'; 
 import TechApp from './Techs/App'; 
 import DashboardApp from './dashboard/App';
-import Kiosk from './dashboard/Kiosk'; 
+import Kiosk from './dashboard/Kiosk';
+// NEW: Import Employee Portal directly to expose it publicly
+import EmployeePortal from './dashboard/EmployeePortal'; 
 import ShedApp from './shed/App';
 import MasterAdmin from './MasterAdmin'; 
 
@@ -172,6 +174,11 @@ export default function App() {
           {/* Public / Semi-Public Routes */}
           <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
           <Route path="/dashboard/kiosk" element={<Kiosk />} />
+
+          {/* --- NEW: EMPLOYEE PORTAL PUBLIC WHITELIST --- */}
+          {/* This allows access without the Global Login */}
+          <Route path="/dashboard/employee-portal" element={<EmployeePortal />} />
+          <Route path="/employee-portal" element={<EmployeePortal />} />
 
           {/* Protected Routes */}
           <Route path="/*" element={<ProtectedMainApp />} />

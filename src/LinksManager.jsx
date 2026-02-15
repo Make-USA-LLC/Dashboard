@@ -11,7 +11,7 @@ const LinksManager = () => {
     const [routes, setRoutes] = useState([]);
     const [input, setInput] = useState({ domain: '', path: '' });
 
-    // --- 1. AUTH CHECK (Same as MasterAdmin) ---
+    // --- 1. AUTH CHECK ---
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
             if (user) {
@@ -34,27 +34,34 @@ const LinksManager = () => {
 
     // --- 2. DATA LISTENER ---
     const initData = () => {
-        // Listen to 'config_routing' collection
         onSnapshot(collection(db, "config_routing"), 
             (snapshot) => {
                 setRoutes(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
                 setLoading(false);
             },
-            (error) => console.error("Error fetching routes:", error)
+            (error) => {
+                console.error("Error fetching routes:", error);
+                setLoading(false); 
+            }
         );
     };
 
     // --- 3. ACTIONS ---
     const handleAdd = async () => {
-        const domain = input.domain.toLowerCase().trim();
+        // Lowercase and remove protocols (http://) if pasted
+        let sourceRaw = input.domain.toLowerCase().trim();
+        sourceRaw = sourceRaw.replace(/^https?:\/\//, ''); // Remove http:// or https://
+        
         const destination = input.path.trim();
 
-        if (!domain || !destination) return alert("Please fill in both fields");
+        if (!sourceRaw || !destination) return alert("Please fill in both fields");
 
         try {
-            // Use domain as ID for easy uniqueness
-            await setDoc(doc(db, "config_routing", domain), {
-                source: domain,
+            // FIX: Encode the source to creating a valid ID even if it has slashes (makeusa.us/kiosk)
+            const safeId = encodeURIComponent(sourceRaw);
+
+            await setDoc(doc(db, "config_routing", safeId), {
+                source: sourceRaw,
                 destination: destination,
                 createdAt: new Date()
             });
@@ -65,7 +72,7 @@ const LinksManager = () => {
     };
 
     const handleDelete = async (id) => {
-        if (window.confirm(`Delete redirect for ${id}?`)) {
+        if (window.confirm(`Delete redirect?`)) {
             await deleteDoc(doc(db, "config_routing", id));
         }
     };
@@ -74,12 +81,11 @@ const LinksManager = () => {
 
     return (
         <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'Segoe UI, sans-serif' }}>
-            {/* Header */}
             <div style={{ background: '#3b82f6', padding: '20px', color: 'white', display: 'flex', alignItems: 'center', gap: '15px' }}>
                 <button onClick={() => navigate('/admin')} style={{ background: 'rgba(255,255,255,0.2)', border: 'none', color: 'white', padding: '8px', borderRadius: '50%', cursor: 'pointer', display:'flex' }}>
                     <ArrowLeft size={20} />
                 </button>
-                <h2 style={{ margin: 0 }}>Domain Links Manager</h2>
+                <h2 style={{ margin: 0 }}>Domain & Link Manager</h2>
             </div>
 
             <div style={{ maxWidth: '800px', margin: '40px auto', padding: '0 20px' }}>
@@ -92,9 +98,9 @@ const LinksManager = () => {
                     </h3>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '15px' }}>
                         <div>
-                            <label style={labelStyle}>Incoming Domain</label>
+                            <label style={labelStyle}>Incoming Source</label>
                             <input 
-                                placeholder="e.g. hr.makeusa.com" 
+                                placeholder="e.g. hr.makeusa.com OR makeusa.us/kiosk" 
                                 value={input.domain}
                                 onChange={e => setInput({...input, domain: e.target.value})}
                                 style={inputStyle} 
@@ -116,7 +122,7 @@ const LinksManager = () => {
                         </div>
                     </div>
                     <p style={{fontSize:'13px', color:'#64748b', marginTop:'10px'}}>
-                        * Users visiting the domain on the left will be automatically redirected to the path on the right.
+                        * You can enter a domain (hr.mysite.com) OR a specific path (mysite.com/kiosk).
                     </p>
                 </div>
 
@@ -146,7 +152,6 @@ const LinksManager = () => {
                         ))
                     )}
                 </div>
-
             </div>
         </div>
     );
