@@ -79,36 +79,58 @@ const Commissions = () => {
 
         snap.forEach(d => {
             const data = d.data();
-            if (!data.agentName) return;
-
-            const isPaid = data.commissionPaid === true;
             
-            // Filter View
-            if (view === 'unpaid' && isPaid) return;
-            if (view === 'paid' && !isPaid) return;
+            // Helper function to process a single agent slot
+            const processAgent = (agentName, isSecondary) => {
+                if (!agentName) return;
 
-            // Calculate Comm
-            let rate = 0;
-            if (config.agents) {
-                const ag = config.agents.find(a => a.name === data.agentName);
-                if(ag) rate = parseFloat(ag.comm);
-            }
-            const invoice = data.invoiceAmount || 0;
-            const excluded = data.commissionExcluded || 0;
-            const basis = Math.max(0, invoice - excluded);
-            const commAmt = basis * (rate / 100);
+                // We track payment status independently (sort of).
+                // Currently the DB only has one 'commissionPaid' flag.
+                // LIMITATION: If we have 2 agents, we assume they are paid together for now,
+                // OR we'd need to migrate the DB to have 'commissionPaid_primary' etc.
+                // For this implementation, we will use the single flag for BOTH.
+                // Future upgrade: split the flags.
+                
+                const isPaid = data.commissionPaid === true;
+                
+                // Filter View
+                if (view === 'unpaid' && isPaid) return;
+                if (view === 'paid' && !isPaid) return;
 
-            // Add to totals
-            if(!totals[data.agentName]) totals[data.agentName] = 0;
-            totals[data.agentName] += commAmt;
+                // Calculate Comm
+                let rate = 0;
+                if (config.agents) {
+                    const ag = config.agents.find(a => a.name === agentName);
+                    if(ag) rate = parseFloat(ag.comm);
+                }
+                const invoice = data.invoiceAmount || 0;
+                const excluded = data.commissionExcluded || 0;
+                const basis = Math.max(0, invoice - excluded);
+                const commAmt = basis * (rate / 100);
 
-            list.push({ 
-                id: d.id, ...data, 
-                commAmount: commAmt, 
-                rate: rate,
-                basis: basis,
-                excluded: excluded 
-            });
+                // Add to totals
+                if(!totals[agentName]) totals[agentName] = 0;
+                totals[agentName] += commAmt;
+
+                // Unique Key for the list view
+                const uniqueKey = isSecondary ? `${d.id}_2` : d.id;
+
+                list.push({ 
+                    id: d.id, 
+                    uniqueKey: uniqueKey, // Used for React Key
+                    ...data, 
+                    displayAgent: agentName, // The specific agent for this row
+                    commAmount: commAmt, 
+                    rate: rate,
+                    basis: basis,
+                    excluded: excluded 
+                });
+            };
+
+            // Process Primary
+            processAgent(data.agentName, false);
+            // Process Secondary
+            processAgent(data.agentName2, true);
         });
 
         list.sort((a,b) => (b.completedAt?.seconds||0) - (a.completedAt?.seconds||0));
@@ -135,6 +157,7 @@ const Commissions = () => {
         const parts = payDate.split('-');
         const fmtDate = `${parts[1]}/${parts[2]}/${parts[0]}`;
 
+        // Note: This pays the whole report (both agents) because we share the flag.
         await updateDoc(doc(db, "reports", payTargetId), { 
             commissionPaid: true, commissionPaidAt: new Date(), commissionPaidDate: fmtDate 
         });
@@ -143,7 +166,7 @@ const Commissions = () => {
     };
 
     const undoPay = async (id) => {
-        if(!window.confirm("Undo payment status?")) return;
+        if(!window.confirm("Undo payment status? This affects both agents on this job.")) return;
         await updateDoc(doc(db, "reports", id), { commissionPaid: false, commissionPaidDate: null });
         loadData(canEditFinance);
     };
@@ -184,7 +207,7 @@ const Commissions = () => {
                         const dateStr = r.completedAt ? new Date(r.completedAt.seconds*1000).toLocaleDateString() : 'N/A';
                         
                         return (
-                            <div key={r.id} className="project-card">
+                            <div key={r.uniqueKey} className="project-card">
                                 <div className="card-header">
                                     <div className="project-name">{r.project}</div>
                                     <div className="project-meta">
@@ -193,7 +216,7 @@ const Commissions = () => {
                                     </div>
                                 </div>
                                 <div className="card-body">
-                                    <div className="data-row"><span>Agent</span><span className="data-val">{r.agentName}</span></div>
+                                    <div className="data-row"><span>Agent</span><span className="data-val">{r.displayAgent}</span></div>
                                     <div className="data-row"><span>Invoice</span><span className="data-val">${r.invoiceAmount?.toLocaleString()}</span></div>
                                     {r.excluded > 0 && (
                                         <div className="data-row" style={{color:'#e67e22', fontSize:'11px'}}>
@@ -241,6 +264,7 @@ const Commissions = () => {
                             <label>PAY DATE</label>
                             <input type="date" className="date-input" value={payDate} onChange={e => setPayDate(e.target.value)} />
                         </div>
+                        <p style={{fontSize:'12px', color:'#666', marginTop:'0'}}>* This will mark the entire project (both agents) as paid.</p>
                         <button className="btn-confirm" onClick={confirmPay}>Confirm Payment</button>
                     </div>
                 </div>

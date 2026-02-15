@@ -4,6 +4,7 @@ import { auth } from "../firebase_config"; // Import auth to get the user
 import Dashboard from "./Dashboard";
 import LineDetails from "./LineDetails";
 import Inventory from "./Inventory"; 
+import MicroStatus from "./MicroStatus"; // NEW IMPORT
 import "./App.css";
 
 // Define the Base Path for this module
@@ -27,6 +28,7 @@ function App() {
           {/* Internal Navigation */}
           <Link to={`${BASE}`} style={{color: '#cbd5e1', textDecoration:'none', fontWeight: 500}}>Lines</Link>
           <Link to={`${BASE}/inventory`} style={{color: '#cbd5e1', textDecoration:'none', fontWeight: 500}}>Inventory</Link>
+          <Link to={`${BASE}/micro`} style={{color: '#cbd5e1', textDecoration:'none', fontWeight: 500}}>Micro & Usage</Link>
           
           <span className="divider" style={{opacity:0.3, color:'white'}}>|</span>
           
@@ -45,6 +47,7 @@ function App() {
           <Route path="" element={<Dashboard />} />
           <Route path="line/:id" element={<LineDetails />} />
           <Route path="inventory" element={<Inventory />} />
+          <Route path="micro" element={<MicroStatus />} />
           <Route path="*" element={<Navigate to={`${BASE}`} />} />
         </Routes>
       </div>

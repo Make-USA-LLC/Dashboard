@@ -20,13 +20,27 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
   const [totalUnits, setTotalUnits] = useState(data.totalUnits || '');
   const [invoiceAmount, setInvoiceAmount] = useState(data.invoiceAmount || '');
   
-  // AUTO-ASSIGN LOGIC
+  // AUTO-ASSIGN LOGIC (UPDATED FOR DUAL)
   const [selectedAgent, setSelectedAgent] = useState(() => {
     // 1. If agent is already saved on this specific report, use it
     if (data.agentName) return data.agentName;
     // 2. Otherwise, check if this company has an auto-assigned agent
-    if (companyMap && companyMap[data.company]) return companyMap[data.company];
-    // 3. Default to none
+    if (companyMap && companyMap[data.company]) {
+       const map = companyMap[data.company];
+       if (typeof map === 'object') return map.primary || '';
+       return map; // Legacy string
+    }
+    return '';
+  });
+
+  const [selectedAgent2, setSelectedAgent2] = useState(() => {
+    // 1. Saved?
+    if (data.agentName2) return data.agentName2;
+    // 2. Config?
+    if (companyMap && companyMap[data.company]) {
+        const map = companyMap[data.company];
+        if (typeof map === 'object') return map.secondary || '';
+    }
     return '';
   });
 
@@ -48,7 +62,7 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
 
   const handleProcess = () => {
     onProcess(data.id, {
-      desc, totalUnits, invoiceAmount, selectedAgent, commExcluded,
+      desc, totalUnits, invoiceAmount, selectedAgent, selectedAgent2, commExcluded,
       isAdjusting, op, method, manualTotal, manualPpl, manualAvg,
       // Pass Bonus Data
       isBonusEligible, bonusReason,
@@ -83,8 +97,10 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
           <label>Total Invoice Value ($)</label>
           <input type="number" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} disabled={!canEdit} />
         </div>
+        
+        {/* AGENT 1 */}
         <div>
-          <label>Commission Agent</label>
+          <label>Primary Agent</label>
           <select value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)} disabled={!canEdit}>
             <option value="">None</option>
             {agents.map((a, idx) => (
@@ -93,7 +109,18 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
           </select>
         </div>
 
-        {selectedAgent && (
+        {/* AGENT 2 (NEW) */}
+        <div>
+          <label>Secondary Agent</label>
+          <select value={selectedAgent2} onChange={(e) => setSelectedAgent2(e.target.value)} disabled={!canEdit}>
+            <option value="">None</option>
+            {agents.map((a, idx) => (
+              <option key={idx} value={a.name}>{a.name} ({a.comm}%)</option>
+            ))}
+          </select>
+        </div>
+
+        {(selectedAgent || selectedAgent2) && (
           <div>
             <label style={{ color: '#e67e22' }}>Exclude from Comm ($)</label>
             <input 
@@ -299,6 +326,7 @@ const FinanceInput = () => {
       totalUnits: Number(formState.totalUnits),
       invoiceAmount: Number(formState.invoiceAmount),
       agentName: formState.selectedAgent,
+      agentName2: formState.selectedAgent2, // NEW FIELD
       commissionExcluded: Number(formState.commExcluded) || 0,
       financeStatus: "complete",
       laborAdjustmentActive: formState.isAdjusting,

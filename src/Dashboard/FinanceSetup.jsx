@@ -27,7 +27,7 @@ const FinanceSetup = () => {
 
         agents: [],
         projectTypes: [],
-        companyMap: {} // Maps Company Name -> Agent Name
+        companyMap: {} // Maps Company Name -> { primary: "Name", secondary: "Name" } OR "Name" (Legacy)
     });
 
     // Local inputs for "Add" forms
@@ -39,6 +39,7 @@ const FinanceSetup = () => {
     const [availableCompanies, setAvailableCompanies] = useState([]);
     const [assignCompany, setAssignCompany] = useState('');
     const [assignAgent, setAssignAgent] = useState('');
+    const [assignAgent2, setAssignAgent2] = useState(''); // NEW: Secondary Agent
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, (user) => {
@@ -193,22 +194,30 @@ const FinanceSetup = () => {
         await updateDoc(configRef, { projectTypes: updatedTypes });
     };
 
-    // --- MAPPING HANDLERS ---
+    // --- MAPPING HANDLERS (UPDATED FOR DUAL AGENTS) ---
 
     const handleAssignAgent = async () => {
         if (!canEdit) return;
         if (!assignCompany || !assignAgent) {
-            alert("Please select both a company and an agent.");
+            alert("Please select a company and at least a primary agent.");
             return;
         }
 
         const configRef = doc(db, "config", "finance");
-        const newMap = { ...configData.companyMap, [assignCompany]: assignAgent };
+        
+        // Store as object for dual support
+        const assignmentObject = {
+            primary: assignAgent,
+            secondary: assignAgent2 || ""
+        };
+
+        const newMap = { ...configData.companyMap, [assignCompany]: assignmentObject };
         
         try {
             await updateDoc(configRef, { companyMap: newMap });
             setAssignCompany('');
             setAssignAgent('');
+            setAssignAgent2('');
         } catch (e) {
             alert("Error saving assignment: " + e.message);
         }
@@ -322,12 +331,12 @@ const FinanceSetup = () => {
                 <div className="fs-card">
                     <h2>Auto-Assign Agents</h2>
                     <p style={{fontSize:'13px', color:'#7f8c8d'}}>
-                        Automatically select an agent for new projects based on company.
+                        Automatically select agents for new projects based on company.
                     </p>
                     
                     {canEdit && (
                         <div className="fs-form-row" style={{alignItems:'flex-end', background:'#f9f9f9', padding:'10px', borderRadius:'5px'}}>
-                            <div style={{flex:1}}>
+                            <div style={{flex:1.5}}>
                                 <label className="fs-label">Select Company</label>
                                 <select 
                                     className="fs-input" 
@@ -341,13 +350,26 @@ const FinanceSetup = () => {
                                 </select>
                             </div>
                             <div style={{flex:1, marginLeft:'10px'}}>
-                                <label className="fs-label">Assign Agent</label>
+                                <label className="fs-label">Primary Agent</label>
                                 <select 
                                     className="fs-input" 
                                     value={assignAgent} 
                                     onChange={(e) => setAssignAgent(e.target.value)}
                                 >
-                                    <option value="">- Choose Agent -</option>
+                                    <option value="">- None -</option>
+                                    {configData.agents.map((a, i) => (
+                                        <option key={i} value={a.name}>{a.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div style={{flex:1, marginLeft:'10px'}}>
+                                <label className="fs-label">Secondary (Opt)</label>
+                                <select 
+                                    className="fs-input" 
+                                    value={assignAgent2} 
+                                    onChange={(e) => setAssignAgent2(e.target.value)}
+                                >
+                                    <option value="">- None -</option>
                                     {configData.agents.map((a, i) => (
                                         <option key={i} value={a.name}>{a.name}</option>
                                     ))}
@@ -363,16 +385,30 @@ const FinanceSetup = () => {
                         <ul className="fs-list">
                             {Object.keys(configData.companyMap).length === 0 && <li style={{color:'#999', fontStyle:'italic'}}>No assignments yet.</li>}
                             
-                            {Object.entries(configData.companyMap).map(([comp, ag], i) => (
-                                <li key={i}>
-                                    <span>
-                                        <strong>{comp}</strong> &rarr; <span style={{color:'#8e44ad'}}>{ag}</span>
-                                    </span>
-                                    {canEdit && (
-                                        <button className="btn-red-small" onClick={() => handleDeleteAssignment(comp)}>Remove</button>
-                                    )}
-                                </li>
-                            ))}
+                            {Object.entries(configData.companyMap).map(([comp, val], i) => {
+                                // Handle Legacy (String) vs New (Object)
+                                let primary = "";
+                                let secondary = "";
+                                if (typeof val === 'object' && val !== null) {
+                                    primary = val.primary;
+                                    secondary = val.secondary;
+                                } else {
+                                    primary = val; // Legacy string
+                                }
+
+                                return (
+                                    <li key={i}>
+                                        <span>
+                                            <strong>{comp}</strong> &rarr; 
+                                            <span style={{color:'#8e44ad'}}> {primary}</span>
+                                            {secondary && <span style={{color:'#2980b9'}}> & {secondary}</span>}
+                                        </span>
+                                        {canEdit && (
+                                            <button className="btn-red-small" onClick={() => handleDeleteAssignment(comp)}>Remove</button>
+                                        )}
+                                    </li>
+                                );
+                            })}
                         </ul>
                     </div>
                 </div>
