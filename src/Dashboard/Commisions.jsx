@@ -181,7 +181,7 @@ const Commissions = () => {
                     <button className={`toggle-btn ${view==='unpaid'?'active':''}`} onClick={() => setView('unpaid')}>Pending</button>
                     <button className={`toggle-btn ${view==='paid'?'active paid':''}`} onClick={() => setView('paid')}>History</button>
                 </div>
-                <button onClick={handleLogout} style={{color:'#e74c3c', border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>Sign Out</button>
+                
             </div>
 
             <div className="commissions-container">

@@ -23,7 +23,8 @@ const IPad = () => {
     const [activeTab, setActiveTab] = useState('live');
     
     // Permissions
-    const [perms, setPerms] = useState({ timer: false, settings: false, fleet: false });
+    // timer = Edit Access, timerView = Read Access
+    const [perms, setPerms] = useState({ timer: false, settings: false, fleet: false, timerView: false });
 
     // Timer Logic
     const [displayTime, setDisplayTime] = useState("00:00:00");
@@ -64,13 +65,15 @@ const IPad = () => {
         const role = uSnap.data().role;
         const rSnap = await getDoc(doc(db, "config", "roles"));
         if (role === 'admin') {
-            setPerms({ timer: true, settings: true, fleet: true });
+            setPerms({ timer: true, settings: true, fleet: true, timerView: true });
         } else if (rSnap.exists()) {
             const rc = rSnap.data()[role];
             setPerms({
                 timer: rc['timer_edit'] || false,
                 settings: rc['settings_edit'] || false,
-                fleet: rc['fleet_edit'] || false
+                fleet: rc['fleet_edit'] || false,
+                // View is allowed if they have specific view perm OR edit perm
+                timerView: rc['timer_view'] || rc['timer_edit'] || false 
             });
         }
     };
@@ -200,6 +203,7 @@ const IPad = () => {
     };
 
     const saveWorkerTime = async () => {
+        if (!perms.timer) return alert("Permission Denied");
         if (!editingWorker) return;
         const wid = editingWorker.id;
         const targetTotalMinutes = (parseInt(editingWorker.h)||0) * 60 + (parseInt(editingWorker.m)||0);
@@ -243,7 +247,8 @@ const IPad = () => {
     };
 
     const handleClockOut = async (cardId) => {
-        if (!perms.timer || !window.confirm(`Clock out worker?`)) return;
+        if (!perms.timer) return alert("Permission Denied");
+        if (!window.confirm(`Clock out worker?`)) return;
         await updateDoc(doc(db, "ipads", id), {
             remoteCommand: `CLOCK_OUT|${cardId}`,
             commandTimestamp: serverTimestamp()
@@ -251,6 +256,7 @@ const IPad = () => {
     };
 
     const updateLeader = async () => {
+        if (!perms.timer) return alert("Permission Denied");
         if (!newLeaderId) return;
         const name = workersMap[newLeaderId] || `Unknown (${newLeaderId})`;
         if(window.confirm(`Set Leader to ${name}?`)) {
@@ -335,7 +341,7 @@ const IPad = () => {
                     &larr; Back to Dashboard
                 </button>
                 <h1 style={{margin:0, fontSize:'20px'}}>iPad: {id}</h1>
-                <button onClick={handleLogout} style={{color:'#e74c3c', background:'none', border:'none', fontWeight:'bold', cursor:'pointer'}}>Sign Out</button>
+
             </div>
 
             <div className="ipc-container">
@@ -370,8 +376,17 @@ const IPad = () => {
                                         </div>
                                     ) : (
                                         <div>
-                                            <span className="ipc-live-leader">{ipadData.lineLeaderName ? `Leader: ${ipadData.lineLeaderName}` : "No Leader"}</span>
-                                            <span className="material-icons leader-edit-icon" onClick={() => setLeaderEditMode(true)}>edit</span>
+                                            {/* CHECK PERMISSION FOR LEADER NAME VISIBILITY */}
+                                            <span className="ipc-live-leader">
+                                                {perms.timerView 
+                                                    ? (ipadData.lineLeaderName ? `Leader: ${ipadData.lineLeaderName}` : "No Leader")
+                                                    : "Leader: Restricted"
+                                                }
+                                            </span>
+                                            {/* ONLY SHOW EDIT IF THEY HAVE EDIT PERMS */}
+                                            {perms.timer && (
+                                                <span className="material-icons leader-edit-icon" onClick={() => setLeaderEditMode(true)}>edit</span>
+                                            )}
                                         </div>
                                     )}
                                 </div>
@@ -440,6 +455,8 @@ const IPad = () => {
                                 <tbody>
                                     {activeWorkers.length === 0 ? (
                                         <tr><td colSpan="3" style={{textAlign:'center', color:'#999'}}>None</td></tr>
+                                    ) : !perms.timerView ? (
+                                        <tr><td colSpan="3" style={{textAlign:'center', color:'#999', fontStyle:'italic', padding:'20px'}}>View Restricted</td></tr>
                                     ) : (
                                         activeWorkers.map(wid => {
                                             const timeData = getWorkerTimeData(wid);
@@ -461,16 +478,22 @@ const IPad = () => {
                                                         )}
                                                     </td>
                                                     <td style={{textAlign:'right'}}>
-                                                        {isEditing ? (
-                                                            <div style={{display:'flex', justifyContent:'flex-end', gap:'5px'}}>
-                                                                <button className="ipc-btn-small-green" onClick={saveWorkerTime} style={{background:'#27ae60', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Save</button>
-                                                                <button style={{background:'#e74c3c', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}} onClick={()=>setEditingWorker(null)}>X</button>
-                                                            </div>
+                                                        {perms.timer ? (
+                                                            <>
+                                                                {isEditing ? (
+                                                                    <div style={{display:'flex', justifyContent:'flex-end', gap:'5px'}}>
+                                                                        <button className="ipc-btn-small-green" onClick={saveWorkerTime} style={{background:'#27ae60', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Save</button>
+                                                                        <button style={{background:'#e74c3c', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}} onClick={()=>setEditingWorker(null)}>X</button>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div style={{display:'flex', justifyContent:'flex-end', gap:'8px'}}>
+                                                                        <button className="btn-small-blue" onClick={() => startEditingWorker(wid)} style={{background:'#3498db', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Edit</button>
+                                                                        <button className="btn-small-red" onClick={() => handleClockOut(wid)} style={{background:'#e74c3c', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Out</button>
+                                                                    </div>
+                                                                )}
+                                                            </>
                                                         ) : (
-                                                            <div style={{display:'flex', justifyContent:'flex-end', gap:'8px'}}>
-                                                                <button className="btn-small-blue" onClick={() => startEditingWorker(wid)} style={{background:'#3498db', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Edit</button>
-                                                                <button className="btn-small-red" onClick={() => handleClockOut(wid)} style={{background:'#e74c3c', color:'white', border:'none', padding:'4px 8px', borderRadius:'4px', cursor:'pointer'}}>Out</button>
-                                                            </div>
+                                                            <span style={{fontSize:'11px', color:'#95a5a6', fontStyle:'italic'}}>Locked</span>
                                                         )}
                                                     </td>
                                                 </tr>

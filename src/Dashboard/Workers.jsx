@@ -127,7 +127,7 @@ const Workers = () => {
                 <button onClick={() => navigate('/dashboard')} className="btn-link">
                     <span className="material-icons">arrow_back</span> Dashboard
                 </button>
-                <button onClick={handleLogout} className="btn-link" style={{color:'#e74c3c'}}>Sign Out</button>
+                
             </div>
 
             <div className="wm-container">

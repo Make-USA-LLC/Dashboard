@@ -194,7 +194,7 @@ const Admin = () => {
                         &larr; Dashboard
                     </button>
                 </div>
-                <button onClick={handleLogout} className="btn-red-text">Sign Out</button>
+               
             </div>
 
             <div className="admin-container">

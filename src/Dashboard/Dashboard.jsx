@@ -118,7 +118,7 @@ const Dashboard = () => {
         ipads.sort((a, b) => {
             const getScore = (ipad) => {
                 const lastHb = ipad.lastUpdateTime?.seconds * 1000 || 0;
-                const isLive = (Date.now() - lastHb) < 75000;
+                const isLive = (Date.now() - lastHb) < 950000;
                 const hasProject = ipad.secondsRemaining !== 0; 
                 const isPaused = ipad.isPaused;
                 if (hasProject && !isPaused) return 4; 
@@ -396,7 +396,7 @@ const Dashboard = () => {
                     <button className="btn-green" onClick={handleCreateIpad}>+ Add iPad</button>
                 </div>
             )}
-            <button className="btn-red-outline" onClick={handleLogout}>Sign Out</button>
+            
         </div>
       </div>
 

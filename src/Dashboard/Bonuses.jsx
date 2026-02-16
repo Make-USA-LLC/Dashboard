@@ -439,7 +439,7 @@ const Bonuses = () => {
                     </div>
                 </div>
                 <div style={{textAlign:'right'}}>
-                    <button onClick={handleLogout} style={{color:'#e74c3c', border:'none', background:'none', fontWeight:'bold', cursor:'pointer'}}>Sign Out</button>
+                    
                 </div>
             </div>
 

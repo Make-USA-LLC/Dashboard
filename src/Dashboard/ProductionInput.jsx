@@ -302,7 +302,7 @@ const ProductionInput = () => {
                 <div style={{fontWeight:'bold', color:'#3498db', display:'flex', alignItems:'center', gap:'8px'}}>
                     <span className="material-icons">input</span> Production Input
                 </div>
-                <button onClick={handleLogout} className="btn-text btn-red-text">Sign Out</button>
+               
             </div>
 
             <div className="pi-container">

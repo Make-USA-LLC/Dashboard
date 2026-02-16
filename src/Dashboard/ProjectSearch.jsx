@@ -424,8 +424,8 @@ const ProjectSearch = () => {
                     <h3 style={{margin:0}}>Global Project Search</h3>
                 </div>
                 <div style={{display:'flex', alignItems:'center'}}>
-                    <button onClick={() => navigate('/upload')} className="btn-upload">Upload Excel</button>
-                    <button onClick={() => signOut(auth).then(() => navigate('/'))} className="btn-link" style={{color:'#e74c3c'}}>Sign Out</button>
+                    <button onClick={() => navigate('/dashboard/upload')} className="btn-upload">Upload Excel</button>
+                   
                 </div>
             </div>
 

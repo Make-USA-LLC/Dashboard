@@ -189,7 +189,7 @@ const AgentReports = () => {
                     <span className="material-icons">arrow_back</span> Dashboard
                 </div>
                 <div style={{fontWeight:'bold', color:'#8e44ad'}}>Agent Report Generator</div>
-                <button onClick={handleLogout} className="btn-red-text">Sign Out</button>
+               
             </div>
 
             <div className="ar-container">

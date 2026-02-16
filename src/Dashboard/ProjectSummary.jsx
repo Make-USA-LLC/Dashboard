@@ -383,7 +383,7 @@ const ProjectSummary = () => {
                     <h3 style={{margin:0}}>Production Summary</h3>
                 </div>
                 <div style={{display:'flex', alignItems:'center'}}>
-                    <button onClick={() => signOut(auth).then(() => navigate('/'))} className="btn-link" style={{color:'#e74c3c'}}>Sign Out</button>
+                 
                 </div>
             </div>
 
