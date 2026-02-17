@@ -78,7 +78,12 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
           <div className="project-title">{data.project}</div>
           <div className="project-meta">{data.company} • {data.size}</div>
         </div>
-        <div className="time-badge">{dateStr}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+          <div className="time-badge">{dateStr}</div>
+          <div style={{ fontSize: '10px', color: '#999', marginTop: '3px', fontFamily: 'monospace' }}>
+            ID: {data.id}
+          </div>
+        </div>
       </div>
 
       <div className="input-grid">

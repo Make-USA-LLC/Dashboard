@@ -1,17 +1,18 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
-import { auth } from './firebase_config'; 
+import { auth } from './firebase_config';
 import { 
   Users, 
   Wrench, 
   Tablet, 
   Warehouse, 
   ShieldAlert, 
-  LogOut 
+  LogOut,
+  Activity // <--- NEW ICON (from Snippet 1)
 } from 'lucide-react'; 
 
-// --- NEW IMPORTS ---
+// --- NEW IMPORTS (from Snippet 2) ---
 import DomainRouter from './components/DomainRouter';
 import LinksManager from './LinksManager';
 
@@ -24,10 +25,10 @@ import HRApp from './hr/App';
 import TechApp from './Techs/App'; 
 import DashboardApp from './dashboard/App';
 import Kiosk from './dashboard/Kiosk';
-// NEW: Import Employee Portal directly to expose it publicly
 import EmployeePortal from './dashboard/EmployeePortal'; 
 import ShedApp from './shed/App';
 import MasterAdmin from './MasterAdmin'; 
+import MachinesApp from './Machines/App'; // <--- MACHINES IMPORT
 
 function GlobalLogin() {
   const handleLogin = async () => {
@@ -59,7 +60,7 @@ function SelectionGrid({ user }) {
         <h1 style={{ color: '#0f172a', marginBottom: 5, fontSize: '28px' }}>Welcome, {user?.displayName?.split(" ")[0]}</h1>
         <p style={{ color: '#64748b' }}>Select an application to launch</p>
       </div>
-      
+       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 25 }}>
         
         {/* HR Platform */}
@@ -99,6 +100,16 @@ function SelectionGrid({ user }) {
               <Warehouse size={32} />
             </div>
             <div><div style={titleStyle}>Shed Inventory</div></div>
+          </Link>
+        )}
+
+        {/* --- NEW: MACHINE ANALYTICS (Merged from Snippet 1) --- */}
+        {checkAccess('machines', 'analytics', 'view') && (
+          <Link to="/machines" style={cardStyle}>
+            <div style={{...iconBox, background: '#fee2e2', color: '#ef4444'}}>
+              <Activity size={32} />
+            </div>
+            <div><div style={titleStyle}>Machine Analytics</div></div>
           </Link>
         )}
 
@@ -150,14 +161,19 @@ function ProtectedMainApp() {
 
       <Routes>
         <Route path="/" element={<SelectionGrid user={user} />} />
+        
+        {/* MASTER ADMIN ROUTES */}
         <Route path="/admin" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
-        {/* NEW LINKS MANAGER ROUTE */}
         <Route path="/admin/links" element={<RoleRoute system="admin" feature="panel"><LinksManager /></RoleRoute>} />
         
+        {/* SUB-APP ROUTES */}
         <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
         <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
+        
+        {/* NEW ROUTE: MACHINES (Protected) */}
+        <Route path="/machines/*" element={<RoleRoute system="machines" feature="analytics"><MachinesApp /></RoleRoute>} />
       </Routes>
     </div>
   );
@@ -175,7 +191,7 @@ export default function App() {
           <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
           <Route path="/dashboard/kiosk" element={<Kiosk />} />
 
-          {/* --- NEW: EMPLOYEE PORTAL PUBLIC WHITELIST --- */}
+          {/* --- EMPLOYEE PORTAL PUBLIC WHITELIST --- */}
           {/* This allows access without the Global Login */}
           <Route path="/dashboard/employee-portal" element={<EmployeePortal />} />
           <Route path="/employee-portal" element={<EmployeePortal />} />

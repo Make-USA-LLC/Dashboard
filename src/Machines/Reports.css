@@ -1,0 +1,3 @@
+.machines-app button { transition: all 0.2s; }
+.machines-app button:hover { opacity: 0.9; transform: translateY(-1px); }
+.machines-app input:focus, .machines-app select:focus { outline: 2px solid #2563eb; border-color: #2563eb; }

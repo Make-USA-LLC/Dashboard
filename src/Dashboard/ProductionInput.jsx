@@ -110,7 +110,12 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
                     <div className="pi-project-title">{data.project}</div>
                     <div className="pi-project-meta">{data.company} • Leader: {data.leader || 'Unknown'}</div>
                 </div>
-                <div className="pi-time-badge">{dateStr}</div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                    <div className="pi-time-badge">{dateStr}</div>
+                    <div style={{ fontSize: '10px', color: '#999', marginTop: '4px', fontFamily: 'monospace' }}>
+                        ID: {data.id}
+                    </div>
+                </div>
             </div>
 
             <div className="pi-input-grid">
