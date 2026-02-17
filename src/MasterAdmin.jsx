@@ -10,9 +10,9 @@ const MasterAdmin = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     
-    // 1. ADD 'machine' TO STATE
-    const [lists, setLists] = useState({ ipad: [], hr: [], tech: [], shed: [], machine: [], admin: [] });
-    const [inputs, setInputs] = useState({ ipad: '', hr: '', tech: '', shed: '', machine: '', admin: '' });
+    // ADDED: 'shipment' to state
+    const [lists, setLists] = useState({ ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], admin: [] });
+    const [inputs, setInputs] = useState({ ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', admin: '' });
     
     const [roles, setRoles] = useState({ ipad: [], hr: [] });
 
@@ -48,9 +48,10 @@ const MasterAdmin = () => {
         listen("authorized_users", "hr", d => ({email: d.id, ...d.data()}));
         listen("tech_access", "tech", d => ({email: d.id}));
         listen("shed_access", "shed", d => ({email: d.id}));
-        
-        // 2. LISTEN TO 'machine_access' COLLECTION
         listen("machine_access", "machine", d => ({email: d.id}));
+        
+        // NEW LISTENER for Shipment Access
+        listen("shipment_access", "shipment", d => ({email: d.id, ...d.data()}));
         
         listen("master_admin_access", "admin", d => ({email: d.id}));
         
@@ -64,7 +65,6 @@ const MasterAdmin = () => {
         const email = inputs[key].toLowerCase().trim();
         if (!email) return;
         try {
-            // This creates the permission document
             await setDoc(doc(db, coll, email), { email, ...data });
             setInputs(p => ({ ...p, [key]: '' }));
         } catch (e) { alert("Error adding user: " + e.message); }
@@ -87,7 +87,6 @@ const MasterAdmin = () => {
     return (
         <div className="master-admin-container">
             
-            {/* Header Section */}
             <div className="admin-header-row">
                 <div className="admin-title-group">
                     <h2>System Access Console</h2>
@@ -98,7 +97,7 @@ const MasterAdmin = () => {
                 <button onClick={() => navigate('/')} className="btn-exit">Exit</button>
             </div>
 
-            {/* TOP ROW (iPad & HR) */}
+            {/* TOP ROW */}
             <div className="admin-grid-row">
                 {/* iPad */}
                 <div className="admin-card">
@@ -141,7 +140,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* MIDDLE ROW (Shed & Techs) */}
+            {/* MIDDLE ROW */}
             <div className="admin-grid-row">
                 {/* Sheds */}
                 <div className="admin-card">
@@ -178,10 +177,10 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* BOTTOM ROW (Machines & Admin) */}
+            {/* BOTTOM ROW */}
             <div className="admin-grid-row">
                 
-                {/* 3. NEW CARD: MACHINE REPORTS ACCESS */}
+                {/* Machine Reports */}
                 <div className="admin-card">
                     <h3 className="admin-card-header" style={{borderLeft: '5px solid #ef4444'}}>Machine Reports Access</h3>
                     <div className="admin-add-row">
@@ -191,7 +190,6 @@ const MasterAdmin = () => {
                             placeholder="Email" 
                             className="admin-input" 
                         />
-                        {/* WRITES TO 'machine_access' collection */}
                         <button onClick={() => handleAdd("machine", "machine_access")} className="btn-add">Grant</button>
                     </div>
                     <div className="admin-scroll-box">
@@ -204,9 +202,36 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
+                {/* SHIPMENT ACCESS (NEW) */}
+                <div className="admin-card">
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #0ea5e9'}}>Shipment Billing Access</h3>
+                    <div className="admin-add-row">
+                        <input 
+                            value={inputs.shipment} 
+                            onChange={e => setInputs({...inputs, shipment: e.target.value})} 
+                            placeholder="Email" 
+                            className="admin-input" 
+                        />
+                        <button onClick={() => handleAdd("shipment", "shipment_access", { role: 'Input' })} className="btn-add">Add</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.shipment.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <select value={u.role} onChange={e => updateRole("shipment_access", u.email, e.target.value)} className="admin-role-select">
+                                    <option value="Input">Input Only</option>
+                                    <option value="Finance">Finance</option>
+                                    <option value="Admin">Admin</option>
+                                </select>
+                                <button onClick={() => handleRemove("shipment_access", u.email)} className="btn-remove">×</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Master Admin */}
                 <div className="admin-card master-card">
-                    <h3 className="admin-card-header">Master Admin Panel (/admin)</h3>
+                    <h3 className="admin-card-header">Master Admin Panel</h3>
                     <div className="admin-add-row">
                         <input value={inputs.admin} onChange={e => setInputs({...inputs, admin: e.target.value})} placeholder="Admin Email" className="admin-input" />
                         <button onClick={() => handleAdd("admin", "master_admin_access")} className="btn-add">Add Admin</button>

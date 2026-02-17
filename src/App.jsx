@@ -9,7 +9,8 @@ import {
   Warehouse, 
   ShieldAlert, 
   LogOut,
-  Activity 
+  Activity,
+  Package // New Icon
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -25,7 +26,8 @@ import Kiosk from './Dashboard/Kiosk';
 import EmployeePortal from './Dashboard/EmployeePortal'; 
 import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
-import ReportsApp from './Machines/App'; // Renamed import for clarity
+import ReportsApp from './Machines/App'; 
+import ShipmentApp from './Shipment/App'; // New Import
 
 // ... GlobalLogin Component ... (Unchanged)
 function GlobalLogin() {
@@ -101,7 +103,17 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* --- REPORTS (Renamed) --- */}
+        {/* SHIPMENT BILLING (NEW) */}
+        {checkAccess('shipment', 'app', 'view') && (
+          <Link to="/shipments" style={cardStyle}>
+            <div style={{...iconBox, background: '#e0f2fe', color: '#0284c7'}}>
+              <Package size={32} />
+            </div>
+            <div><div style={titleStyle}>Shipment Billing</div></div>
+          </Link>
+        )}
+
+        {/* Machine Reports */}
         {checkAccess('machines', 'analytics', 'view') && (
           <Link to="/reports" style={cardStyle}>
             <div style={{...iconBox, background: '#fee2e2', color: '#ef4444'}}>
@@ -169,8 +181,9 @@ function ProtectedMainApp() {
         <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
+        <Route path="/shipments/*" element={<RoleRoute system="shipment" feature="app"><ShipmentApp /></RoleRoute>} />
         
-        {/* REPORTS (Previously Machines) */}
+        {/* REPORTS */}
         <Route path="/reports/*" element={<RoleRoute system="machines" feature="analytics"><ReportsApp /></RoleRoute>} />
       </Routes>
     </div>
