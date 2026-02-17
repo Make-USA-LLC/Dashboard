@@ -1,57 +1,77 @@
 import React from "react";
-import { Routes, Route, Link, Navigate } from "react-router-dom"; 
+import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom"; 
 import { auth } from "../firebase_config"; 
-import Reports from "./Reports";
-import "./Reports.css"; 
+import { LayoutDashboard, Wrench, ClipboardCheck } from "lucide-react";
 
-// Base path for this module
-const BASE = "/machines";
+// Sub-pages
+import Dashboard from "./Dashboard";
+import SetupLog from "./SetupLog";
+import QCLog from "./QCLog";
 
-function App() {
+// UPDATE BASE PATH
+const BASE = "/reports";
+
+export default function App() {
   const user = auth.currentUser;
   const username = user?.displayName || user?.email || 'User';
+  const loc = useLocation();
+
+  // Helper for active tab styles
+  const navClass = (path) => {
+    // Check for exact match or base match
+    const fullPath = path === '' ? BASE : `${BASE}${path}`;
+    const isActive = loc.pathname === fullPath || (path === '' && loc.pathname === BASE);
+    
+    return `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${
+      isActive 
+      ? "bg-blue-600 text-white shadow-md" 
+      : "text-slate-500 hover:bg-white hover:text-slate-700"
+    }`;
+  };
 
   return (
-    <div className="machines-app" style={{minHeight:'100vh', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
-      {/* Top Navigation Bar */}
-      <header style={{
-          background: '#0f172a', 
-          padding: '15px 20px', 
-          display:'flex', 
-          justifyContent:'space-between', 
-          alignItems:'center',
-          boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
-      }}>
-        <div className="logo" style={{display:'flex', alignItems:'center', gap:'15px'}}>
-           {/* Link back to the Main Command Center */}
-           <Link to="/" style={{color:'#94a3b8', textDecoration:'none', fontSize:'14px', fontWeight:'500'}}>
+    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+      
+      {/* 1. TOP GLOBAL HEADER */}
+      <header className="bg-slate-900 px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-50">
+        <div className="flex items-center gap-4">
+           {/* Main Menu Link */}
+           <Link to="/" className="text-slate-400 hover:text-white text-sm font-medium no-underline transition-colors">
              &larr; Main Menu
            </Link>
-           
-           <div style={{width:'1px', height:'20px', background:'#334155'}}></div>
-           
-           <span style={{color:'white', fontSize:'18px', fontWeight:'bold', display:'flex', alignItems:'center', gap: 10}}>
-             Make USA <span style={{background:'#f59e0b', color:'black', padding:'2px 8px', borderRadius:'4px', fontSize:'11px', textTransform:'uppercase', fontWeight:'800'}}>Machine Analytics</span>
+           <div className="w-px h-5 bg-slate-700"></div>
+           <span className="text-white text-lg font-bold flex items-center gap-2">
+             {/* UPDATED TITLE */}
+             Make USA <span className="bg-amber-500 text-black px-2 py-0.5 rounded text-xs uppercase font-black tracking-wide">Machine & QC Reports</span>
            </span>
         </div>
-        
-        <div style={{display:'flex', gap:'20px', alignItems: 'center'}}>
-           <span style={{color: '#94a3b8', fontSize: '14px'}}>
-            {username}
-          </span>
-        </div>
+        <div className="text-slate-400 text-sm">{username}</div>
       </header>
 
-      {/* Main Content Area */}
-      <div style={{padding: '30px', maxWidth:'1400px', margin:'0 auto'}}>
+      {/* 2. MODULE NAVIGATION */}
+      <div className="max-w-7xl mx-auto px-6 mt-8 mb-6">
+          <div className="flex flex-wrap gap-2 bg-slate-200/50 p-1 rounded-xl w-fit">
+              <Link to={BASE} className={navClass('')}>
+                  <LayoutDashboard size={18} /> Analytics Dashboard
+              </Link>
+              <Link to={`${BASE}/setups`} className={navClass('/setups')}>
+                  <Wrench size={18} /> Machine Setups
+              </Link>
+              <Link to={`${BASE}/qc`} className={navClass('/qc')}>
+                  <ClipboardCheck size={18} /> QC Reports
+              </Link>
+          </div>
+      </div>
+
+      {/* 3. MAIN CONTENT AREA */}
+      <div className="max-w-7xl mx-auto px-6 pb-20">
         <Routes>
-          <Route path="" element={<Reports />} />
-          {/* Catch-all redirect to the root of this module */}
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/setups" element={<SetupLog />} />
+          <Route path="/qc" element={<QCLog />} />
           <Route path="*" element={<Navigate to={BASE} />} />
         </Routes>
       </div>
     </div>
   );
 }
-
-export default App;

@@ -9,27 +9,25 @@ import {
   Warehouse, 
   ShieldAlert, 
   LogOut,
-  Activity // <--- NEW ICON (from Snippet 1)
+  Activity 
 } from 'lucide-react'; 
 
-// --- NEW IMPORTS (from Snippet 2) ---
 import DomainRouter from './components/DomainRouter';
 import LinksManager from './LinksManager';
 
-// --- ROLE SYSTEM ---
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
 
-// --- IMPORT SUB-APPS ---
-import HRApp from './hr/App'; 
+import HRApp from './HR/App'; 
 import TechApp from './Techs/App'; 
-import DashboardApp from './dashboard/App';
-import Kiosk from './dashboard/Kiosk';
-import EmployeePortal from './dashboard/EmployeePortal'; 
-import ShedApp from './shed/App';
+import DashboardApp from './Dashboard/App';
+import Kiosk from './Dashboard/Kiosk';
+import EmployeePortal from './Dashboard/EmployeePortal'; 
+import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
-import MachinesApp from './Machines/App'; // <--- MACHINES IMPORT
+import ReportsApp from './Machines/App'; // Renamed import for clarity
 
+// ... GlobalLogin Component ... (Unchanged)
 function GlobalLogin() {
   const handleLogin = async () => {
     const provider = new GoogleAuthProvider();
@@ -103,13 +101,13 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* --- NEW: MACHINE ANALYTICS (Merged from Snippet 1) --- */}
+        {/* --- REPORTS (Renamed) --- */}
         {checkAccess('machines', 'analytics', 'view') && (
-          <Link to="/machines" style={cardStyle}>
+          <Link to="/reports" style={cardStyle}>
             <div style={{...iconBox, background: '#fee2e2', color: '#ef4444'}}>
               <Activity size={32} />
             </div>
-            <div><div style={titleStyle}>Machine Analytics</div></div>
+            <div><div style={titleStyle}>Machine & QC Reports</div></div>
           </Link>
         )}
 
@@ -172,8 +170,8 @@ function ProtectedMainApp() {
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
         
-        {/* NEW ROUTE: MACHINES (Protected) */}
-        <Route path="/machines/*" element={<RoleRoute system="machines" feature="analytics"><MachinesApp /></RoleRoute>} />
+        {/* REPORTS (Previously Machines) */}
+        <Route path="/reports/*" element={<RoleRoute system="machines" feature="analytics"><ReportsApp /></RoleRoute>} />
       </Routes>
     </div>
   );
@@ -183,20 +181,12 @@ export default function App() {
   return (
     <RoleProvider>
       <BrowserRouter>
-        {/* INJECT DOMAIN ROUTER HERE (Run logic on every page load) */}
         <DomainRouter />
-        
         <Routes>
-          {/* Public / Semi-Public Routes */}
           <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
           <Route path="/dashboard/kiosk" element={<Kiosk />} />
-
-          {/* --- EMPLOYEE PORTAL PUBLIC WHITELIST --- */}
-          {/* This allows access without the Global Login */}
           <Route path="/dashboard/employee-portal" element={<EmployeePortal />} />
           <Route path="/employee-portal" element={<EmployeePortal />} />
-
-          {/* Protected Routes */}
           <Route path="/*" element={<ProtectedMainApp />} />
         </Routes>
       </BrowserRouter>
@@ -204,6 +194,7 @@ export default function App() {
   );
 }
 
+// Styles
 const cardStyle = { 
   background: 'white', 
   padding: '25px', 
