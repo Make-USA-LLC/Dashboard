@@ -14,7 +14,7 @@ export default function SetupLog() {
     const [employees, setEmployees] = useState({}); 
     const [globalRate, setGlobalRate] = useState(0);
 
-    // Filter & Config State (Per your preference)
+    // Filter & Config State
     const [costMode, setCostMode] = useState('global'); 
     const [customRate, setCustomRate] = useState(0);
     const [searchText, setSearchText] = useState('');
@@ -46,7 +46,7 @@ export default function SetupLog() {
             machine = machine.replace("Setup: ", "");
         }
 
-        // 3. Resolve Technician(s) - SHOW ALL (No Deduplication)
+        // 3. Resolve Technician(s)
         let techList = [];
         if (data.workerLog) {
             const processWorker = (w) => {
@@ -57,11 +57,9 @@ export default function SetupLog() {
                     techList.push(`ID:${w.id}`);
                 }
             };
-
             if (Array.isArray(data.workerLog)) {
                 data.workerLog.forEach(processWorker);
-            } 
-            else if (typeof data.workerLog === 'object') {
+            } else if (typeof data.workerLog === 'object') {
                 Object.values(data.workerLog).forEach(processWorker);
             }
         }
@@ -88,7 +86,9 @@ export default function SetupLog() {
             id: docSnapshot.id,
             ...data,
             dateObj,     
-            machine,     
+            machine,
+            company: data.company || "—", // ADDED
+            project: data.project || "—", // ADDED
             technician, 
             techList,
             techCount: techList.length,
@@ -103,13 +103,11 @@ export default function SetupLog() {
             setErrorMsg('');
 
             try {
-                // 1. Config
                 const configSnap = await getDoc(doc(db, "config", "finance"));
                 if (configSnap.exists()) {
                     setGlobalRate(configSnap.data().costPerHour || 0);
                 }
 
-                // 2. Employees
                 const empSnap = await getDocs(collection(db, "employees"));
                 const empMap = {};
                 empSnap.forEach(d => {
@@ -122,7 +120,6 @@ export default function SetupLog() {
                 });
                 setEmployees(empMap);
 
-                // 3. Reports
                 const snap = await getDocs(collection(db, "machine_setup_reports"));
                 setRawDocs(snap.docs.map(d => ({ 
                     id: d.id, 
@@ -178,6 +175,8 @@ export default function SetupLog() {
             const lower = searchText.toLowerCase();
             temp = temp.filter(r => 
                 (r.machine || '').toLowerCase().includes(lower) ||
+                (r.company || '').toLowerCase().includes(lower) || // ADDED TO SEARCH
+                (r.project || '').toLowerCase().includes(lower) || // ADDED TO SEARCH
                 (r.technician || '').toLowerCase().includes(lower) ||
                 (r.notes || '').toLowerCase().includes(lower)
             );
@@ -206,6 +205,8 @@ export default function SetupLog() {
             return {
                 Date: r.dateObj.toLocaleDateString() + ' ' + r.dateObj.toLocaleTimeString(),
                 Machine: r.machine,
+                Company: r.company, // ADDED
+                Project: r.project, // ADDED
                 Technicians: r.technician,
                 Count: r.techCount,
                 Duration_Hrs: r.hours.toFixed(4),
@@ -227,18 +228,14 @@ export default function SetupLog() {
 
     return (
         <div className="space-y-6 animate-fade-in">
-            {/* ERROR ALERT */}
             {errorMsg && (
                 <div className="p-4 bg-red-100 text-red-700 rounded-xl border border-red-200">
                     <strong>Error:</strong> {errorMsg}
                 </div>
             )}
 
-            {/* CONTROLS CARD */}
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                 <div className="flex flex-wrap gap-6 items-end">
-                    
-                    {/* Cost Settings */}
                     <div className="flex-1 min-w-[280px]">
                         <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
                             <Settings size={14}/> Cost Calculation Basis
@@ -265,7 +262,6 @@ export default function SetupLog() {
                         </div>
                     </div>
 
-                    {/* Date Filters */}
                     <div>
                         <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
                             <Filter size={14}/> Date Range
@@ -277,20 +273,18 @@ export default function SetupLog() {
                         </div>
                     </div>
 
-                    {/* Search */}
                     <div className="flex-1 min-w-[200px]">
                         <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
                             <Search size={14}/> Search
                         </label>
                         <input 
-                            placeholder="Machine, tech, notes..." 
+                            placeholder="Machine, tech, company..." 
                             value={searchText}
                             onChange={e => setSearchText(e.target.value)}
                             className="w-full p-2.5 border rounded-lg text-sm focus:ring-2 focus:ring-blue-500 transition-all" 
                         />
                     </div>
 
-                    {/* KPI Summary */}
                     <div className="text-right border-l pl-6 border-slate-100">
                         <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Period Cost</div>
                         <div className="text-3xl font-black text-green-600">
@@ -299,7 +293,6 @@ export default function SetupLog() {
                     </div>
                 </div>
 
-                {/* DEBUG TOGGLE */}
                 <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
                     <button onClick={() => setShowDebug(!showDebug)} className="text-[10px] uppercase font-bold text-slate-400 hover:text-slate-600 transition-colors">
                         {showDebug ? '[-] Hide Debug Data' : '[+] Show Debug Data'}
@@ -317,7 +310,6 @@ export default function SetupLog() {
                 )}
             </div>
 
-            {/* TABLE */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50 flex justify-between items-center">
                     <h3 className="font-bold text-slate-700 flex items-center gap-2"><Activity size={18} className="text-blue-500"/> Found {filteredReports.length} Setup Reports</h3>
@@ -329,17 +321,19 @@ export default function SetupLog() {
                             <tr>
                                 <th className="p-4">Date</th>
                                 <th className="p-4">Machine / Line</th>
+                                <th className="p-4">Company</th> {/* ADDED COLUMN */}
+                                <th className="p-4">Project</th> {/* ADDED COLUMN */}
                                 <th className="p-4">Technician(s)</th>
                                 <th className="p-4 text-right">Duration</th>
                                 <th className="p-4 text-right">Rate</th>
                                 <th className="p-4 text-right">Cost</th>
-                                <th className="p-4">Notes</th>
+                                
                                 <th className="p-4 text-right"></th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {filteredReports.length === 0 ? (
-                                <tr><td colSpan="8" className="p-12 text-center text-slate-400 italic">No reports match your current filters.</td></tr>
+                                <tr><td colSpan="10" className="p-12 text-center text-slate-400 italic">No reports match your current filters.</td></tr>
                             ) : (
                                 filteredReports.map(r => {
                                     const rate = getHourlyRate(r);
@@ -351,6 +345,8 @@ export default function SetupLog() {
                                                 <div className="text-[11px] text-slate-400">{r.dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                                             </td>
                                             <td className="p-4 font-black text-blue-600">{r.machine}</td>
+                                            <td className="p-4 text-slate-600 font-medium">{r.company}</td> {/* ADDED CELL */}
+                                            <td className="p-4 text-slate-500 italic">{r.project}</td> {/* ADDED CELL */}
                                             <td className="p-4">
                                                 <div className="flex items-center gap-2">
                                                     {r.techCount > 1 && (
@@ -367,7 +363,7 @@ export default function SetupLog() {
                                             </td>
                                             <td className="p-4 text-right font-mono text-slate-400">${rate.toFixed(2)}</td>
                                             <td className="p-4 text-right font-mono font-black text-green-600">${cost.toFixed(2)}</td>
-                                            <td className="p-4 text-slate-500 text-xs max-w-xs truncate" title={r.notes}>{r.notes}</td>
+                                            
                                             <td className="p-4 text-right">
                                                 <button 
                                                     onClick={() => handleViewID(r.id)} 
