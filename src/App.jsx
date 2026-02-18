@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
-import { onAuthStateChanged, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase_config';
 import { 
   Users, 
@@ -10,7 +10,7 @@ import {
   ShieldAlert, 
   LogOut,
   Activity,
-  Package // New Icon
+  Package 
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -27,27 +27,10 @@ import EmployeePortal from './Dashboard/EmployeePortal';
 import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
 import ReportsApp from './Machines/App'; 
-import ShipmentApp from './Shipment/App'; // New Import
+import ShipmentApp from './Shipment/App'; 
 
-// ... GlobalLogin Component ... (Unchanged)
-function GlobalLogin() {
-  const handleLogin = async () => {
-    const provider = new GoogleAuthProvider();
-    try { await signInWithPopup(auth, provider); } 
-    catch (error) { console.error("Login failed", error); }
-  };
-
-  return (
-    <div style={{height: '100vh', display: 'flex', justifyContent: 'center', alignItems: 'center', background: '#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
-      <div style={{background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', textAlign: 'center', maxWidth: '400px'}}>
-        <h1 style={{marginBottom: '10px', color: '#1e293b'}}>Make USA Master System</h1>
-        <button onClick={handleLogin} style={{padding: '12px 24px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: 'bold', cursor: 'pointer'}}>
-          Sign in with Google
-        </button>
-      </div>
-    </div>
-  );
-}
+// --- CHANGE: Imported the new Login file ---
+import Login from './Login'; 
 
 function SelectionGrid({ user }) {
   const { checkAccess, loading } = useRole();
@@ -103,7 +86,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* SHIPMENT BILLING (NEW) */}
+        {/* SHIPMENT BILLING */}
         {checkAccess('shipment', 'app', 'view') && (
           <Link to="/shipments" style={cardStyle}>
             <div style={{...iconBox, background: '#e0f2fe', color: '#0284c7'}}>
@@ -151,7 +134,9 @@ function ProtectedMainApp() {
   }, []);
 
   if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
-  if (!user) return <GlobalLogin />;
+  
+  // --- CHANGE: Use the imported Login component instead of the old GlobalLogin ---
+  if (!user) return <Login />;
 
   return (
     <div style={{ fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
@@ -219,7 +204,7 @@ const cardStyle = {
   display: 'flex', 
   alignItems: 'center', 
   gap: '20px', 
-  transition: 'transform 0.2s',
+  transition: 'transform 0.2s', 
   cursor: 'pointer'
 };
 

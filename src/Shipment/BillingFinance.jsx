@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase_config';
 import { collection, query, where, getDocs, doc, serverTimestamp, writeBatch, updateDoc } from 'firebase/firestore';
-import { Filter, XCircle, Check, X } from 'lucide-react';
+import { Filter, XCircle, Check, X, FileText } from 'lucide-react';
 
 const BillingFinance = () => {
   const [shipments, setShipments] = useState([]);
@@ -64,7 +64,6 @@ const BillingFinance = () => {
   const handleMarkBilled = async () => {
     if (selected.length === 0) return;
     
-    // --- UPDATED: BLOCK IF NO INVOICE NUMBER ---
     if (!billingInvoice.trim()) {
         alert("You must enter a Billing Invoice # to proceed.");
         return;
@@ -81,13 +80,13 @@ const BillingFinance = () => {
           billedDate: serverTimestamp(),
           billedBy: auth.currentUser.email,
           billedMonth: new Date().toISOString().slice(0, 7),
-          billingInvoiceNumber: billingInvoice.trim() // Save the input value
+          billingInvoiceNumber: billingInvoice.trim()
         });
       });
       await batch.commit();
       alert("Success!");
       setSelected([]);
-      setBillingInvoice(''); // Clear input
+      setBillingInvoice('');
       fetchUnbilled();
     } catch (err) {
       alert("Error: " + err.message);
@@ -115,6 +114,11 @@ const BillingFinance = () => {
   const totalDuties = filteredShipments.reduce((sum, item) => sum + (item.dutiesAmount || 0), 0);
   const totalShipping = filteredShipments.reduce((sum, item) => sum + (item.shippingCost || 0), 0);
   const grandTotal = totalDuties + totalShipping;
+
+  // Helper to view ID
+  const viewId = (id) => {
+    window.prompt("Document ID (Copy to clipboard):", id);
+  };
 
   if (loading) return <div>Loading Queue...</div>;
 
@@ -157,7 +161,6 @@ const BillingFinance = () => {
                 {vendorFilter === 'ALL' ? 'Billing Queue' : `Billing Queue: ${vendorFilter}`}
             </h3>
             
-            {/* ACTION GROUP */}
             <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                 <input 
                     placeholder="Enter Billing Invoice # (Required)" 
@@ -190,8 +193,8 @@ const BillingFinance = () => {
                 <th style={{ padding: '15px' }}>Reference</th>
                 <th style={{ padding: '15px' }}>Duties</th>
                 <th style={{ padding: '15px' }}>Shipping</th>
-                <th style={{ padding: '15px' }}>Details</th>
                 <th style={{ padding: '15px' }}>Entered By</th>
+                <th style={{ padding: '15px', textAlign: 'center' }}>ID</th>
                 </tr>
             </thead>
             <tbody>
@@ -220,12 +223,15 @@ const BillingFinance = () => {
                     </td>
                     <td style={{ padding: '15px', color: '#d97706', fontWeight: '600' }}>${(s.dutiesAmount || 0).toFixed(2)}</td>
                     <td style={{ padding: '15px', color: '#059669', fontWeight: '600' }}>${(s.shippingCost || 0).toFixed(2)}</td>
-                    <td style={{ padding: '15px', fontSize:'12px', color:'#64748b' }}>{s.description}</td>
                     <td style={{ padding: '15px', fontSize:'12px', color:'#64748b' }}>{s.createdByName}</td>
+                    <td style={{ padding: '15px', textAlign: 'center' }}>
+                        <button onClick={() => viewId(s.id)} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8'}}>
+                            <FileText size={16} />
+                        </button>
+                    </td>
                 </tr>
                 ))}
             </tbody>
-            {/* FOOTER TOTALS */}
             {filteredShipments.length > 0 && (
                 <tfoot>
                     <tr style={{ background: '#f1f5f9', fontWeight: 'bold', borderTop: '2px solid #cbd5e1' }}>

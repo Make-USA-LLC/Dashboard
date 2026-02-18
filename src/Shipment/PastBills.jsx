@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { FileText } from 'lucide-react';
 
 const PastBills = () => {
   const [history, setHistory] = useState([]);
@@ -13,8 +14,6 @@ const PastBills = () => {
   const fetchHistory = async () => {
     setLoading(true);
     try {
-      // Trying to fetch last 100 billed items. 
-      // Note: If an index error occurs, we fallback to client-side sort
       const q = query(
           collection(db, "shipments"), 
           where("status", "==", "Billed"),
@@ -29,12 +28,15 @@ const PastBills = () => {
          const q2 = query(collection(db, "shipments"), where("status", "==", "Billed"));
          const snap2 = await getDocs(q2);
          const all = snap2.docs.map(d => ({ id: d.id, ...d.data() }));
-         // Manual sort
          all.sort((a,b) => (b.billedDate?.seconds || 0) - (a.billedDate?.seconds || 0));
          setHistory(all.slice(0, 100));
       } catch (e2) { console.error(e2); }
     }
     setLoading(false);
+  };
+
+  const viewId = (id) => {
+    window.prompt("Document ID (Copy to clipboard):", id);
   };
 
   if (loading) return <div>Loading History...</div>;
@@ -55,6 +57,7 @@ const PastBills = () => {
                         <th style={{ padding: '15px' }}>Duties</th>
                         <th style={{ padding: '15px' }}>Shipping</th>
                         <th style={{ padding: '15px' }}>Billed By</th>
+                        <th style={{ padding: '15px', textAlign: 'center' }}>ID</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -64,10 +67,17 @@ const PastBills = () => {
                                 {h.billedDate?.toDate().toLocaleDateString()}
                             </td>
                             <td style={{ padding: '15px', fontWeight: '500' }}>{h.vendor}</td>
-                            <td style={{ padding: '15px' }}>{h.billingInvoiceNumber || '-'}</td>
+                            <td style={{ padding: '15px', fontWeight: '600', color: '#3b82f6' }}>
+                                {h.billingInvoiceNumber || '-'}
+                            </td>
                             <td style={{ padding: '15px' }}>${(h.dutiesAmount || 0).toFixed(2)}</td>
                             <td style={{ padding: '15px' }}>${(h.shippingCost || 0).toFixed(2)}</td>
                             <td style={{ padding: '15px', color: '#64748b' }}>{h.billedBy}</td>
+                            <td style={{ padding: '15px', textAlign: 'center' }}>
+                                <button onClick={() => viewId(h.id)} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8'}}>
+                                    <FileText size={16} />
+                                </button>
+                            </td>
                         </tr>
                     ))}
                 </tbody>

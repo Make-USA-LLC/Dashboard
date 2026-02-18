@@ -4,7 +4,8 @@ export const msalConfig = {
         authority: "https://login.microsoftonline.com/e2def1cc-04e8-45a9-8ee0-f0418e97578a", // Your Tenant
         
         // Ensure this matches your Azure Portal EXACTLY (No trailing slash)
-        redirectUri: "http://localhost:5173", 
+        // Automatically detects if you are on localhost or makeit.buzz
+redirectUri: window.location.origin,
     },
     cache: {
         // CHANGED: Use localStorage to prevent "lost state" in popups
