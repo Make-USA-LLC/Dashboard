@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
 import { collection, getDocs, query, orderBy, limit } from 'firebase/firestore';
-import { AlertOctagon, Clock, Calendar, ArrowRight } from 'lucide-react';
+import { AlertOctagon, Clock, Calendar, ArrowRight, Play, Square } from 'lucide-react';
 
 export default function DowntimeReports() {
   const [loading, setLoading] = useState(true);
@@ -10,21 +10,54 @@ export default function DowntimeReports() {
   useEffect(() => {
     const fetchDowntime = async () => {
       try {
-        // Change "downtime_reports" to "issue_reports"
-	const q = query(collection(db, "issue_reports"), orderBy("date", "desc"), limit(100));
+        // Query the 'issue_reports' collection
+        const q = query(collection(db, "issue_reports"), orderBy("timestamp", "desc"), limit(100));
         const snap = await getDocs(q);
         
         const data = snap.docs.map(doc => {
           const d = doc.data();
-          // Normalizing data structure similar to your other reports
+          
+          // --- 1. TIME PARSING ---
+          const parseTime = (t) => t?.toDate ? t.toDate() : (t ? new Date(t) : null);
+          
+          // Get the main log time (when it was saved)
+          const logDate = parseTime(d.timestamp || d.date) || new Date();
+          
+          // Get specific start/end times if available
+          const start = parseTime(d.startTime);
+          const end = parseTime(d.endTime);
+
+          // --- 2. ROBUST DURATION CALCULATION ---
+          let seconds = 0;
+
+          if (d.durationSeconds !== undefined && d.durationSeconds !== null) {
+              // Option A: App provides seconds
+              seconds = parseFloat(d.durationSeconds);
+          } else if (d.durationMinutes !== undefined && d.durationMinutes !== null) {
+              // Option B: Legacy data provides minutes
+              seconds = parseFloat(d.durationMinutes) * 60;
+          } else if (start && end) {
+              // Option C: Fallback - Calculate difference manually
+              const diffMs = end.getTime() - start.getTime();
+              seconds = diffMs / 1000;
+          }
+
+          // Safety check to prevent NaN (Not a Number)
+          if (isNaN(seconds)) seconds = 0;
+
           return {
             id: doc.id,
             machine: d.machine || d.lineName || "Unknown",
-            reason: d.reason || "Unspecified",
+            reason: d.type || d.reason || "Unspecified", 
             action: d.actionTaken || "-",
-            duration: parseFloat(d.durationMinutes || 0),
-            date: d.date?.toDate ? d.date.toDate() : new Date(d.date || Date.now()),
-            technician: d.technician || d.user || "Unknown"
+            
+            // Time Data
+            date: logDate,
+            startTime: start,
+            endTime: end,
+            durationSeconds: seconds,
+            
+            technician: d.leader || d.technician || "Unknown" 
           };
         });
         setReports(data);
@@ -37,9 +70,30 @@ export default function DowntimeReports() {
     fetchDowntime();
   }, []);
 
+  // --- HELPER: Format Duration (e.g. "1h 5m 30s") ---
+  const formatDuration = (totalSeconds) => {
+      if (!totalSeconds) return "0s";
+      const h = Math.floor(totalSeconds / 3600);
+      const m = Math.floor((totalSeconds % 3600) / 60);
+      const s = Math.floor(totalSeconds % 60);
+      
+      if (h > 0) return `${h}h ${m}m ${s}s`;
+      if (m > 0) return `${m}m ${s}s`;
+      return `${s}s`;
+  };
+
+  // --- HELPER: Format Time (e.g. "10:30 AM") ---
+  const formatTime = (dateObj) => {
+      if (!dateObj) return "-";
+      return dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  };
+
   if (loading) return <div className="p-10 text-center text-slate-400">Loading downtime logs...</div>;
 
-  const totalDowntime = reports.reduce((acc, curr) => acc + curr.duration, 0);
+  // --- TOTALS CALCULATION ---
+  // We use (curr.durationSeconds || 0) to ensure we never add "undefined" to the total
+  const totalSeconds = reports.reduce((acc, curr) => acc + (curr.durationSeconds || 0), 0);
+  const totalHours = (totalSeconds / 3600).toFixed(2);
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -63,7 +117,7 @@ export default function DowntimeReports() {
           <div>
             <div className="text-slate-500 text-sm font-bold uppercase tracking-wider">Total Downtime</div>
             <div className="text-2xl font-black text-slate-900">
-              {(totalDowntime / 60).toFixed(1)} <span className="text-sm font-medium text-slate-400">hrs</span>
+              {totalHours} <span className="text-sm font-medium text-slate-400">hrs</span>
             </div>
           </div>
         </div>
@@ -83,47 +137,64 @@ export default function DowntimeReports() {
             <thead className="text-xs text-slate-500 uppercase bg-slate-50 border-b border-slate-100">
               <tr>
                 <th className="px-6 py-3 font-bold">Date</th>
-                <th className="px-6 py-3 font-bold">Machine</th>
-                <th className="px-6 py-3 font-bold">Issue & Action</th>
+                <th className="px-6 py-3 font-bold">Time Range</th>
+                <th className="px-6 py-3 font-bold">Machine & Issue</th>
                 <th className="px-6 py-3 font-bold text-right">Duration</th>
-                <th className="px-6 py-3 font-bold text-right">Tech</th>
+                <th className="px-6 py-3 font-bold text-right">Reported By</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {reports.map((report) => (
                 <tr key={report.id} className="hover:bg-slate-50 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-slate-600">
-                    <div className="font-bold">{report.date.toLocaleDateString()}</div>
-                    <div className="text-xs text-slate-400">{report.date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
+                  {/* DATE */}
+                  <td className="px-6 py-4 whitespace-nowrap text-slate-600 font-bold">
+                    {report.date.toLocaleDateString()}
                   </td>
-                  <td className="px-6 py-4 font-medium text-slate-900">
-                    {report.machine}
+
+                  {/* TIME RANGE (Start - End) */}
+                  <td className="px-6 py-4 whitespace-nowrap">
+                    {report.startTime && report.endTime ? (
+                        <div className="flex flex-col text-xs">
+                            <span className="flex items-center gap-1 text-slate-500">
+                                <Play size={10} className="text-green-500"/> {formatTime(report.startTime)}
+                            </span>
+                            <span className="flex items-center gap-1 text-slate-500 mt-1">
+                                <Square size={10} className="text-red-400"/> {formatTime(report.endTime)}
+                            </span>
+                        </div>
+                    ) : (
+                        <span className="text-slate-400 text-xs italic">
+                            {formatTime(report.date)}
+                        </span>
+                    )}
                   </td>
+
+                  {/* MACHINE & ISSUE */}
                   <td className="px-6 py-4">
-                    <div className="flex items-start gap-2">
-                      <span className="text-red-600 font-bold">{report.reason}</span>
-                      {report.action !== '-' && (
-                        <>
-                          <ArrowRight size={14} className="mt-1 text-slate-300" />
-                          <span className="text-slate-500">{report.action}</span>
-                        </>
-                      )}
+                    <div className="font-bold text-slate-900">{report.machine}</div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-red-600 mt-0.5">
+                        {report.reason}
                     </div>
                   </td>
+
+                  {/* DURATION */}
                   <td className="px-6 py-4 text-right">
-                    <span className="bg-slate-100 text-slate-700 font-bold px-2 py-1 rounded">
-                      {report.duration} m
+                    <span className={`font-mono font-bold px-2 py-1 rounded ${report.durationSeconds > 600 ? 'bg-red-100 text-red-700' : 'bg-slate-100 text-slate-700'}`}>
+                      {formatDuration(report.durationSeconds)}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-right text-slate-500">
+
+                  {/* TECH */}
+                  <td className="px-6 py-4 text-right text-slate-500 text-sm">
                     {report.technician}
                   </td>
                 </tr>
               ))}
+              
               {reports.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-slate-400 italic">
-                    No downtime events recorded.
+                    No downtime events found.
                   </td>
                 </tr>
               )}
@@ -133,4 +204,4 @@ export default function DowntimeReports() {
       </div>
     </div>
   );
-} 
+}
