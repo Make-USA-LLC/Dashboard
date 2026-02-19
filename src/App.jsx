@@ -11,8 +11,9 @@ import {
   LogOut,
   Activity,
   Package,
-  Factory,        // New Icon for Production
-  ClipboardCheck  // New Icon for QC
+  Factory,        
+  ClipboardCheck,  
+  FlaskConical    // NEW Icon for Blending
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -32,8 +33,9 @@ import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
 import ReportsApp from './Machines/App'; 
 import ShipmentApp from './Shipment/App'; 
-import ProductionApp from './Production/App'; // NEW
-import QCApp from './QC/App';                 // NEW
+import ProductionApp from './Production/App'; 
+import QCApp from './QC/App';                 
+import BlendingApp from './Blending/App';     // NEW Import
 
 import Login from './Login'; 
 
@@ -61,7 +63,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
         
-        {/* Production Management (NEW) */}
+        {/* Production Management */}
         {checkAccess('production', 'management', 'view') && (
           <Link to="/production" style={cardStyle}>
             <div style={{...iconBox, background: '#dcfce7', color: '#16a34a'}}>
@@ -71,7 +73,17 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* QC Module (NEW) */}
+        {/* Blending Lab (NEW) */}
+        {checkAccess('blending', 'lab', 'view') && (
+          <Link to="/blending" style={cardStyle}>
+            <div style={{...iconBox, background: '#ede9fe', color: '#8b5cf6'}}>
+              <FlaskConical size={32} />
+            </div>
+            <div><div style={titleStyle}>Blending Lab</div></div>
+          </Link>
+        )}
+
+        {/* QC Module */}
         {checkAccess('qc', 'module', 'view') && (
           <Link to="/qc" style={cardStyle}>
             <div style={{...iconBox, background: '#fce7f3', color: '#be185d'}}>
@@ -194,6 +206,7 @@ function ProtectedMainApp() {
         
         {/* NEW ROUTES */}
         <Route path="/production/*" element={<RoleRoute system="production" feature="management"><ProductionApp /></RoleRoute>} />
+        <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> {/* NEW */}
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
 
         {/* REPORTS */}

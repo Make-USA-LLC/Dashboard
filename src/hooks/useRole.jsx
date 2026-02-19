@@ -5,10 +5,10 @@ import { doc, onSnapshot } from 'firebase/firestore';
 const RoleContext = createContext();
 
 export function RoleProvider({ children }) {
-  // Added 'production' and 'qc' to state
   const [access, setAccess] = useState({ 
       ipad: null, hr: null, tech: false, shed: false, 
-      master: false, shipment: null, production: false, qc: false 
+      master: false, shipment: null, production: false, qc: false,
+      blending: false // NEW
   });
   const [loading, setLoading] = useState(true);
 
@@ -21,7 +21,8 @@ export function RoleProvider({ children }) {
         if (email === 'daniel.s@makeit.buzz') {
           setAccess({ 
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
-              master: true, shipment: 'Admin', production: true, qc: true 
+              master: true, shipment: 'Admin', production: true, qc: true,
+              blending: true // NEW
           });
           setLoading(false);
           return;
@@ -34,9 +35,11 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "shed_access", email), (s) => setAccess(v => ({ ...v, shed: s.exists() })), () => {}),
           onSnapshot(doc(db, "shipment_access", email), (s) => setAccess(v => ({ ...v, shipment: s.data()?.role })), () => {}),
           
-          // NEW Listeners for Production and QC
           onSnapshot(doc(db, "production_access", email), (s) => setAccess(v => ({ ...v, production: s.exists() })), () => {}),
           onSnapshot(doc(db, "qc_access", email), (s) => setAccess(v => ({ ...v, qc: s.exists() })), () => {}),
+          
+          // NEW Listener for Blending
+          onSnapshot(doc(db, "blending_access", email), (s) => setAccess(v => ({ ...v, blending: s.exists() })), () => {}),
           
           onSnapshot(doc(db, "master_admin_access", email), (s) => {
              setAccess(v => ({ ...v, master: s.exists() }));
@@ -45,7 +48,7 @@ export function RoleProvider({ children }) {
         ];
         return () => unsubs.forEach(un => un());
       } else {
-        setAccess({ ipad: null, hr: null, tech: false, shed: false, master: false, shipment: null, production: false, qc: false });
+        setAccess({ ipad: null, hr: null, tech: false, shed: false, master: false, shipment: null, production: false, qc: false, blending: false });
         setLoading(false);
       }
     });
@@ -56,10 +59,9 @@ export function RoleProvider({ children }) {
     if (access.master) return true;
     if (system === 'techs') return access.tech;
     if (system === 'production' && feature === 'shed') return access.shed;
-    
-    // NEW Checks for Production Management and QC Module
     if (system === 'production' && feature === 'management') return access.production;
     if (system === 'qc' && feature === 'module') return access.qc;
+    if (system === 'blending') return access.blending; // NEW
 
     if (system === 'ipad') return !!access.ipad;
     if (system === 'hr') return !!access.hr;

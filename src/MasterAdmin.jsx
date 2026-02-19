@@ -10,14 +10,14 @@ const MasterAdmin = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     
-    // UPDATED: Added 'production' and 'qc' to state
+    // UPDATED: Added 'blending' to state
     const [lists, setLists] = useState({ 
         ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
-        production: [], qc: [], admin: [] 
+        production: [], qc: [], blending: [], admin: [] 
     });
     const [inputs, setInputs] = useState({ 
         ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
-        production: '', qc: '', admin: '' 
+        production: '', qc: '', blending: '', admin: '' 
     });
     
     const [roles, setRoles] = useState({ ipad: [], hr: [] });
@@ -57,9 +57,10 @@ const MasterAdmin = () => {
         listen("machine_access", "machine", d => ({email: d.id}));
         listen("shipment_access", "shipment", d => ({email: d.id, ...d.data()}));
         
-        // NEW LISTENERS for Production & QC
+        // LISTENERS for Production, QC & Blending
         listen("production_access", "production", d => ({email: d.id}));
         listen("qc_access", "qc", d => ({email: d.id}));
+        listen("blending_access", "blending", d => ({email: d.id})); // NEW
         
         listen("master_admin_access", "admin", d => ({email: d.id}));
         
@@ -148,7 +149,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* MIDDLE ROW - PRODUCTION & QC (NEW) */}
+            {/* MIDDLE ROW - PRODUCTION & QC & BLENDING */}
             <div className="admin-grid-row">
                 {/* Production */}
                 <div className="admin-card">
@@ -179,6 +180,23 @@ const MasterAdmin = () => {
                             <div key={u.email} className="admin-list-item">
                                 <span>{u.email}</span>
                                 <button onClick={() => handleRemove("qc_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Blending */}
+                <div className="admin-card">
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #8b5cf6'}}>Blending Lab</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.blending} onChange={e => setInputs({...inputs, blending: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAdd("blending", "blending_access")} className="btn-add">Grant</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.blending.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemove("blending_access", u.email)} className="btn-remove">Revoke</button>
                             </div>
                         ))}
                     </div>

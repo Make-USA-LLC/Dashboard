@@ -10,7 +10,7 @@ const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '2px solid #eee', paddingBottom: '10px' },
   card: { background: 'white', padding: '20px', borderRadius: '8px', boxShadow: '0 2px 5px rgba(0,0,0,0.1)', marginBottom: '15px', border: '1px solid #e0e0e0' },
   btn: { padding: '10px 15px', borderRadius: '5px', border: 'none', cursor: 'pointer', fontWeight: 'bold', marginRight: '10px' },
-  input: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', width: '100%' },
+  input: { padding: '8px', borderRadius: '4px', border: '1px solid #ccc', width: '100%', boxSizing: 'border-box' },
   label: { display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '5px', color: '#555' },
   badge: { padding: '4px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold', textTransform: 'uppercase' },
   linkList: { listStyleType: 'none', padding: 0, margin: '5px 0 0 0', fontSize: '12px' },
@@ -25,9 +25,16 @@ const ProductionApp = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
 
-    const [form, setForm] = useState({
-        company: '', project: '', category: '', size: '', quantity: '', price: ''
-    });
+    // Job Data State
+    const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
+    
+    // Blending States
+    const [requiresBlending, setRequiresBlending] = useState(false);
+    const [ingredients, setIngredients] = useState([
+        { name: 'Alcohol', percentage: '' },
+        { name: 'DI Water', percentage: '' },
+        { name: 'Fragrance Oil', percentage: '', isOil: true }
+    ]);
 
     useEffect(() => {
         const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
@@ -79,7 +86,6 @@ const ProductionApp = () => {
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
-        // Construct Path: Documents / Production / Files / [Company Name] / [Month-Year] / [Project Name]
         let folderPath = job.sharepointFolder;
         if (!folderPath) {
             const date = new Date();
@@ -98,7 +104,6 @@ const ProductionApp = () => {
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
             
-            // Upload multiple files concurrently
             const uploadPromises = files.map(async (file) => {
                 const filePath = `/sites/${SITE_ID}/drive/root:${folderPath}/TechSheet_${file.name}:/content?@microsoft.graph.conflictBehavior=rename`;
                 const response = await fetch(`https://graph.microsoft.com/v1.0${filePath}`, {
@@ -114,11 +119,10 @@ const ProductionApp = () => {
 
             const uploadedDocs = await Promise.all(uploadPromises);
 
-            // Save to Firestore
             await updateDoc(doc(db, "production_pipeline", job.id), {
                 techSheetUploaded: true,
                 sharepointFolder: folderPath,
-                techSheets: arrayUnion(...uploadedDocs) // Appends to array
+                techSheets: arrayUnion(...uploadedDocs)
             });
             
             alert("Upload Success!");
@@ -126,22 +130,43 @@ const ProductionApp = () => {
             alert("Error: " + err.message);
         } finally {
             setUploadingId(null);
-            e.target.value = null; // Reset input
+            e.target.value = null; 
         }
+    };
+
+    const handleAddIngredient = () => {
+        setIngredients([...ingredients, { name: '', percentage: '' }]);
+    };
+
+    const handleIngredientChange = (index, field, value) => {
+        const newIng = [...ingredients];
+        newIng[index][field] = value;
+        setIngredients(newIng);
     };
 
     const handleCreate = async () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         
+        if (requiresBlending) {
+            const total = ingredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
+            if (total < 99 || total > 101) alert(`Warning: Percentages add up to ${total}%, not 100%. Proceeding to pipeline anyway.`);
+        }
+
         await addDoc(collection(db, "production_pipeline"), {
             ...form,
             status: "production",
+            requiresBlending,
+            blendingStatus: requiresBlending ? "pending" : "not_required",
+            ingredients: requiresBlending ? ingredients : [],
             techSheetUploaded: false,
-            techSheets: [], // Initialize array
+            techSheets: [],
             componentsArrived: false,
             createdAt: serverTimestamp()
         });
+        
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
+        setRequiresBlending(false);
+        setIngredients([{ name: 'Alcohol', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
     };
 
@@ -173,7 +198,7 @@ const ProductionApp = () => {
             {isFormOpen && (
                 <div style={{...styles.card, background:'#f9f9f9'}}>
                     <h3 style={{marginTop:0}}>New Production Job</h3>
-                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'15px'}}>
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'15px', marginBottom: '15px'}}>
                         <div><label style={styles.label}>Company</label>
                             <select style={styles.input} value={form.company} onChange={e=>setForm({...form, company:e.target.value})}>
                                 <option value="">Select...</option>
@@ -196,6 +221,44 @@ const ProductionApp = () => {
                         <div><label style={styles.label}>Quantity</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
                         <div><label style={styles.label}>Price per Unit</label><input type="number" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
                     </div>
+
+                    {/* BLENDING SECTION */}
+                    <div style={{ borderTop: '1px solid #ccc', paddingTop: '15px', marginTop: '15px' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={requiresBlending} onChange={(e) => setRequiresBlending(e.target.checked)} />
+                            Requires Blending Phase
+                        </label>
+
+                        {requiresBlending && (
+                            <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '5px', border: '1px dashed #aaa' }}>
+                                <h4>Formulation Percentages (%)</h4>
+                                {ingredients.map((ing, idx) => (
+                                    <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
+                                        <input 
+                                            style={styles.input} 
+                                            placeholder="Ingredient Name" 
+                                            value={ing.name} 
+                                            readOnly={idx < 3} // Lock base ingredients
+                                            onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)} 
+                                        />
+                                        <input 
+                                            type="number" 
+                                            step="0.0001"
+                                            style={styles.input} 
+                                            placeholder="%" 
+                                            value={ing.percentage} 
+                                            onChange={(e) => handleIngredientChange(idx, 'percentage', e.target.value)} 
+                                        />
+                                        {idx >= 3 && (
+                                            <button onClick={() => setIngredients(ingredients.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>✖</button>
+                                        )}
+                                    </div>
+                                ))}
+                                <button onClick={handleAddIngredient} style={{ ...styles.btn, background: '#eee', color: '#333', fontSize: '12px' }}>+ Add Custom Ingredient</button>
+                            </div>
+                        )}
+                    </div>
+
                     <div style={{marginTop:'20px', textAlign:'right'}}>
                         <button onClick={handleCreate} style={{...styles.btn, background:'#2980b9', color:'white'}}>Save to Pipeline</button>
                     </div>
@@ -209,7 +272,6 @@ const ProductionApp = () => {
                             <h3 style={{margin:'0 0 5px 0'}}>{job.project}</h3>
                             <div style={{color:'#666'}}>{job.company} • {job.quantity} units</div>
                             
-                            {/* RENDER CLICKABLE FILE LINKS */}
                             {job.techSheets && job.techSheets.length > 0 && (
                                 <ul style={styles.linkList}>
                                     {job.techSheets.map((file, idx) => (
@@ -229,12 +291,16 @@ const ProductionApp = () => {
                                 <span style={{...styles.badge, marginLeft:'10px', background: job.componentsArrived ? '#dcfce7' : '#f3f4f6', color: job.componentsArrived ? '#166534' : '#666'}}>
                                     {job.componentsArrived ? "✓ Arrived" : "Waiting for Components"}
                                 </span>
+                                {job.requiresBlending && (
+                                    <span style={{...styles.badge, marginLeft:'10px', background: job.blendingStatus === 'completed' ? '#dcfce7' : '#fef08a', color: '#333'}}>
+                                        {job.blendingStatus === 'completed' ? "✓ Blended" : "⚖️ Blending Pending"}
+                                    </span>
+                                )}
                             </div>
                         </div>
 
                         <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
                             <div style={{textAlign:'center'}}>
-                                {/* ADDED MULTIPLE ATTRIBUTE */}
                                 <input type="file" multiple id={`file-${job.id}`} style={{display:'none'}} onChange={(e) => handleSharePointUpload(e, job)} disabled={uploadingId === job.id} />
                                 <label htmlFor={`file-${job.id}`} style={{fontSize:'12px', color:'#2563eb', cursor:'pointer', textDecoration:'underline', display: 'block', marginBottom: '5px'}}>
                                     {uploadingId === job.id ? "Uploading..." : "+ Add Tech Sheet(s)"}
@@ -250,8 +316,8 @@ const ProductionApp = () => {
 
                             <button 
                                 onClick={() => sendToQC(job)}
-                                disabled={!job.techSheetUploaded || !job.componentsArrived}
-                                style={{...styles.btn, background: (!job.techSheetUploaded || !job.componentsArrived) ? '#eee' : '#8e44ad', color: (!job.techSheetUploaded || !job.componentsArrived) ? '#999' : 'white'}}
+                                disabled={!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')}
+                                style={{...styles.btn, background: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#eee' : '#8e44ad', color: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#999' : 'white'}}
                             >
                                 Send to QC &rarr;
                             </button>
