@@ -34,8 +34,18 @@ export default function Settings() {
     shiftBlocks: [],
     scheduleAreas: [],
     certTypes: [],
-    lunchDuration: 30
+    lunchDuration: 30,
+    shiftColorRules: [] 
   });
+
+  // --- NEW: Form State for Color Rules (Add/Edit) ---
+  const [ruleForm, setRuleForm] = useState({
+    start: '',
+    end: '',
+    color: '#ffcc00',
+    areas: []
+  });
+  const [editingRuleIdx, setEditingRuleIdx] = useState(null);
 
   const [reviewConfig, setReviewConfig] = useState({
     maxSalary: 25.00,
@@ -85,7 +95,8 @@ export default function Settings() {
           shiftBlocks: sortList(data.shiftBlocks || ["7:00 AM - 3:00 PM", "3:00 PM - 11:00 PM"]),
           scheduleAreas: sortList(data.scheduleAreas || ["Production", "Shipping"]),
           certTypes: sortList(data.certTypes || ["Forklift", "CPR"]),
-          lunchDuration: data.lunchDuration !== undefined ? data.lunchDuration : 30
+          lunchDuration: data.lunchDuration !== undefined ? data.lunchDuration : 30,
+          shiftColorRules: data.shiftColorRules || [] 
         });
       }
 
@@ -128,6 +139,74 @@ export default function Settings() {
   const persistLockers = async (newData) => {
     setLockerConfig(newData);
     await setDoc(doc(db, "settings", "locker_layout"), newData);
+  };
+
+  // --- COLOR RULES HELPERS ---
+  const handleSaveRule = () => {
+    const { start, end, color, areas } = ruleForm;
+    if (!start || !end || !color) return alert("Please fill in start time, end time, and color.");
+
+    const newRule = { 
+      start: parseFloat(start), 
+      end: parseFloat(end), 
+      color,
+      areas: areas || []
+    };
+    
+    if (isNaN(newRule.start) || isNaN(newRule.end)) return alert("Invalid Time Values");
+
+    const newRules = [...globalOptions.shiftColorRules];
+    
+    if (editingRuleIdx !== null) {
+        // Update existing
+        newRules[editingRuleIdx] = newRule;
+    } else {
+        // Add new
+        newRules.push(newRule);
+    }
+
+    persistGlobal({ ...globalOptions, shiftColorRules: newRules });
+    
+    // Reset Form
+    setRuleForm({ start: '', end: '', color: '#ffcc00', areas: [] });
+    setEditingRuleIdx(null);
+  };
+
+  const handleEditRule = (index) => {
+    const rule = globalOptions.shiftColorRules[index];
+    setRuleForm({
+        start: rule.start,
+        end: rule.end,
+        color: rule.color,
+        areas: rule.areas || []
+    });
+    setEditingRuleIdx(index);
+  };
+
+  const handleCancelEdit = () => {
+    setRuleForm({ start: '', end: '', color: '#ffcc00', areas: [] });
+    setEditingRuleIdx(null);
+  };
+
+  const removeColorRule = (index) => {
+    if (!confirm("Delete this color rule?")) return;
+    const newRules = [...globalOptions.shiftColorRules];
+    newRules.splice(index, 1);
+    persistGlobal({ ...globalOptions, shiftColorRules: newRules });
+    
+    // If we were editing the deleted rule, cancel edit
+    if (editingRuleIdx === index) handleCancelEdit();
+  };
+
+  const toggleRuleFormArea = (area) => {
+    setRuleForm(prev => {
+        const currentAreas = prev.areas || [];
+        if (currentAreas.includes(area)) {
+            return { ...prev, areas: currentAreas.filter(a => a !== area) };
+        } else {
+            return { ...prev, areas: [...currentAreas, area] };
+        }
+    });
   };
 
   // --- LOCKER HELPERS ---
@@ -269,12 +348,176 @@ export default function Settings() {
         {canViewReviews && <TabButton name="Performance Reviews" id="reviews" active={activeTab} onClick={setActiveTab} />}
       </div>
 
+      {/* --- SCHEDULING TAB --- */}
+      {activeTab === "scheduling" && canEditSchedule && (
+        <div className="animate-fade">
+          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid #f59e0b' }}>
+            <h4>⏳ Time Calculations</h4>
+            <label style={lblStyle}>Standard Lunch Deduction (Minutes)</label>
+            <input type="number" value={globalOptions.lunchDuration} onChange={e => persistGlobal({ ...globalOptions, lunchDuration: parseInt(e.target.value) || 0 })} style={{ ...inpStyle, maxWidth: 150 }} />
+            <p style={{ fontSize: '12px', color: '#64748b', marginTop: 5 }}>Subtracted from daily hours for shifts {'>'} 5 hours.</p>
+          </div>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 20 }}>
+            <div className="card">
+              <h4>🏭 Production Areas</h4>
+              <ListEditor list={globalOptions.scheduleAreas} onAdd={v => addOption('scheduleAreas', v)} onRemove={i => removeOption('scheduleAreas', i)} />
+            </div>
+            <div className="card">
+              <h4>⏰ Shift Blocks</h4>
+              <ListEditor list={globalOptions.shiftBlocks} onAdd={v => addOption('shiftBlocks', v)} onRemove={i => removeOption('shiftBlocks', i)} />
+            </div>
+          </div>
+
+          {/* COLOR RULES SECTION */}
+          <div className="card" style={{ borderLeft: '4px solid #ec4899' }}>
+             <h4>🎨 Shift Colors</h4>
+             <p style={{ fontSize: '12px', color: '#64748b' }}>If a shift starts within the range AND matches the Area (Job Description), it uses this color.</p>
+             
+             <div style={{ marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {globalOptions.shiftColorRules.map((rule, idx) => (
+                   <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 15, background: editingRuleIdx === idx ? '#eff6ff' : '#f8fafc', padding: 10, borderRadius: 6, border: editingRuleIdx === idx ? '1px solid #2563eb' : '1px solid #e2e8f0' }}>
+                      <div style={{ fontWeight: 'bold' }}>{rule.start}:00 - {rule.end}:00</div>
+                      <div style={{ width: 20, height: 20, borderRadius: 4, background: rule.color, border: '1px solid #ddd' }}></div>
+                      <div style={{ flex: 1, color: '#64748b', fontSize: '12px' }}>
+                        <div>Starts {rule.start}:00-{rule.end}:00</div>
+                        {rule.areas && rule.areas.length > 0 ? (
+                            <div style={{fontWeight:'bold', marginTop: 2}}>Only: {rule.areas.join(", ")}</div>
+                        ) : (
+                            <div style={{fontStyle:'italic', marginTop: 2}}>All Areas</div>
+                        )}
+                      </div>
+                      <div style={{display:'flex', gap: 10}}>
+                          <button className="text-only" onClick={() => handleEditRule(idx)} style={{ color: '#2563eb', fontWeight:'bold' }}>Edit</button>
+                          <button className="text-only" onClick={() => removeColorRule(idx)} style={{ color: 'red' }}>Remove</button>
+                      </div>
+                   </div>
+                ))}
+             </div>
+
+             <div style={{ background: editingRuleIdx !== null ? '#eff6ff' : '#fdf2f8', padding: 15, borderRadius: 8, border: editingRuleIdx !== null ? '1px solid #bfdbfe' : 'none' }}>
+                <h4 style={{marginTop: 0, marginBottom: 15}}>{editingRuleIdx !== null ? "📝 Edit Rule" : "➕ Add New Rule"}</h4>
+                
+                <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end', marginBottom: 15 }}>
+                    <div style={{flex: 1}}>
+                       <label style={lblStyle}>Start Hour (24h)</label>
+                       <input 
+                         type="number" min="0" max="23" placeholder="5" 
+                         value={ruleForm.start} 
+                         onChange={e => setRuleForm({...ruleForm, start: e.target.value})}
+                         style={inpStyle} 
+                       />
+                    </div>
+                    <div style={{flex: 1}}>
+                       <label style={lblStyle}>End Hour (24h)</label>
+                       <input 
+                         type="number" min="0" max="24" placeholder="7" 
+                         value={ruleForm.end} 
+                         onChange={e => setRuleForm({...ruleForm, end: e.target.value})}
+                         style={inpStyle} 
+                       />
+                    </div>
+                    <div>
+                       <label style={lblStyle}>Color</label>
+                       <input 
+                         type="color" 
+                         value={ruleForm.color} 
+                         onChange={e => setRuleForm({...ruleForm, color: e.target.value})}
+                         style={{ height: 42, width: 60, cursor: 'pointer', border:'none', padding: 0, background:'none' }} 
+                       />
+                    </div>
+                </div>
+                
+                <div style={{ marginBottom: 15 }}>
+                    <label style={lblStyle}>Apply to Areas (Optional - Leave empty for All)</label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, maxHeight: 100, overflowY: 'auto', background: 'white', padding: 10, border: '1px solid #e2e8f0', borderRadius: 4 }}>
+                        {globalOptions.scheduleAreas && globalOptions.scheduleAreas.map(area => (
+                            <label key={area} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: '13px', cursor: 'pointer', padding: '2px 6px', background: ruleForm.areas.includes(area) ? '#ec4899' : '#f1f5f9', color: ruleForm.areas.includes(area) ? 'white' : 'black', borderRadius: 4 }}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={ruleForm.areas.includes(area)} 
+                                    onChange={() => toggleRuleFormArea(area)} 
+                                    style={{ display: 'none' }}
+                                />
+                                {area}
+                            </label>
+                        ))}
+                    </div>
+                </div>
+
+                <div style={{display:'flex', gap: 10}}>
+                    <button className="primary" style={{flex: 2}} onClick={handleSaveRule}>
+                        {editingRuleIdx !== null ? "💾 Update Rule" : "+ Add Color Rule"}
+                    </button>
+                    {editingRuleIdx !== null && (
+                        <button style={{flex: 1, background: '#e2e8f0', border:'none', borderRadius: 6, cursor:'pointer'}} onClick={handleCancelEdit}>
+                            Cancel
+                        </button>
+                    )}
+                </div>
+             </div>
+          </div>
+        </div>
+      )}
+      
+      {/* ... [Rest of the existing code for OTHER TABS] ... */}
+      
+      {/* --- GENERAL TAB --- */}
+      {activeTab === "general" && canViewGeneral && (
+        <div className="animate-fade">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+            <div className="card">
+              <h4>🏢 Departments</h4>
+              <ListEditorSafe list={globalOptions.departments || []} onAdd={v => addOption('departments', v)} onRemove={i => removeOption('departments', i)} />
+            </div>
+            <div className="card">
+              <h4>💻 Asset Categories</h4>
+              <ListEditorSafe list={globalOptions.assetCategories} onAdd={v => addOption('assetCategories', v)} onRemove={i => removeOption('assetCategories', i)} />
+            </div>
+            <div className="card">
+              <h4>📊 Asset Statuses</h4>
+              <ListEditorSafe list={globalOptions.assetStatuses} onAdd={v => addOption('assetStatuses', v)} onRemove={i => removeOption('assetStatuses', i)} />
+            </div>
+            <div className="card" style={{ gridColumn: '1 / -1', borderLeft: canEditSecurity ? '4px solid #16a34a' : '4px solid #cbd5e1' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <h4 style={{ margin: 0 }}>✅ Authorized Review Approvers</h4>
+                  <p style={{ fontSize: '12px', color: '#64748b' }}>Only users with these emails can click "Approve Review".</p>
+                </div>
+              </div>
+              <ListEditor list={globalOptions.reviewApprovers || []} onAdd={v => addOption('reviewApprovers', v)} onRemove={i => removeOption('reviewApprovers', i)} readOnly={!canEditSecurity} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* --- TRAINING TAB --- */}
+      {activeTab === "training" && canViewTraining && (
+        <div className="animate-fade">
+          <div className="card">
+            <h4>📜 Certification Types</h4>
+            <ListEditorSafe list={globalOptions.certTypes} onAdd={v => addOption('certTypes', v)} onRemove={i => removeOption('certTypes', i)} />
+          </div>
+        </div>
+      )}
+
+      {/* --- CHECKLISTS TAB --- */}
+      {activeTab === "checklists" && canViewChecklists && (
+        <div className="animate-fade">
+          <h3>Onboarding & Offboarding Templates</h3>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+            <ChecklistEditor title="Salary Onboarding" category="salaryOnboarding" list={checklistTemplates.salaryOnboarding} color="#3b82f6" onAdd={addCheckItem} onRemove={removeCheckItem} />
+            <ChecklistEditor title="Salary Offboarding" category="salaryOffboarding" list={checklistTemplates.salaryOffboarding} color="#ef4444" onAdd={addCheckItem} onRemove={removeCheckItem} />
+            <ChecklistEditor title="Hourly Onboarding" category="hourlyOnboarding" list={checklistTemplates.hourlyOnboarding} color="#10b981" onAdd={addCheckItem} onRemove={removeCheckItem} />
+            <ChecklistEditor title="Hourly Offboarding" category="hourlyOffboarding" list={checklistTemplates.hourlyOffboarding} color="#f59e0b" onAdd={addCheckItem} onRemove={removeCheckItem} />
+          </div>
+        </div>
+      )}
+
       {/* --- LOCKER LAYOUT EDITOR --- */}
       {activeTab === "lockers" && canEditLockers && (
         <div className="animate-fade">
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 30 }}>
-            
-            {/* WALLS */}
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
                 <h4 style={{ margin: 0 }}>🧱 Locker Walls</h4>
@@ -297,7 +540,6 @@ export default function Settings() {
               </div>
             </div>
 
-            {/* SIZES */}
             <div className="card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
                 <h4 style={{ margin: 0 }}>📏 Locker Sizes</h4>
@@ -332,80 +574,6 @@ export default function Settings() {
                 })}
               </div>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- GENERAL TAB --- */}
-      {activeTab === "general" && canViewGeneral && (
-        <div className="animate-fade">
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <div className="card">
-              <h4>🏢 Departments</h4>
-              <ListEditorSafe list={globalOptions.departments || []} onAdd={v => addOption('departments', v)} onRemove={i => removeOption('departments', i)} />
-            </div>
-            <div className="card">
-              <h4>💻 Asset Categories</h4>
-              <ListEditorSafe list={globalOptions.assetCategories} onAdd={v => addOption('assetCategories', v)} onRemove={i => removeOption('assetCategories', i)} />
-            </div>
-            <div className="card">
-              <h4>📊 Asset Statuses</h4>
-              <ListEditorSafe list={globalOptions.assetStatuses} onAdd={v => addOption('assetStatuses', v)} onRemove={i => removeOption('assetStatuses', i)} />
-            </div>
-            <div className="card" style={{ gridColumn: '1 / -1', borderLeft: canEditSecurity ? '4px solid #16a34a' : '4px solid #cbd5e1' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <div>
-                  <h4 style={{ margin: 0 }}>✅ Authorized Review Approvers</h4>
-                  <p style={{ fontSize: '12px', color: '#64748b' }}>Only users with these emails can click "Approve Review".</p>
-                </div>
-              </div>
-              <ListEditor list={globalOptions.reviewApprovers || []} onAdd={v => addOption('reviewApprovers', v)} onRemove={i => removeOption('reviewApprovers', i)} readOnly={!canEditSecurity} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- SCHEDULING TAB --- */}
-      {activeTab === "scheduling" && canEditSchedule && (
-        <div className="animate-fade">
-          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid #f59e0b' }}>
-            <h4>⏳ Time Calculations</h4>
-            <label style={lblStyle}>Standard Lunch Deduction (Minutes)</label>
-            <input type="number" value={globalOptions.lunchDuration} onChange={e => persistGlobal({ ...globalOptions, lunchDuration: parseInt(e.target.value) || 0 })} style={{ ...inpStyle, maxWidth: 150 }} />
-            <p style={{ fontSize: '12px', color: '#64748b', marginTop: 5 }}>Subtracted from daily hours for shifts {'>'} 5 hours.</p>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
-            <div className="card">
-              <h4>🏭 Production Areas</h4>
-              <ListEditor list={globalOptions.scheduleAreas} onAdd={v => addOption('scheduleAreas', v)} onRemove={i => removeOption('scheduleAreas', i)} />
-            </div>
-            <div className="card">
-              <h4>⏰ Shift Blocks</h4>
-              <ListEditor list={globalOptions.shiftBlocks} onAdd={v => addOption('shiftBlocks', v)} onRemove={i => removeOption('shiftBlocks', i)} />
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* --- TRAINING TAB --- */}
-      {activeTab === "training" && canViewTraining && (
-        <div className="animate-fade">
-          <div className="card">
-            <h4>📜 Certification Types</h4>
-            <ListEditorSafe list={globalOptions.certTypes} onAdd={v => addOption('certTypes', v)} onRemove={i => removeOption('certTypes', i)} />
-          </div>
-        </div>
-      )}
-
-      {/* --- CHECKLISTS TAB --- */}
-      {activeTab === "checklists" && canViewChecklists && (
-        <div className="animate-fade">
-          <h3>Onboarding & Offboarding Templates</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-            <ChecklistEditor title="Salary Onboarding" category="salaryOnboarding" list={checklistTemplates.salaryOnboarding} color="#3b82f6" onAdd={addCheckItem} onRemove={removeCheckItem} />
-            <ChecklistEditor title="Salary Offboarding" category="salaryOffboarding" list={checklistTemplates.salaryOffboarding} color="#ef4444" onAdd={addCheckItem} onRemove={removeCheckItem} />
-            <ChecklistEditor title="Hourly Onboarding" category="hourlyOnboarding" list={checklistTemplates.hourlyOnboarding} color="#10b981" onAdd={addCheckItem} onRemove={removeCheckItem} />
-            <ChecklistEditor title="Hourly Offboarding" category="hourlyOffboarding" list={checklistTemplates.hourlyOffboarding} color="#f59e0b" onAdd={addCheckItem} onRemove={removeCheckItem} />
           </div>
         </div>
       )}

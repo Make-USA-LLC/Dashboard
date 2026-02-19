@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { collection, onSnapshot, doc, getDoc, writeBatch, setDoc, updateDoc, deleteField } from 'firebase/firestore';
 import { db } from '../firebase';
 import { useRole } from '../hooks/useRole';
-import { logAudit } from '../utils/logger'; // <--- Ensure imported
+import { logAudit } from '../utils/logger';
 
 // --- HELPER FUNCTIONS ---
 const getSunday = (date) => {
@@ -55,6 +55,14 @@ const parseShiftHours = (timeStr) => {
     if (diff < 0) diff += 24; 
     return diff;
 };
+// NEW: Helper to add opacity to hex colors
+const hexToRgba = (hex, alpha) => {
+    if (!hex || typeof hex !== 'string' || hex[0] !== '#') return hex;
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
 
 export default function Schedule() {
   const { checkAccess } = useRole();
@@ -76,6 +84,7 @@ export default function Schedule() {
   const [areas, setAreas] = useState([]);
   const [shifts, setShifts] = useState([]);
   const [departments, setDepartments] = useState([]); 
+  const [shiftColorRules, setShiftColorRules] = useState([]); 
 
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [paintArea, setPaintArea] = useState("");
@@ -125,6 +134,7 @@ export default function Schedule() {
               setShifts(data.shiftBlocks || []);
               setDepartments(data.departments || []);
               if(data.lunchDuration) setLunchDed(data.lunchDuration);
+              setShiftColorRules(data.shiftColorRules || []); 
           }
       });
       const unsub = onSnapshot(collection(db, "employees"), (snap) => {
@@ -166,6 +176,39 @@ export default function Schedule() {
       return gross;
   };
 
+  // UPDATED: Check Area Matches Logic
+  const getShiftColor = (timeStr, areaStr) => {
+    if (!timeStr || !shiftColorRules.length) return null;
+    
+    // Parse Start Time
+    const clean = timeStr.split(/[-–—]/)[0].replace(/\s+/g, '').toUpperCase();
+    const match = clean.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)?$/);
+    
+    if (!match) return null;
+
+    let h = parseInt(match[1], 10);
+    const m = match[2] ? parseInt(match[2], 10) : 0;
+    const mer = match[3];
+
+    if (mer === 'PM' && h < 12) h += 12;
+    if (mer === 'AM' && h === 12) h = 0;
+    
+    const startDecimal = h + (m / 60);
+
+    // Check rules
+    const rule = shiftColorRules.find(r => {
+        const timeMatch = startDecimal >= r.start && startDecimal < r.end;
+        
+        // If the rule has specific areas listed, the current cell area must be in that list.
+        // If the rule has NO areas listed, it applies to everyone (backward compatibility/default).
+        const areaMatch = !r.areas || r.areas.length === 0 || (areaStr && r.areas.includes(areaStr));
+        
+        return timeMatch && areaMatch;
+    });
+
+    return rule ? rule.color : null;
+  };
+
   const calculateDailyCost = (dateStr) => {
       if (!canSeeMoney) return 0;
       let total = 0;
@@ -199,13 +242,13 @@ export default function Schedule() {
       if (isDelete) {
           try { 
               await updateDoc(docRef, { [`allocations.${empId}`]: deleteField() }); 
-              logAudit("Schedule Change", dateStr, `Removed shift for ${empName}`); // LOGGED
+              logAudit("Schedule Change", dateStr, `Removed shift for ${empName}`); 
           } catch (e) { }
       } else {
           const payload = { allocations: {} };
           payload.allocations[empId] = { area, time };
           await setDoc(docRef, payload, { merge: true });
-          logAudit("Schedule Change", dateStr, `Set ${area} @ ${time} for ${empName}`); // LOGGED
+          logAudit("Schedule Change", dateStr, `Set ${area} @ ${time} for ${empName}`); 
       }
   };
 
@@ -241,7 +284,7 @@ export default function Schedule() {
 
   const handleModalDelete = async () => {
       if(!editingCell) return;
-      await applyChange(editingCell.dateStr, editingCell.empId, "", "", true); // Fixed: Pass true for isDelete
+      await applyChange(editingCell.dateStr, editingCell.empId, "", "", true);
       setEditingCell(null);
   };
 
@@ -267,7 +310,7 @@ export default function Schedule() {
               });
           });
           await batch.commit();
-          logAudit("Schedule Recurring", "Bulk Update", `Updated recurring schedule for ${targets.length} staff`); // LOGGED
+          logAudit("Schedule Recurring", "Bulk Update", `Updated recurring schedule for ${targets.length} staff`);
           window.location.reload(); 
           return;
       }
@@ -291,7 +334,7 @@ export default function Schedule() {
           batch.set(docRef, { allocations: currentAlloc }, { merge: true });
       }
       await batch.commit();
-      logAudit("Schedule Range", "Bulk Update", `Updated schedule for ${targets.length} staff (${quickForm.startDate} to ${quickForm.endDate})`); // LOGGED
+      logAudit("Schedule Range", "Bulk Update", `Updated schedule for ${targets.length} staff (${quickForm.startDate} to ${quickForm.endDate})`);
       window.location.reload();
   };
 
@@ -396,12 +439,17 @@ export default function Schedule() {
                                   const hasOverrideData = isOverride && (isOverride.area || isOverride.time);
                                   const isDefault = !isOverride && cell.time;
                                   
+                                  // NEW: Calculate dynamic color with 50% opacity (0.5)
+                                  // Pass the cell area to the color function
+                                  const ruleColor = getShiftColor(cell.time, cell.area);
+                                  const bgColor = ruleColor ? hexToRgba(ruleColor, 0.5) : (hasOverrideData ? '#eff6ff' : (isDefault ? '#f8fafc' : 'white'));
+                                  
                                   return (
                                       <td 
                                         key={dateStr} 
                                         onMouseDown={() => onMouseDown(dateStr, emp.id)}
                                         onMouseEnter={() => onMouseEnter(dateStr, emp.id)}
-                                        style={{padding: 0, height: 50, borderLeft:'1px solid #f1f5f9', textAlign:'center', verticalAlign:'middle', cursor: canEdit ? 'cell' : 'default', background: hasOverrideData ? '#eff6ff' : (isDefault ? '#f8fafc' : 'white'), userSelect: 'none'}}
+                                        style={{padding: 0, height: 50, borderLeft:'1px solid #f1f5f9', textAlign:'center', verticalAlign:'middle', cursor: canEdit ? 'cell' : 'default', background: bgColor, userSelect: 'none'}}
                                       >
                                           {cell.area || cell.time ? (<div style={{fontSize:'12px', display:'flex', flexDirection:'column', gap: 2, pointerEvents:'none'}}>{cell.area && <div style={{fontWeight:'600', color:'#0f172a'}}>{cell.area}</div>}{cell.time && <div style={{color:'#64748b', fontSize:'11px'}}>{cell.time}</div>}</div>) : <span style={{color:'#e2e8f0'}}>-</span>}
                                       </td>
@@ -415,7 +463,9 @@ export default function Schedule() {
               </tbody>
           </table>
       </div>
-
+      
+      {/* ... [Rest of the existing code for MODALS] ... */}
+      
       {/* CLICK EDIT MODAL */}
       {editingCell && (
           <div className="modal-overlay" onClick={(e) => { if(e.target.className === 'modal-overlay') setEditingCell(null) }}>

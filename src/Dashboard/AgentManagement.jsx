@@ -83,7 +83,7 @@ const AgentManagement = () => {
         if (!impersonateTarget) return alert("Please select an agent.");
         
         // Use the React Route path, not the .html file
-        const url = `/agent-portal?viewAs=${encodeURIComponent(impersonateTarget)}`;
+        const url = `/dashboard/agent-portal?viewAs=${encodeURIComponent(impersonateTarget)}`;
         window.open(url, '_blank');
     };
 

@@ -24,12 +24,12 @@ import TechApp from './Techs/App';
 import DashboardApp from './Dashboard/App';
 import Kiosk from './Dashboard/Kiosk';
 import EmployeePortal from './Dashboard/EmployeePortal'; 
+import AgentPortal from './Dashboard/AgentPortal'; // IMPORT AGENT PORTAL
 import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
 import ReportsApp from './Machines/App'; 
 import ShipmentApp from './Shipment/App'; 
 
-// --- CHANGE: Imported the new Login file ---
 import Login from './Login'; 
 
 function SelectionGrid({ user }) {
@@ -135,7 +135,7 @@ function ProtectedMainApp() {
 
   if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
   
-  // --- CHANGE: Use the imported Login component instead of the old GlobalLogin ---
+  // If no user, show MASTER login (The blue one)
   if (!user) return <Login />;
 
   return (
@@ -183,8 +183,14 @@ export default function App() {
         <Routes>
           <Route path="/kiosk" element={<Navigate to="/dashboard/kiosk" replace />} />
           <Route path="/dashboard/kiosk" element={<Kiosk />} />
+          
           <Route path="/dashboard/employee-portal" element={<EmployeePortal />} />
           <Route path="/employee-portal" element={<EmployeePortal />} />
+
+	  <Route path="/dashboard/agent-portal" element={<AgentPortal />} />
+          <Route path="/agent-portal" element={<AgentPortal />} />
+
+          {/* Protected Area - Catches everything else */}
           <Route path="/*" element={<ProtectedMainApp />} />
         </Routes>
       </BrowserRouter>
