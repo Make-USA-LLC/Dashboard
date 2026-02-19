@@ -17,9 +17,11 @@ export default function Reviews() {
   const [employees, setEmployees] = useState([]);
   
   const [isModalOpen, setIsModalOpen] = useState(false); 
-  // Added 'note' to approval modal state
   const [approveModal, setApproveModal] = useState({ isOpen: false, review: null, salary: "", note: "" }); 
   const [viewReview, setViewReview] = useState(null); 
+
+  // --- NEW: View Mode State ---
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'table'
 
   const [config, setConfig] = useState(null); 
   const [currentUserEmail, setCurrentUserEmail] = useState("");
@@ -71,6 +73,7 @@ export default function Reviews() {
     
     const unsubReviews = onSnapshot(collection(db, "reviews"), (snap) => {
         const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Ensure sorted by newest first
         list.sort((a,b) => new Date(b.date) - new Date(a.date));
         setReviews(list);
     });
@@ -209,7 +212,6 @@ export default function Reviews() {
   const openApproveModal = (review) => { 
       if (!canApprove) return;
       const salary = review.results?.suggestedSalary || 0;
-      // Initialize with empty note
       setApproveModal({ isOpen: true, review: review, salary: salary.toFixed(2), note: "" }); 
   };
 
@@ -225,7 +227,7 @@ export default function Reviews() {
           approvedSalary: parseFloat(salary), 
           approvedBy: currentUserEmail, 
           approvedAt: today.toISOString(),
-          approvalNote: note // Save the approval note
+          approvalNote: note 
       });
       await updateDoc(doc(db, "employees", review.employeeId), { 
           lastReviewDate: today, compensation: parseFloat(salary) 
@@ -243,13 +245,43 @@ export default function Reviews() {
       } 
   };
 
+  // --- NEW: Calculate the most recent reviews for the Comparison Table ---
+  // Since `reviews` is already sorted newest-first, we grab the first instance of each employee.
+  const latestReviews = Object.values(
+    reviews.reduce((acc, review) => {
+        if (!acc[review.employeeId]) {
+            acc[review.employeeId] = review;
+        }
+        return acc;
+    }, {})
+  ).sort((a, b) => (b.results?.totalScore || 0) - (a.results?.totalScore || 0)); // Sort table by score highest to lowest
+
   if (!canView) return <div style={{padding:20}}>⛔ Access Denied</div>;
 
   return (
     <div>
       {/* HEADER */}
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 30}}>
-        <h2 style={{fontSize:'28px', margin:0}}>Performance Reviews</h2>
+        <div style={{display: 'flex', alignItems: 'center', gap: 20}}>
+            <h2 style={{fontSize:'28px', margin:0}}>Performance Reviews</h2>
+            
+            {/* View Mode Toggle */}
+            <div style={{display:'flex', background:'#f1f5f9', padding: 4, borderRadius: 8}}>
+                <button
+                    onClick={() => setViewMode('grid')}
+                    style={{background: viewMode === 'grid' ? 'white' : 'transparent', border:'none', padding:'6px 14px', borderRadius: 6, cursor:'pointer', fontWeight: viewMode === 'grid' ? 'bold' : 'normal', boxShadow: viewMode === 'grid' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', color: '#334155'}}
+                >
+                    Grid View
+                </button>
+                <button
+                    onClick={() => setViewMode('table')}
+                    style={{background: viewMode === 'table' ? 'white' : 'transparent', border:'none', padding:'6px 14px', borderRadius: 6, cursor:'pointer', fontWeight: viewMode === 'table' ? 'bold' : 'normal', boxShadow: viewMode === 'table' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none', color: '#334155'}}
+                >
+                    Comparison Table
+                </button>
+            </div>
+        </div>
+
         <div style={{display:'flex', gap: 15, alignItems:'center'}}>
             {!isConfigValid && (
                 <div style={{display:'flex', alignItems:'center', background:'#fee2e2', color:'#b91c1c', border:'1px solid #f87171', padding:'8px 12px', borderRadius: 6, fontSize:'13px', fontWeight:'bold'}}>
@@ -276,95 +308,157 @@ export default function Reviews() {
         </div>
       </div>
 
-      {/* REVIEW CARDS GRID */}
-      <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 20}}>
-          {reviews.length === 0 && <p style={{color:'#64748b', fontSize:'18px'}}>No reviews yet.</p>}
-          
-          {reviews.map(r => {
-              const isApproved = r.status === "Approved";
-              const isDraft = r.status === "Draft";
-              const totalScore = r.results?.totalScore || 0;
-              const scoreColor = totalScore > 80 ? '#22c55e' : (totalScore > 50 ? '#eab308' : '#ef4444');
-              const rawWage = r.results?.rawSalary || 0;
-              const suggestedSalary = r.results?.suggestedSalary || 0;
-              const minWage = r.configSnapshot?.minWage || config.minWage;
-              const isUnderMin = rawWage < minWage;
+      {/* --- GRID VIEW --- */}
+      {viewMode === 'grid' && (
+        <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(320px, 1fr))', gap: 20}}>
+            {reviews.length === 0 && <p style={{color:'#64748b', fontSize:'18px'}}>No reviews yet.</p>}
+            
+            {reviews.map(r => {
+                const isApproved = r.status === "Approved";
+                const isDraft = r.status === "Draft";
+                const totalScore = r.results?.totalScore || 0;
+                const scoreColor = totalScore > 80 ? '#22c55e' : (totalScore > 50 ? '#eab308' : '#ef4444');
+                const rawWage = r.results?.rawSalary || 0;
+                const suggestedSalary = r.results?.suggestedSalary || 0;
+                const minWage = r.configSnapshot?.minWage || config.minWage;
+                const isUnderMin = rawWage < minWage;
 
-              return (
-                <div key={r.id} className="card" style={{padding: 0, overflow:'hidden', border: isApproved ? '2px solid #22c55e' : (isDraft ? '2px dashed #94a3b8' : '2px solid #e2e8f0'), boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}>
-                    <div 
-                        style={{background: isApproved ? '#f0fdf4' : (isDraft ? '#f1f5f9' : '#f8fafc'), padding: 20, borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'start', cursor: 'pointer'}}
-                        onClick={() => setViewReview(r)}
-                    >
-                        <div>
-                            <h3 style={{margin:0, fontSize:'20px', color: '#0f172a'}}>{r.employeeName}</h3>
-                            <p style={{margin:0, fontSize:'13px', color:'#64748b', marginTop: 4}}>📅 {new Date(r.date).toLocaleDateString()}</p>
-                        </div>
-                        <span style={{background: isApproved ? '#22c55e' : (isDraft ? '#64748b' : '#94a3b8'), color:'white', padding:'4px 10px', borderRadius: 6, fontSize:'12px', fontWeight:'bold', textTransform:'uppercase'}}>
-                            {r.status}
-                        </span>
-                    </div>
-
-                    <div style={{padding: 20, cursor: 'pointer'}} onClick={() => setViewReview(r)}>
-                        <div style={{marginBottom: 20}}>
-                            <div style={{display:'flex', justifyContent:'space-between', marginBottom: 5}}>
-                                <span style={{fontWeight:'bold', color:'#475569'}}>Total Score</span>
-                                <span style={{fontWeight:'bold', color: scoreColor}}>{totalScore.toFixed(1)} / 100</span>
+                return (
+                    <div key={r.id} className="card" style={{padding: 0, overflow:'hidden', border: isApproved ? '2px solid #22c55e' : (isDraft ? '2px dashed #94a3b8' : '2px solid #e2e8f0'), boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)'}}>
+                        <div 
+                            style={{background: isApproved ? '#f0fdf4' : (isDraft ? '#f1f5f9' : '#f8fafc'), padding: 20, borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'start', cursor: 'pointer'}}
+                            onClick={() => setViewReview(r)}
+                        >
+                            <div>
+                                <h3 style={{margin:0, fontSize:'20px', color: '#0f172a'}}>{r.employeeName}</h3>
+                                <p style={{margin:0, fontSize:'13px', color:'#64748b', marginTop: 4}}>📅 {new Date(r.date).toLocaleDateString()}</p>
                             </div>
-                            <div style={{width:'100%', height: 10, background:'#e2e8f0', borderRadius: 5, overflow:'hidden'}}>
-                                <div style={{width: `${Math.min(totalScore, 100)}%`, height:'100%', background: scoreColor}}></div>
-                            </div>
+                            <span style={{background: isApproved ? '#22c55e' : (isDraft ? '#64748b' : '#94a3b8'), color:'white', padding:'4px 10px', borderRadius: 6, fontSize:'12px', fontWeight:'bold', textTransform:'uppercase'}}>
+                                {r.status}
+                            </span>
                         </div>
 
-                        <div style={{display:'flex', flexDirection:'column', background:'#f8fafc', padding: 10, borderRadius: 8}}>
-                            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                <span style={{fontSize:'13px', color:'#64748b'}}>New Rate:</span>
-                                {isApproved ? (
-                                    <span style={{fontSize:'20px', fontWeight:'bold', color:'#16a34a'}}>${(r.approvedSalary || 0).toFixed(2)}</span>
-                                ) : (
-                                    <span style={{fontSize:'18px', fontWeight:'bold', color:'#94a3b8'}}>${suggestedSalary.toFixed(2)}</span>
+                        <div style={{padding: 20, cursor: 'pointer'}} onClick={() => setViewReview(r)}>
+                            <div style={{marginBottom: 20}}>
+                                <div style={{display:'flex', justifyContent:'space-between', marginBottom: 5}}>
+                                    <span style={{fontWeight:'bold', color:'#475569'}}>Total Score</span>
+                                    <span style={{fontWeight:'bold', color: scoreColor}}>{totalScore.toFixed(1)} / 100</span>
+                                </div>
+                                <div style={{width:'100%', height: 10, background:'#e2e8f0', borderRadius: 5, overflow:'hidden'}}>
+                                    <div style={{width: `${Math.min(totalScore, 100)}%`, height:'100%', background: scoreColor}}></div>
+                                </div>
+                            </div>
+
+                            <div style={{display:'flex', flexDirection:'column', background:'#f8fafc', padding: 10, borderRadius: 8}}>
+                                <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                    <span style={{fontSize:'13px', color:'#64748b'}}>New Rate:</span>
+                                    {isApproved ? (
+                                        <span style={{fontSize:'20px', fontWeight:'bold', color:'#16a34a'}}>${(r.approvedSalary || 0).toFixed(2)}</span>
+                                    ) : (
+                                        <span style={{fontSize:'18px', fontWeight:'bold', color:'#94a3b8'}}>${suggestedSalary.toFixed(2)}</span>
+                                    )}
+                                </div>
+                                {isUnderMin && (
+                                    <div style={{textAlign:'right', color:'#ef4444', fontSize:'11px', fontWeight:'bold', marginTop: 2}}>
+                                        Scored Rate: ${rawWage.toFixed(2)}
+                                    </div>
                                 )}
                             </div>
-                            {isUnderMin && (
-                                <div style={{textAlign:'right', color:'#ef4444', fontSize:'11px', fontWeight:'bold', marginTop: 2}}>
-                                    Scored Rate: ${rawWage.toFixed(2)}
+                            
+                            {isApproved && (
+                                <div style={{marginTop: 10, fontSize:'11px', color:'#64748b', textAlign:'center'}}>
+                                    Approved by {r.approvedBy?.split('@')[0]}
                                 </div>
                             )}
                         </div>
-                        
-                        {isApproved && (
-                            <div style={{marginTop: 10, fontSize:'11px', color:'#64748b', textAlign:'center'}}>
-                                Approved by {r.approvedBy?.split('@')[0]}
-                            </div>
-                        )}
-                    </div>
 
-                    <div style={{borderTop:'1px solid #e2e8f0', display:'flex'}}>
-                        {isDraft ? (
-                            canEdit && (
-                                <button onClick={() => handleResumeDraft(r)} style={{flex: 1, background:'#f8fafc', color:'#0f172a', border:'none', padding: 15, cursor:'pointer', fontWeight:'bold', borderRight:'1px solid #e2e8f0'}}>
-                                    ✏️ RESUME
-                                </button>
-                            )
-                        ) : (
-                            !isApproved && canApprove ? (
-                                <button onClick={() => openApproveModal(r)} style={{flex: 1, background:'#f0fdf4', color:'#166534', border:'none', padding: 15, cursor:'pointer', fontWeight:'bold', borderRight:'1px solid #e2e8f0'}}>
-                                    ✅ APPROVE
-                                </button>
+                        <div style={{borderTop:'1px solid #e2e8f0', display:'flex'}}>
+                            {isDraft ? (
+                                canEdit && (
+                                    <button onClick={() => handleResumeDraft(r)} style={{flex: 1, background:'#f8fafc', color:'#0f172a', border:'none', padding: 15, cursor:'pointer', fontWeight:'bold', borderRight:'1px solid #e2e8f0'}}>
+                                        ✏️ RESUME
+                                    </button>
+                                )
                             ) : (
-                                <div style={{flex:1, padding: 15, textAlign:'center', color:'#cbd5e1', fontSize:'12px', borderRight:'1px solid #e2e8f0'}}>
-                                    {isApproved ? "LOCKED" : "WAITING AUTHORIZATION"}
-                                </div>
-                            )
-                        )}
-                        {canEdit && (
-                            <button onClick={() => handleDelete(r.id)} style={{width: 60, background:'white', color:'#ef4444', border:'none', cursor:'pointer', fontWeight:'bold'}}>🗑</button>
-                        )}
+                                !isApproved && canApprove ? (
+                                    <button onClick={() => openApproveModal(r)} style={{flex: 1, background:'#f0fdf4', color:'#166534', border:'none', padding: 15, cursor:'pointer', fontWeight:'bold', borderRight:'1px solid #e2e8f0'}}>
+                                        ✅ APPROVE
+                                    </button>
+                                ) : (
+                                    <div style={{flex:1, padding: 15, textAlign:'center', color:'#cbd5e1', fontSize:'12px', borderRight:'1px solid #e2e8f0'}}>
+                                        {isApproved ? "LOCKED" : "WAITING AUTHORIZATION"}
+                                    </div>
+                                )
+                            )}
+                            {canEdit && (
+                                <button onClick={() => handleDelete(r.id)} style={{width: 60, background:'white', color:'#ef4444', border:'none', cursor:'pointer', fontWeight:'bold'}}>🗑</button>
+                            )}
+                        </div>
                     </div>
-                </div>
-              );
-          })}
-      </div>
+                );
+            })}
+        </div>
+      )}
+
+      {/* --- TABLE VIEW --- */}
+      {viewMode === 'table' && (
+        <div style={{background: 'white', borderRadius: 8, boxShadow: '0 2px 5px rgba(0,0,0,0.1)', overflow: 'hidden'}}>
+            {latestReviews.length === 0 ? (
+                <p style={{padding: 20, color:'#64748b', fontSize:'18px'}}>No reviews yet.</p>
+            ) : (
+                <table style={{width: '100%', borderCollapse: 'collapse', textAlign: 'left'}}>
+                    <thead>
+                        <tr style={{background: '#f8fafc', borderBottom: '2px solid #cbd5e1'}}>
+                            <th style={{padding: '15px 20px', color: '#475569'}}>Employee Name</th>
+                            <th style={{padding: '15px 20px', color: '#475569'}}>Latest Score</th>
+                            <th style={{padding: '15px 20px', color: '#475569'}}>Salary Rate</th>
+                            <th style={{padding: '15px 20px', color: '#475569'}}>Review Date</th>
+                            <th style={{padding: '15px 20px', color: '#475569'}}>Status</th>
+                            <th style={{padding: '15px 20px'}}></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {latestReviews.map(r => {
+                            const isApproved = r.status === "Approved";
+                            const totalScore = r.results?.totalScore || 0;
+                            const scoreColor = totalScore > 80 ? '#16a34a' : (totalScore > 50 ? '#d97706' : '#dc2626');
+                            const salary = isApproved ? r.approvedSalary : r.results?.suggestedSalary;
+
+                            return (
+                                <tr key={r.id} style={{borderBottom: '1px solid #e2e8f0', background: 'white', transition: 'background 0.2s'}}>
+                                    <td style={{padding: '15px 20px', fontWeight: 'bold', color: '#0f172a'}}>
+                                        {r.employeeName}
+                                    </td>
+                                    <td style={{padding: '15px 20px', fontWeight: 'bold', color: scoreColor}}>
+                                        {totalScore.toFixed(1)} <span style={{fontSize: '12px', color: '#94a3b8'}}>/ 100</span>
+                                    </td>
+                                    <td style={{padding: '15px 20px', fontSize: '16px', fontWeight: 'bold', color: isApproved ? '#16a34a' : '#64748b'}}>
+                                        ${(salary || 0).toFixed(2)}
+                                    </td>
+                                    <td style={{padding: '15px 20px', color: '#64748b'}}>
+                                        {new Date(r.date).toLocaleDateString()}
+                                    </td>
+                                    <td style={{padding: '15px 20px'}}>
+                                        <span style={{background: isApproved ? '#dcfce7' : '#f1f5f9', color: isApproved ? '#166534' : '#64748b', padding: '4px 8px', borderRadius: 4, fontSize: '12px', fontWeight: 'bold', textTransform: 'uppercase'}}>
+                                            {r.status}
+                                        </span>
+                                    </td>
+                                    <td style={{padding: '15px 20px', textAlign: 'right'}}>
+                                        <button 
+                                            onClick={() => setViewReview(r)} 
+                                            style={{background: 'transparent', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: 4, cursor: 'pointer', color: '#475569'}}
+                                        >
+                                            View
+                                        </button>
+                                    </td>
+                                </tr>
+                            )
+                        })}
+                    </tbody>
+                </table>
+            )}
+        </div>
+      )}
       
       {/* REVIEW MODAL (CREATE / EDIT) */}
       {isModalOpen && (
@@ -539,7 +633,7 @@ export default function Reviews() {
                     </div>
                 )}
 
-                {/* READ ONLY APPROVAL NOTES (NEW) */}
+                {/* READ ONLY APPROVAL NOTES */}
                 {viewReview.approvalNote && (
                     <div style={{marginTop: 20, background: '#dcfce7', padding: 15, borderRadius: 8, border: '1px solid #86efac'}}>
                         <h4 style={{margin:'0 0 5px 0', color:'#166534'}}>Approval Note</h4>

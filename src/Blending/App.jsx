@@ -35,6 +35,10 @@ export default function BlendingApp() {
     const [viewingItem, setViewingItem] = useState(null);
     const [oilGrams, setOilGrams] = useState('');
 
+    // --- Search and Sort States ---
+    const [searchTerm, setSearchTerm] = useState('');
+    const [sortOption, setSortOption] = useState('dateDesc'); 
+
     useEffect(() => {
         const qSamples = query(collection(db, "blending_samples"), where("status", "==", "pending"));
         const unsub1 = onSnapshot(qSamples, (snap) => setPendingSamples(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'sample' }))));
@@ -125,14 +129,12 @@ export default function BlendingApp() {
     };
 
     const emailFinishedBlend = (item) => {
-        // 1. Generate CSV content (Excel format)
         let csvContent = "Formula,%,gr\n";
         item.calculatedIngredients.forEach(ing => {
             csvContent += `"${ing.name}","${ing.percentage}","${ing.calculatedGrams}"\n`;
         });
         csvContent += `\n"Total","","${item.totalBatchGrams}"`;
 
-        // 2. Trigger automatic file download
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
@@ -146,7 +148,6 @@ export default function BlendingApp() {
         link.click();
         document.body.removeChild(link);
 
-        // 3. Open Email Draft
         const subjectName = item.type === 'sample' ? `Sample: ${item.name}` : `${item.company || ''} ${item.project || ''}`.trim();
         const subject = encodeURIComponent(`Blending Complete - ${subjectName}`);
         
@@ -212,6 +213,35 @@ export default function BlendingApp() {
         printWindow.document.write(html);
         printWindow.document.close();
     };
+
+    // --- Filter and Sort Logic ---
+    const processedFinishedBlends = finishedBlends
+        .filter(item => {
+            const searchLower = searchTerm.toLowerCase();
+            const itemName = (item.name || item.project || '').toLowerCase();
+            const itemCompany = (item.company || '').toLowerCase();
+            return itemName.includes(searchLower) || itemCompany.includes(searchLower) || item.type.includes(searchLower);
+        })
+        .sort((a, b) => {
+            if (sortOption === 'dateDesc') {
+                return (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0);
+            } else if (sortOption === 'dateAsc') {
+                return (a.completedAt?.seconds || 0) - (b.completedAt?.seconds || 0);
+            } else if (sortOption === 'nameAsc') {
+                const nameA = (a.name || a.project || '').toLowerCase();
+                const nameB = (b.name || b.project || '').toLowerCase();
+                return nameA.localeCompare(nameB);
+            } else if (sortOption === 'nameDesc') {
+                const nameA = (a.name || a.project || '').toLowerCase();
+                const nameB = (b.name || b.project || '').toLowerCase();
+                return nameB.localeCompare(nameA);
+            } else if (sortOption === 'sizeDesc') {
+                return Number(b.totalBatchGrams || 0) - Number(a.totalBatchGrams || 0);
+            } else if (sortOption === 'sizeAsc') {
+                return Number(a.totalBatchGrams || 0) - Number(b.totalBatchGrams || 0);
+            }
+            return 0;
+        });
 
     return (
         <div style={styles.container}>
@@ -366,7 +396,33 @@ export default function BlendingApp() {
             {/* FINISHED BLENDS */}
             {activeTab === 'finished' && (
                 <div>
-                    {finishedBlends.map(item => (
+                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
+                        <input 
+                            type="text" 
+                            placeholder="Search by name, project, or company..." 
+                            value={searchTerm} 
+                            onChange={(e) => setSearchTerm(e.target.value)} 
+                            style={{ ...styles.input, flex: 1 }}
+                        />
+                        <select 
+                            value={sortOption} 
+                            onChange={(e) => setSortOption(e.target.value)}
+                            style={{ ...styles.input, width: '200px' }}
+                        >
+                            <option value="dateDesc">Newest First</option>
+                            <option value="dateAsc">Oldest First</option>
+                            <option value="nameAsc">Name (A-Z)</option>
+                            <option value="nameDesc">Name (Z-A)</option>
+                            <option value="sizeDesc">Largest Batch First</option>
+                            <option value="sizeAsc">Smallest Batch First</option>
+                        </select>
+                    </div>
+
+                    {processedFinishedBlends.length === 0 && (
+                        <p style={{ color: '#666', fontStyle: 'italic' }}>No finished blends match your criteria.</p>
+                    )}
+
+                    {processedFinishedBlends.map(item => (
                         <div key={item.id} style={{...styles.card, borderLeft: '5px solid #10b981', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <div>
                                 <h3 style={{margin:'0 0 5px 0'}}>{item.name || item.project} <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px'}}>{item.type}</span></h3>
