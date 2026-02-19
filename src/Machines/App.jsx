@@ -1,12 +1,13 @@
 import React from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom"; 
 import { auth } from "../firebase_config"; 
-import { LayoutDashboard, Wrench, ClipboardCheck } from "lucide-react";
+import { LayoutDashboard, Wrench, ClipboardCheck, AlertCircle } from "lucide-react"; // Added AlertCircle
 
 // Sub-pages
 import Dashboard from "./Dashboard";
 import SetupLog from "./SetupLog";
 import QCLog from "./QCLog";
+import DowntimeReports from "./DowntimeReports"; // 1. IMPORT NEW COMPONENT
 
 // UPDATE BASE PATH
 const BASE = "/reports";
@@ -18,7 +19,6 @@ export default function App() {
 
   // Helper for active tab styles
   const navClass = (path) => {
-    // Check for exact match or base match
     const fullPath = path === '' ? BASE : `${BASE}${path}`;
     const isActive = loc.pathname === fullPath || (path === '' && loc.pathname === BASE);
     
@@ -41,7 +41,6 @@ export default function App() {
            </Link>
            <div className="w-px h-5 bg-slate-700"></div>
            <span className="text-white text-lg font-bold flex items-center gap-2">
-             {/* UPDATED TITLE */}
              Make USA <span className="bg-amber-500 text-black px-2 py-0.5 rounded text-xs uppercase font-black tracking-wide">Machine & QC Reports</span>
            </span>
         </div>
@@ -60,6 +59,10 @@ export default function App() {
               <Link to={`${BASE}/qc`} className={navClass('/qc')}>
                   <ClipboardCheck size={18} /> QC Reports
               </Link>
+              {/* 2. ADD NAVIGATION LINK */}
+              <Link to={`${BASE}/downtime`} className={navClass('/downtime')}>
+                  <AlertCircle size={18} /> Downtime
+              </Link>
           </div>
       </div>
 
@@ -69,6 +72,8 @@ export default function App() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/setups" element={<SetupLog />} />
           <Route path="/qc" element={<QCLog />} />
+          {/* 3. ADD ROUTE */}
+          <Route path="/downtime" element={<DowntimeReports />} />
           <Route path="*" element={<Navigate to={BASE} />} />
         </Routes>
       </div>
