@@ -256,7 +256,7 @@ export default function Reviews() {
                     ⚠️ Config Error: Total Weight is {totalConfigWeight}% (Must be 100%)
                 </div>
             )}
-            <Link to="/settings" state={{ activeTab: 'reviews' }}>
+            <Link to="/hr/settings" state={{ activeTab: 'reviews' }}>
                 <button style={{background:'white', color:'#475569', border:'2px solid #cbd5e1', cursor:'pointer', padding:'12px 20px', borderRadius: 8, fontSize:'14px', fontWeight:'bold'}}>
                     ⚙️ Settings
                 </button>
