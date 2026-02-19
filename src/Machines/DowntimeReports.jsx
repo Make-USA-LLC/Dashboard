@@ -140,7 +140,7 @@ export default function DowntimeReports() {
                 <th className="px-6 py-3 font-bold">Time Range</th>
                 <th className="px-6 py-3 font-bold">Machine & Issue</th>
                 <th className="px-6 py-3 font-bold text-right">Duration</th>
-                <th className="px-6 py-3 font-bold text-right">Reported By</th>
+                <th className="px-6 py-3 font-bold text-right">Line Leader</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
