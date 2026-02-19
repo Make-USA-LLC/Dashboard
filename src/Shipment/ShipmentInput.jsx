@@ -100,6 +100,15 @@ const ShipmentInput = () => {
                 </div>
                 <input style={miniInputStyle} value={editData.vendor} onChange={(e) => setEditData({...editData, vendor: e.target.value})} placeholder="Vendor Name" />
                 <input style={miniInputStyle} value={editData.trackingNumber} onChange={(e) => setEditData({...editData, trackingNumber: e.target.value})} placeholder="Tracking #" />
+                
+                {/* NEW: Description Edit Input */}
+                <input 
+                    style={miniInputStyle} 
+                    value={editData.description} 
+                    onChange={(e) => setEditData({...editData, description: e.target.value})} 
+                    placeholder="Description / Contents" 
+                />
+
                 <div style={{ display: 'flex', gap: '5px' }}>
                     <input type="number" style={miniInputStyle} value={editData.dutiesAmount} onChange={(e) => setEditData({...editData, dutiesAmount: e.target.value})} placeholder="Duties $" />
                     <input type="number" style={miniInputStyle} value={editData.shippingCost} onChange={(e) => setEditData({...editData, shippingCost: e.target.value})} placeholder="Shipping $" />
