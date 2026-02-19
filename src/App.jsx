@@ -10,7 +10,9 @@ import {
   ShieldAlert, 
   LogOut,
   Activity,
-  Package 
+  Package,
+  Factory,        // New Icon for Production
+  ClipboardCheck  // New Icon for QC
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -19,16 +21,19 @@ import LinksManager from './LinksManager';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
 
+// App Imports
 import HRApp from './HR/App'; 
 import TechApp from './Techs/App'; 
 import DashboardApp from './Dashboard/App';
 import Kiosk from './Dashboard/Kiosk';
 import EmployeePortal from './Dashboard/EmployeePortal'; 
-import AgentPortal from './Dashboard/AgentPortal'; // IMPORT AGENT PORTAL
+import AgentPortal from './Dashboard/AgentPortal';
 import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
 import ReportsApp from './Machines/App'; 
 import ShipmentApp from './Shipment/App'; 
+import ProductionApp from './Production/App'; // NEW
+import QCApp from './QC/App';                 // NEW
 
 import Login from './Login'; 
 
@@ -56,13 +61,23 @@ function SelectionGrid({ user }) {
           </Link>
         )}
         
-        {/* Technicians */}
-        {checkAccess('techs', 'inventory', 'view') && (
-          <Link to="/techs" style={cardStyle}>
+        {/* Production Management (NEW) */}
+        {checkAccess('production', 'management', 'view') && (
+          <Link to="/production" style={cardStyle}>
             <div style={{...iconBox, background: '#dcfce7', color: '#16a34a'}}>
-              <Wrench size={32} />
+              <Factory size={32} />
             </div>
-            <div><div style={titleStyle}>Technicians</div></div>
+            <div><div style={titleStyle}>Production Manager</div></div>
+          </Link>
+        )}
+
+        {/* QC Module (NEW) */}
+        {checkAccess('qc', 'module', 'view') && (
+          <Link to="/qc" style={cardStyle}>
+            <div style={{...iconBox, background: '#fce7f3', color: '#be185d'}}>
+              <ClipboardCheck size={32} />
+            </div>
+            <div><div style={titleStyle}>QC Module</div></div>
           </Link>
         )}
 
@@ -73,6 +88,16 @@ function SelectionGrid({ user }) {
               <Tablet size={32} />
             </div>
             <div><div style={titleStyle}>iPad Dashboard</div></div>
+          </Link>
+        )}
+
+        {/* Technicians */}
+        {checkAccess('techs', 'inventory', 'view') && (
+          <Link to="/techs" style={cardStyle}>
+            <div style={{...iconBox, background: '#dcfce7', color: '#16a34a'}}>
+              <Wrench size={32} />
+            </div>
+            <div><div style={titleStyle}>Technicians</div></div>
           </Link>
         )}
 
@@ -135,7 +160,6 @@ function ProtectedMainApp() {
 
   if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
   
-  // If no user, show MASTER login (The blue one)
   if (!user) return <Login />;
 
   return (
@@ -168,6 +192,10 @@ function ProtectedMainApp() {
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
         <Route path="/shipments/*" element={<RoleRoute system="shipment" feature="app"><ShipmentApp /></RoleRoute>} />
         
+        {/* NEW ROUTES */}
+        <Route path="/production/*" element={<RoleRoute system="production" feature="management"><ProductionApp /></RoleRoute>} />
+        <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
+
         {/* REPORTS */}
         <Route path="/reports/*" element={<RoleRoute system="machines" feature="analytics"><ReportsApp /></RoleRoute>} />
       </Routes>
@@ -187,7 +215,7 @@ export default function App() {
           <Route path="/dashboard/employee-portal" element={<EmployeePortal />} />
           <Route path="/employee-portal" element={<EmployeePortal />} />
 
-	  <Route path="/dashboard/agent-portal" element={<AgentPortal />} />
+          <Route path="/dashboard/agent-portal" element={<AgentPortal />} />
           <Route path="/agent-portal" element={<AgentPortal />} />
 
           {/* Protected Area - Catches everything else */}

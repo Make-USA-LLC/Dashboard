@@ -10,9 +10,15 @@ const MasterAdmin = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     
-    // ADDED: 'shipment' to state
-    const [lists, setLists] = useState({ ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], admin: [] });
-    const [inputs, setInputs] = useState({ ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', admin: '' });
+    // UPDATED: Added 'production' and 'qc' to state
+    const [lists, setLists] = useState({ 
+        ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
+        production: [], qc: [], admin: [] 
+    });
+    const [inputs, setInputs] = useState({ 
+        ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
+        production: '', qc: '', admin: '' 
+    });
     
     const [roles, setRoles] = useState({ ipad: [], hr: [] });
 
@@ -49,9 +55,11 @@ const MasterAdmin = () => {
         listen("tech_access", "tech", d => ({email: d.id}));
         listen("shed_access", "shed", d => ({email: d.id}));
         listen("machine_access", "machine", d => ({email: d.id}));
-        
-        // NEW LISTENER for Shipment Access
         listen("shipment_access", "shipment", d => ({email: d.id, ...d.data()}));
+        
+        // NEW LISTENERS for Production & QC
+        listen("production_access", "production", d => ({email: d.id}));
+        listen("qc_access", "qc", d => ({email: d.id}));
         
         listen("master_admin_access", "admin", d => ({email: d.id}));
         
@@ -140,8 +148,63 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* MIDDLE ROW */}
+            {/* MIDDLE ROW - PRODUCTION & QC (NEW) */}
             <div className="admin-grid-row">
+                {/* Production */}
+                <div className="admin-card">
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #16a34a'}}>Production Mgmt</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.production} onChange={e => setInputs({...inputs, production: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAdd("production", "production_access")} className="btn-add">Grant</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.production.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemove("production_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                {/* QC */}
+                <div className="admin-card">
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #be185d'}}>QC Module</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.qc} onChange={e => setInputs({...inputs, qc: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAdd("qc", "qc_access")} className="btn-add">Grant</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.qc.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemove("qc_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* BOTTOM ROW */}
+            <div className="admin-grid-row">
+                
+                {/* Techs */}
+                <div className="admin-card">
+                    <h3 className="admin-card-header">Technician Access</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.tech} onChange={e => setInputs({...inputs, tech: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAdd("tech", "tech_access")} className="btn-add">Grant</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.tech.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemove("tech_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 {/* Sheds */}
                 <div className="admin-card">
                     <h3 className="admin-card-header">Shed Inventory Access</h3>
@@ -158,31 +221,13 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
-
-                {/* Techs */}
-                <div className="admin-card">
-                    <h3 className="admin-card-header">Technician App Access</h3>
-                    <div className="admin-add-row">
-                        <input value={inputs.tech} onChange={e => setInputs({...inputs, tech: e.target.value})} placeholder="Email" className="admin-input" />
-                        <button onClick={() => handleAdd("tech", "tech_access")} className="btn-add">Grant</button>
-                    </div>
-                    <div className="admin-scroll-box">
-                        {lists.tech.map(u => (
-                            <div key={u.email} className="admin-list-item">
-                                <span>{u.email}</span>
-                                <button onClick={() => handleRemove("tech_access", u.email)} className="btn-remove">Revoke</button>
-                            </div>
-                        ))}
-                    </div>
-                </div>
             </div>
 
-            {/* BOTTOM ROW */}
+            {/* EXTRA ROW */}
             <div className="admin-grid-row">
-                
                 {/* Machine Reports */}
                 <div className="admin-card">
-                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #ef4444'}}>Machine Reports Access</h3>
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #ef4444'}}>Machine Reports</h3>
                     <div className="admin-add-row">
                         <input 
                             value={inputs.machine} 
@@ -202,9 +247,9 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
-                {/* SHIPMENT ACCESS (NEW) */}
+                {/* SHIPMENT ACCESS */}
                 <div className="admin-card">
-                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #0ea5e9'}}>Shipment Billing Access</h3>
+                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #0ea5e9'}}>Shipment Billing</h3>
                     <div className="admin-add-row">
                         <input 
                             value={inputs.shipment} 
@@ -231,7 +276,7 @@ const MasterAdmin = () => {
 
                 {/* Master Admin */}
                 <div className="admin-card master-card">
-                    <h3 className="admin-card-header">Master Admin Panel</h3>
+                    <h3 className="admin-card-header">Master Admin</h3>
                     <div className="admin-add-row">
                         <input value={inputs.admin} onChange={e => setInputs({...inputs, admin: e.target.value})} placeholder="Admin Email" className="admin-input" />
                         <button onClick={() => handleAdd("admin", "master_admin_access")} className="btn-add">Add Admin</button>

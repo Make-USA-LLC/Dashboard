@@ -1,8 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import HubApp from './App.jsx';
-// HRApp import is no longer needed here as App.jsx handles it via routing
-
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import { MsalProvider } from "@azure/msal-react";
 import { msalConfig } from "./authConfig"; 
@@ -17,10 +15,8 @@ msalInstance.addEventCallback((event) => {
 });
 
 msalInstance.initialize().then(() => {
-    msalInstance.handleRedirectPromise().then((tokenResponse) => {
-        
-        // ALWAYS render the HubApp. 
-        // Logic for subdomains is now handled by DomainRouter inside HubApp.
+    // This processes the redirect from Microsoft when the page reloads
+    msalInstance.handleRedirectPromise().then(() => {
         ReactDOM.createRoot(document.getElementById('root')).render(
             <React.StrictMode>
                 <MsalProvider instance={msalInstance}>
