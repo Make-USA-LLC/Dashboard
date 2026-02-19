@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase_config';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { Save, AlertCircle, Check } from 'lucide-react';
+import { Save, AlertCircle, Check, Pencil, X } from 'lucide-react';
 
 const ShipmentInput = () => {
   const [loading, setLoading] = useState(false);
@@ -26,7 +26,7 @@ const ShipmentInput = () => {
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const items = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
       // Sort by newest first
-      items.sort((a,b) => b.createdAt?.seconds - a.createdAt?.seconds);
+      items.sort((a,b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
       setMissingVendorItems(items);
     });
     return () => unsubscribe();
@@ -43,7 +43,7 @@ const ShipmentInput = () => {
     try {
       await addDoc(collection(db, "shipments"), {
         ...formData,
-        vendor: formData.vendor.trim(), // Ensure empty string if blank
+        vendor: formData.vendor.trim(), 
         dutiesAmount: parseFloat(formData.dutiesAmount) || 0,
         shippingCost: parseFloat(formData.shippingCost) || 0,
         status: 'Unbilled',
@@ -56,7 +56,7 @@ const ShipmentInput = () => {
       setFormData(prev => ({
         ...prev,
         trackingNumber: '',
-        vendor: '', // Reset vendor
+        vendor: '', 
         description: '',
         dutiesAmount: '',
         shippingCost: '',
@@ -70,22 +70,61 @@ const ShipmentInput = () => {
     setLoading(false);
   };
 
-  // Helper component for the mini-cards
+  // Helper component for the mini-cards with Edit Mode
   const MissingVendorCard = ({ item }) => {
-    const [localVendor, setLocalVendor] = useState('');
-    
+    const [isEditing, setIsEditing] = useState(false);
+    const [editData, setEditData] = useState({ ...item });
+
     const handleSave = async () => {
-        if(!localVendor.trim()) return;
         try {
-            await updateDoc(doc(db, "shipments", item.id), { vendor: localVendor.trim() });
-        } catch(e) { alert("Error saving vendor: " + e.message); }
+            const { id, createdAt, createdBy, createdByName, ...updateData } = editData;
+            
+            // Ensure numeric values are formatted correctly
+            updateData.dutiesAmount = parseFloat(updateData.dutiesAmount) || 0;
+            updateData.shippingCost = parseFloat(updateData.shippingCost) || 0;
+            updateData.vendor = updateData.vendor.trim();
+
+            await updateDoc(doc(db, "shipments", item.id), updateData);
+            setIsEditing(false);
+        } catch(e) { 
+            alert("Error saving shipment: " + e.message); 
+        }
     };
+
+    if (isEditing) {
+        return (
+            <div style={{ background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #2563eb', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '12px', fontWeight: 'bold', color: '#2563eb' }}>Editing Record</span>
+                    <button onClick={() => setIsEditing(false)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer' }}><X size={16} /></button>
+                </div>
+                <input style={miniInputStyle} value={editData.vendor} onChange={(e) => setEditData({...editData, vendor: e.target.value})} placeholder="Vendor Name" />
+                <input style={miniInputStyle} value={editData.trackingNumber} onChange={(e) => setEditData({...editData, trackingNumber: e.target.value})} placeholder="Tracking #" />
+                <div style={{ display: 'flex', gap: '5px' }}>
+                    <input type="number" style={miniInputStyle} value={editData.dutiesAmount} onChange={(e) => setEditData({...editData, dutiesAmount: e.target.value})} placeholder="Duties $" />
+                    <input type="number" style={miniInputStyle} value={editData.shippingCost} onChange={(e) => setEditData({...editData, shippingCost: e.target.value})} placeholder="Shipping $" />
+                </div>
+                <button onClick={handleSave} style={{ background: '#2563eb', color: 'white', border: 'none', borderRadius: '4px', padding: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '5px' }}>
+                    <Check size={16} /> Save Changes
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div style={{ background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', boxShadow: '0 1px 2px rgba(0,0,0,0.05)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
             <div style={{display:'flex', justifyContent:'space-between', fontSize:'12px', color:'#64748b'}}>
                 <span>{item.date}</span>
-                <span style={{fontWeight:'600'}}>{item.carrier}</span>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <span style={{fontWeight:'600'}}>{item.carrier}</span>
+                    <button 
+                        onClick={() => setIsEditing(true)} 
+                        style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0 }}
+                        title="Edit Details"
+                    >
+                        <Pencil size={14} />
+                    </button>
+                </div>
             </div>
             <div style={{fontWeight:'500', color:'#1e293b', fontSize:'14px'}}>
                 {item.trackingNumber || 'No Tracking'}
@@ -96,11 +135,11 @@ const ShipmentInput = () => {
             <div style={{ marginTop: '5px', display: 'flex', gap: '5px' }}>
                 <input 
                     placeholder="Assign Vendor..." 
-                    value={localVendor}
-                    onChange={(e) => setLocalVendor(e.target.value)}
+                    value={editData.vendor}
+                    onChange={(e) => setEditData({...editData, vendor: e.target.value})}
                     style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize:'13px' }}
                 />
-                <button onClick={handleSave} disabled={!localVendor.trim()} style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '0 10px', cursor: 'pointer' }}>
+                <button onClick={handleSave} disabled={!editData.vendor.trim()} style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '0 10px', cursor: 'pointer' }}>
                     <Check size={16} />
                 </button>
             </div>
@@ -201,6 +240,10 @@ const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border
 const btnStyle = { 
   width: '100%', padding: '12px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '8px', 
   fontSize: '16px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px'
+};
+const miniInputStyle = { 
+    width: '100%', padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', 
+    fontSize: '13px', boxSizing: 'border-box' 
 };
 
 export default ShipmentInput;
