@@ -15,6 +15,20 @@ const styles = {
     printArea: { display: 'none' }
 };
 
+// Helper function to calculate gallons based on ingredient name
+const getGallons = (name, grams) => {
+    const g = parseFloat(grams);
+    if (isNaN(g)) return '-';
+    const lowerName = name.toLowerCase();
+    
+    if (lowerName.includes('water')) {
+        return (g / 3785.41).toFixed(4) + ' gal';
+    } else if (lowerName.includes('b40') || lowerName.includes('alcohol')) {
+        return (g * 0.00028).toFixed(4) + ' gal';
+    }
+    return '-';
+};
+
 export default function BlendingApp() {
     const [activeTab, setActiveTab] = useState('samples_pending'); 
     const [pendingSamples, setPendingSamples] = useState([]);
@@ -25,7 +39,7 @@ export default function BlendingApp() {
     const [showSampleForm, setShowSampleForm] = useState(false);
     const [sampleName, setSampleName] = useState('');
     const [sampleIngredients, setSampleIngredients] = useState([
-        { name: 'Alcohol', percentage: '' },
+        { name: 'B40 190 Proof', percentage: '' },
         { name: 'DI Water', percentage: '' },
         { name: 'Fragrance Oil', percentage: '', isOil: true }
     ]);
@@ -61,6 +75,14 @@ export default function BlendingApp() {
 
     const handleCreateSample = async () => {
         if (!sampleName) return alert("Enter a sample name.");
+
+        // STRICT PERCENTAGE VALIDATION
+        const totalRaw = sampleIngredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
+        const roundedTotal = Math.round(totalRaw * 10000) / 10000; // Account for JS float math
+        if (roundedTotal !== 100) {
+            return alert(`Error: Sample percentages must equal exactly 100%. Current total is ${roundedTotal}%.`);
+        }
+
         await addDoc(collection(db, "blending_samples"), {
             name: sampleName,
             ingredients: sampleIngredients,
@@ -68,7 +90,7 @@ export default function BlendingApp() {
             createdAt: serverTimestamp()
         });
         setSampleName('');
-        setSampleIngredients([{ name: 'Alcohol', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
+        setSampleIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setShowSampleForm(false);
     };
 
@@ -128,12 +150,30 @@ export default function BlendingApp() {
         }
     };
 
+    const handleBillItem = async (item) => {
+        const invoice = prompt("Enter Invoice Number for Billing:");
+        if (!invoice) return; 
+
+        const updatePayload = { 
+            billed: true, 
+            invoiceNumber: invoice,
+            billedAt: serverTimestamp() 
+        };
+
+        if (item.type === 'sample') {
+            await updateDoc(doc(db, "blending_samples", item.id), updatePayload);
+        } else {
+            await updateDoc(doc(db, "production_pipeline", item.id), updatePayload);
+        }
+    };
+
     const emailFinishedBlend = (item) => {
-        let csvContent = "Formula,%,gr\n";
+        let csvContent = "Formula,%,gr,Gallons\n";
         item.calculatedIngredients.forEach(ing => {
-            csvContent += `"${ing.name}","${ing.percentage}","${ing.calculatedGrams}"\n`;
+            const gals = getGallons(ing.name, ing.calculatedGrams).replace(' gal', '');
+            csvContent += `"${ing.name}","${ing.percentage}","${ing.calculatedGrams}","${gals === '-' ? '' : gals}"\n`;
         });
-        csvContent += `\n"Total","","${item.totalBatchGrams}"`;
+        csvContent += `\n"Total","","${item.totalBatchGrams}",""`;
 
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
@@ -195,12 +235,13 @@ export default function BlendingApp() {
                 <p><strong>Finished On:</strong> ${finishDate}</p>
             </div>
             <table>
-                <tr><th>Formula (Ingredient)</th><th>%</th><th>gr</th></tr>
+                <tr><th>Formula (Ingredient)</th><th>%</th><th>gr</th><th>Gallons</th></tr>
                 ${item.calculatedIngredients.map(ing => `
                     <tr>
                         <td>${ing.name}</td>
                         <td>${ing.percentage}</td>
                         <td><strong>${ing.calculatedGrams}</strong></td>
+                        <td>${getGallons(ing.name, ing.calculatedGrams)}</td>
                     </tr>
                 `).join('')}
             </table>
@@ -214,7 +255,6 @@ export default function BlendingApp() {
         printWindow.document.close();
     };
 
-    // --- Filter and Sort Logic ---
     const processedFinishedBlends = finishedBlends
         .filter(item => {
             const searchLower = searchTerm.toLowerCase();
@@ -223,23 +263,12 @@ export default function BlendingApp() {
             return itemName.includes(searchLower) || itemCompany.includes(searchLower) || item.type.includes(searchLower);
         })
         .sort((a, b) => {
-            if (sortOption === 'dateDesc') {
-                return (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0);
-            } else if (sortOption === 'dateAsc') {
-                return (a.completedAt?.seconds || 0) - (b.completedAt?.seconds || 0);
-            } else if (sortOption === 'nameAsc') {
-                const nameA = (a.name || a.project || '').toLowerCase();
-                const nameB = (b.name || b.project || '').toLowerCase();
-                return nameA.localeCompare(nameB);
-            } else if (sortOption === 'nameDesc') {
-                const nameA = (a.name || a.project || '').toLowerCase();
-                const nameB = (b.name || b.project || '').toLowerCase();
-                return nameB.localeCompare(nameA);
-            } else if (sortOption === 'sizeDesc') {
-                return Number(b.totalBatchGrams || 0) - Number(a.totalBatchGrams || 0);
-            } else if (sortOption === 'sizeAsc') {
-                return Number(a.totalBatchGrams || 0) - Number(b.totalBatchGrams || 0);
-            }
+            if (sortOption === 'dateDesc') return (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0);
+            if (sortOption === 'dateAsc') return (a.completedAt?.seconds || 0) - (b.completedAt?.seconds || 0);
+            if (sortOption === 'nameAsc') return (a.name || a.project || '').toLowerCase().localeCompare((b.name || b.project || '').toLowerCase());
+            if (sortOption === 'nameDesc') return (b.name || b.project || '').toLowerCase().localeCompare((a.name || a.project || '').toLowerCase());
+            if (sortOption === 'sizeDesc') return Number(b.totalBatchGrams || 0) - Number(a.totalBatchGrams || 0);
+            if (sortOption === 'sizeAsc') return Number(a.totalBatchGrams || 0) - Number(b.totalBatchGrams || 0);
             return 0;
         });
 
@@ -265,9 +294,18 @@ export default function BlendingApp() {
                             
                             {sampleIngredients.map((ing, idx) => (
                                 <div key={idx} style={{display:'flex', gap:'10px', marginBottom:'10px'}}>
-                                    <input style={styles.input} value={ing.name} readOnly={idx < 3} onChange={e => {
-                                        const newIng = [...sampleIngredients]; newIng[idx].name = e.target.value; setSampleIngredients(newIng);
-                                    }} />
+                                    {idx === 0 ? (
+                                        <select style={styles.input} value={ing.name} onChange={e => {
+                                            const newIng = [...sampleIngredients]; newIng[idx].name = e.target.value; setSampleIngredients(newIng);
+                                        }}>
+                                            <option value="B40 190 Proof">B40 190 Proof</option>
+                                            <option value="B40 200 Proof">B40 200 Proof</option>
+                                        </select>
+                                    ) : (
+                                        <input style={styles.input} value={ing.name} readOnly={idx < 3} onChange={e => {
+                                            const newIng = [...sampleIngredients]; newIng[idx].name = e.target.value; setSampleIngredients(newIng);
+                                        }} />
+                                    )}
                                     <input type="number" step="0.001" style={styles.input} placeholder="%" value={ing.percentage} onChange={e => {
                                         const newIng = [...sampleIngredients]; newIng[idx].percentage = e.target.value; setSampleIngredients(newIng);
                                     }} />
@@ -364,6 +402,7 @@ export default function BlendingApp() {
                                             <th style={styles.th}>Formula</th>
                                             <th style={styles.th}>%</th>
                                             <th style={styles.th}>gr</th>
+                                            <th style={styles.th}>Gallons</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -372,6 +411,7 @@ export default function BlendingApp() {
                                                 <td style={styles.td}>{ing.name}</td>
                                                 <td style={styles.td}>{ing.percentage}</td>
                                                 <td style={{...styles.td, fontWeight: 'bold', color: '#0f172a'}}>{ing.calculatedGrams}</td>
+                                                <td style={styles.td}>{getGallons(ing.name, ing.calculatedGrams)}</td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -422,19 +462,31 @@ export default function BlendingApp() {
                         <p style={{ color: '#666', fontStyle: 'italic' }}>No finished blends match your criteria.</p>
                     )}
 
-                    {processedFinishedBlends.map(item => (
-                        <div key={item.id} style={{...styles.card, borderLeft: '5px solid #10b981', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <div>
-                                <h3 style={{margin:'0 0 5px 0'}}>{item.name || item.project} <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px'}}>{item.type}</span></h3>
-                                <p style={{margin:0, color:'#666'}}>Total Batch: {item.totalBatchGrams}g</p>
+                    {processedFinishedBlends.map(item => {
+                        const isBilled = item.billed;
+                        const borderColor = isBilled ? '#10b981' : '#f59e0b'; // Green if billed, Orange if pending
+
+                        return (
+                            <div key={item.id} style={{...styles.card, borderLeft: `5px solid ${borderColor}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                                <div>
+                                    <h3 style={{margin:'0 0 5px 0'}}>
+                                        {item.name || item.project} 
+                                        <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px', marginLeft: '10px'}}>{item.type}</span>
+                                    </h3>
+                                    <p style={{margin:0, color:'#666'}}>Total Batch: {item.totalBatchGrams}g</p>
+                                    {isBilled && <p style={{margin: '5px 0 0 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold'}}>✓ Billed (Inv: {item.invoiceNumber})</p>}
+                                </div>
+                                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                                    <button onClick={() => setViewingItem(item)} style={{...styles.btn, background: '#3b82f6', padding: '8px 12px'}}>👀 View Excel</button>
+                                    <button onClick={() => printTicket(item)} style={{...styles.btn, background: '#475569', padding: '8px 12px'}}>🖨️ Print</button>
+                                    <button onClick={() => emailFinishedBlend(item)} style={{...styles.btn, background: '#8b5cf6', padding: '8px 12px'}}>✉️ Email</button>
+                                    {!isBilled && (
+                                        <button onClick={() => handleBillItem(item)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>💰 Bill</button>
+                                    )}
+                                </div>
                             </div>
-                            <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                <button onClick={() => setViewingItem(item)} style={{...styles.btn, background: '#3b82f6', padding: '8px 12px'}}>👀 View Excel</button>
-                                <button onClick={() => printTicket(item)} style={{...styles.btn, background: '#475569', padding: '8px 12px'}}>🖨️ Print</button>
-                                <button onClick={() => emailFinishedBlend(item)} style={{...styles.btn, background: '#8b5cf6', padding: '8px 12px'}}>✉️ Email</button>
-                            </div>
-                        </div>
-                    ))}
+                        );
+                    })}
                 </div>
             )}
 
@@ -464,6 +516,7 @@ export default function BlendingApp() {
                                     <th style={styles.th}>Formula</th>
                                     <th style={styles.th}>%</th>
                                     <th style={styles.th}>gr</th>
+                                    <th style={styles.th}>Gallons</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -472,6 +525,7 @@ export default function BlendingApp() {
                                         <td style={styles.td}>{ing.name}</td>
                                         <td style={styles.td}>{ing.percentage}</td>
                                         <td style={{...styles.td, fontWeight: 'bold', color: '#0f172a'}}>{ing.calculatedGrams}</td>
+                                        <td style={styles.td}>{getGallons(ing.name, ing.calculatedGrams)}</td>
                                     </tr>
                                 ))}
                             </tbody>

@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ProjectSearch.css';
 import { db, auth, loadUserData } from './firebase_config.jsx';
-import { collection, query, limit, where, getDocs, doc, getDoc } from 'firebase/firestore';
+import { collection, query, limit, where, getDocs, doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const FIELD_MAPPINGS = {
@@ -46,7 +46,7 @@ const DEFAULT_COLUMNS = [
     'Labor HRS', 'Cost', 'Inv $', 'Units', 
     'Unit/Sec', 'Commission', 'Agent', 
     'Profit/ loss', 'Sec/Unit', 'Type', 
-    'Realized Price' 
+    'Realized Price', 'Actions' 
 ];
 
 const ProjectSearch = () => {
@@ -205,7 +205,7 @@ const ProjectSearch = () => {
             let combined = [...reportsList, ...archiveList];
             
             // Extract Columns
-            const keys = new Set(['Source']);
+            const keys = new Set(['Source', 'Actions']);
             
             // Explicitly add Default Columns FIRST
             DEFAULT_COLUMNS.forEach(c => keys.add(c));
@@ -228,8 +228,11 @@ const ProjectSearch = () => {
             
             // Sort Columns
             const sortedCols = Array.from(keys).sort((a, b) => {
+                // Ensure Source is far left, Actions is far right
                 if (a === 'Source') return -1;
                 if (b === 'Source') return 1;
+                if (a === 'Actions') return 1;
+                if (b === 'Actions') return -1;
                 
                 // Prioritize Defaults
                 const idxA = DEFAULT_COLUMNS.indexOf(a);
@@ -250,6 +253,38 @@ const ProjectSearch = () => {
 
         } catch(e) { console.error(e); }
         setLoading(false);
+    };
+
+    // --- REVERT FUNCTION ---
+    const handleRevertToFinance = async (row) => {
+        const confirmMsg = `Are you sure you want to send "${row['Desc'] || row['CUSTOMER'] || 'this project'}" back to Finance Input?`;
+        if (!window.confirm(confirmMsg)) return;
+
+        try {
+            if (row._source === 'live') {
+                await updateDoc(doc(db, "reports", row.id), {
+                    financeStatus: "pending_finance"
+                });
+            } else if (row._source === 'archive') {
+                // Fetch the original document (not the flattened row map)
+                const archiveSnap = await getDoc(doc(db, "archive", row.id));
+                if (archiveSnap.exists()) {
+                    const originalData = archiveSnap.data();
+                    originalData.financeStatus = "pending_finance";
+                    
+                    // Move the project from 'archive' to 'reports'
+                    await setDoc(doc(db, "reports", row.id), originalData);
+                    await deleteDoc(doc(db, "archive", row.id));
+                } else {
+                    return alert("Error: Original document could not be found.");
+                }
+            }
+            alert("Project successfully sent back to Finance Input.");
+            initData(); // Refresh the table
+        } catch (error) {
+            console.error("Revert error:", error);
+            alert("Failed to revert project: " + error.message);
+        }
     };
 
     // --- HELPERS ---
@@ -396,7 +431,7 @@ const ProjectSearch = () => {
         const exportData = filteredData.map(row => {
             const clean = {};
             allColumns.forEach(col => {
-                if (visibleColumns.has(col) && col !== 'Source') {
+                if (visibleColumns.has(col) && col !== 'Source' && col !== 'Actions') {
                     clean[col] = row[col];
                 }
             });
@@ -420,7 +455,7 @@ const ProjectSearch = () => {
         <div className="ps-wrapper">
             <div className="ps-top-bar">
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
-                    <button onClick={() => navigate('/')} className="btn-link">&larr; Dashboard</button>
+                    <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
                     <h3 style={{margin:0}}>Global Project Search</h3>
                 </div>
                 <div style={{display:'flex', alignItems:'center'}}>
@@ -571,6 +606,7 @@ const ProjectSearch = () => {
                                         <tr key={row.id}>
                                             {allColumns.map(col => {
                                                 if (!visibleColumns.has(col)) return null;
+                                                
                                                 if (col === 'Source') {
                                                     return (
                                                         <td key={col}>
@@ -580,7 +616,26 @@ const ProjectSearch = () => {
                                                         </td>
                                                     );
                                                 }
-                                                // FIXED: Check for negative values and apply red color
+
+                                                if (col === 'Actions') {
+                                                    return (
+                                                        <td key={col} style={{textAlign: 'center'}}>
+                                                            <button 
+                                                                onClick={() => handleRevertToFinance(row)}
+                                                                style={{
+                                                                    background: '#f39c12', color: 'white', border: 'none', 
+                                                                    padding: '5px 10px', borderRadius: '4px', cursor: 'pointer',
+                                                                    fontSize: '12px', fontWeight: 'bold'
+                                                                }}
+                                                                title="Revert to Pending Finance"
+                                                            >
+                                                                ↺ Revert
+                                                            </button>
+                                                        </td>
+                                                    );
+                                                }
+
+                                                // Check for negative values and apply red color
                                                 const val = row[col];
                                                 const isNegative = typeof val === 'number' && val < 0;
                                                 

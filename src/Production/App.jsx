@@ -31,7 +31,7 @@ const ProductionApp = () => {
     // Blending States
     const [requiresBlending, setRequiresBlending] = useState(false);
     const [ingredients, setIngredients] = useState([
-        { name: 'Alcohol', percentage: '' },
+        { name: 'B40 190 Proof', percentage: '' },
         { name: 'DI Water', percentage: '' },
         { name: 'Fragrance Oil', percentage: '', isOil: true }
     ]);
@@ -148,8 +148,12 @@ const ProductionApp = () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         
         if (requiresBlending) {
-            const total = ingredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
-            if (total < 99 || total > 101) alert(`Warning: Percentages add up to ${total}%, not 100%. Proceeding to pipeline anyway.`);
+            // STRICT PERCENTAGE VALIDATION
+            const totalRaw = ingredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
+            const roundedTotal = Math.round(totalRaw * 10000) / 10000; // Account for JS float math
+            if (roundedTotal !== 100) {
+                return alert(`Error: Formulation percentages must equal exactly 100%. Current total is ${roundedTotal}%.`);
+            }
         }
 
         await addDoc(collection(db, "production_pipeline"), {
@@ -166,7 +170,7 @@ const ProductionApp = () => {
         
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
         setRequiresBlending(false);
-        setIngredients([{ name: 'Alcohol', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
+        setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
     };
 
@@ -234,13 +238,20 @@ const ProductionApp = () => {
                                 <h4>Formulation Percentages (%)</h4>
                                 {ingredients.map((ing, idx) => (
                                     <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
-                                        <input 
-                                            style={styles.input} 
-                                            placeholder="Ingredient Name" 
-                                            value={ing.name} 
-                                            readOnly={idx < 3} // Lock base ingredients
-                                            onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)} 
-                                        />
+                                        {idx === 0 ? (
+                                            <select style={styles.input} value={ing.name} onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)}>
+                                                <option value="B40 190 Proof">B40 190 Proof</option>
+                                                <option value="B40 200 Proof">B40 200 Proof</option>
+                                            </select>
+                                        ) : (
+                                            <input 
+                                                style={styles.input} 
+                                                placeholder="Ingredient Name" 
+                                                value={ing.name} 
+                                                readOnly={idx < 3} // Lock base ingredients
+                                                onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)} 
+                                            />
+                                        )}
                                         <input 
                                             type="number" 
                                             step="0.0001"
