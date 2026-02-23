@@ -142,12 +142,12 @@ const FiveSAudit = () => {
                     <table style={styles.table}>
                         <thead>
                             <tr>
-                                <th style={styles.th}>Question <span style={{color: 'red'}}>*</span></th>
-                                <th style={styles.th} style={{width: '80px'}}>Points <span style={{color: 'red'}}>*</span></th>
-                                <th style={styles.th}>Observations/Action</th>
-                                <th style={styles.th} style={{width: '130px'}}>Due Date</th>
-                                <th style={styles.th} style={{width: '150px'}}>Owner</th>
-                            </tr>
+    <th style={styles.th}>Question <span style={{color: 'red'}}>*</span></th>
+    <th style={{ ...styles.th, width: '80px' }}>Points <span style={{color: 'red'}}>*</span></th>
+    <th style={styles.th}>Observations/Action</th>
+    <th style={{ ...styles.th, width: '130px' }}>Due Date</th>
+    <th style={{ ...styles.th, width: '150px' }}>Owner</th>
+</tr>
                         </thead>
                         <tbody>
                             {category.questions.map((q, qIdx) => {

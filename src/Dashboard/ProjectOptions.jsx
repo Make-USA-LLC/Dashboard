@@ -5,6 +5,34 @@ import { db, auth, loadUserData } from './firebase_config.jsx';
 import { doc, getDoc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
+// 1. MOVED OUTSIDE: RenderCard is now a stable component outside of DropdownManager
+const RenderCard = ({ title, list, type, inputVal, setInput, canEdit, addItem, deleteItem }) => (
+    <div className={`dm-card ${!canEdit ? 'read-only' : ''}`}>
+        <h2>{title}</h2>
+        <div className="dm-input-group">
+            <input 
+                type="text" 
+                className="dm-input" 
+                placeholder={`Add ${title}...`}
+                value={inputVal}
+                onChange={e => setInput(e.target.value)}
+            />
+            <button className="btn btn-green" onClick={() => addItem(type, inputVal, setInput)}>Add</button>
+        </div>
+        <ul className="dm-list">
+            {list.length === 0 && <li className="dm-empty">No items defined.</li>}
+            {list.map((item, i) => (
+                <li key={i}>
+                    <span>{item}</span>
+                    {canEdit && (
+                        <button className="btn-red-small" onClick={() => deleteItem(type, i)}>Delete</button>
+                    )}
+                </li>
+            ))}
+        </ul>
+    </div>
+);
+
 const DropdownManager = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
@@ -68,7 +96,6 @@ const DropdownManager = () => {
 
     const startListener = () => {
         const configRef = doc(db, "config", "project_options");
-        // Real-time listener
         onSnapshot(configRef, (snap) => {
             if (snap.exists()) {
                 const d = snap.data();
@@ -78,7 +105,6 @@ const DropdownManager = () => {
                     sizes: d.sizes || []
                 });
             } else {
-                // Init if empty
                 setDoc(configRef, { companies: [], categories: [], sizes: [] });
             }
             setLoading(false);
@@ -97,7 +123,7 @@ const DropdownManager = () => {
             list.push(val.trim());
             list.sort();
             await updateDoc(configRef, { [type]: list });
-            setter(''); // Clear input
+            setter(''); 
         }
     };
 
@@ -115,50 +141,26 @@ const DropdownManager = () => {
 
     if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Options...</div>;
 
-    // Helper to render a card
-    const RenderCard = ({ title, list, type, inputVal, setInput }) => (
-        <div className={`dm-card ${!canEdit ? 'read-only' : ''}`}>
-            <h2>{title}</h2>
-            <div className="dm-input-group">
-                <input 
-                    type="text" 
-                    className="dm-input" 
-                    placeholder={`Add ${title}...`}
-                    value={inputVal}
-                    onChange={e => setInput(e.target.value)}
-                />
-                <button className="btn btn-green" onClick={() => addItem(type, inputVal, setInput)}>Add</button>
-            </div>
-            <ul className="dm-list">
-                {list.length === 0 && <li className="dm-empty">No items defined.</li>}
-                {list.map((item, i) => (
-                    <li key={i}>
-                        <span>{item}</span>
-                        {canEdit && (
-                            <button className="btn-red-small" onClick={() => deleteItem(type, i)}>Delete</button>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </div>
-    );
-
     return (
         <div className="dm-wrapper">
             <div className="dm-top-bar">
                 <button onClick={() => navigate('/dashboard')} className="btn-text">&larr; Dashboard</button>
                 <div style={{fontWeight:'bold'}}>Dropdown Options Manager</div>
-                <div /> {/* Spacer for layout balance */}
+                <div />
             </div>
 
             <div className="dm-container">
                 <div className="dm-split-view">
+                    {/* 2. Passed the new prop dependencies to the RenderCard components */}
                     <RenderCard 
                         title="Companies" 
                         list={data.companies} 
                         type="companies" 
                         inputVal={newCompany} 
-                        setInput={setNewCompany} 
+                        setInput={setNewCompany}
+                        canEdit={canEdit}
+                        addItem={addItem}
+                        deleteItem={deleteItem}
                     />
                     
                     <RenderCard 
@@ -166,7 +168,10 @@ const DropdownManager = () => {
                         list={data.categories} 
                         type="categories" 
                         inputVal={newCategory} 
-                        setInput={setNewCategory} 
+                        setInput={setNewCategory}
+                        canEdit={canEdit}
+                        addItem={addItem}
+                        deleteItem={deleteItem}
                     />
                     
                     <RenderCard 
@@ -174,7 +179,10 @@ const DropdownManager = () => {
                         list={data.sizes} 
                         type="sizes" 
                         inputVal={newSize} 
-                        setInput={setNewSize} 
+                        setInput={setNewSize}
+                        canEdit={canEdit}
+                        addItem={addItem}
+                        deleteItem={deleteItem}
                     />
                 </div>
             </div>

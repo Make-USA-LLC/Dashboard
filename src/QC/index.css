@@ -57,3 +57,53 @@
 .qc-btn-primary:hover {
     background: #732d91;
 }
+
+
+/* --- PRINT STYLES FOR 5S AUDIT --- */
+@media print {
+    @page {
+        size: letter; /* 8.5in x 11in */
+        margin: 0.4in; /* Small margins to maximize space */
+    }
+
+    body {
+        /* Scales the whole page down slightly so it fits on one sheet */
+        /* You can adjust this percentage depending on how many questions you have */
+        zoom: 85%; 
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
+    }
+
+    .qc-card {
+        box-shadow: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
+
+    /* Hide the warning banner and submit buttons on the physical print */
+    button, 
+    .qc-card > div[style*="background: rgb(255, 251, 235)"],
+    .qc-card > div[style*="background: #fffbeb"] {
+        display: none !important;
+    }
+
+    /* Make table rows tighter to save vertical space */
+    .audit-table th, 
+    .audit-table td,
+    th[style*="padding: 10px"], 
+    td[style*="padding: 10px"] {
+        padding: 4px 6px !important;
+        font-size: 13px !important;
+    }
+
+    /* Adjust headings */
+    h2 { margin-top: 0 !important; margin-bottom: 10px !important; }
+    h3 { font-size: 16px !important; margin-top: 5px !important; }
+    
+    /* Make inputs look like standard text boxes on paper */
+    input, select {
+        border: 1px solid #94a3b8 !important;
+        background: transparent !important;
+        padding: 2px !important;
+    }
+}
