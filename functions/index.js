@@ -1,4 +1,4 @@
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentUpdated, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
@@ -83,7 +83,6 @@ exports.onProductionBlendCompleted = onDocumentUpdated("production_pipeline/{job
 });
 
 async function sendEmail(data, type) {
-    // FIX: Wrapping in String() ensures that null/undefined values don't crash .toUpperCase()
     const companyName = String(data.company || ''); 
     const projectName = String(data.project || data.name || 'Unknown Project');
     const totalGrams = data.totalBatchGrams || 0;
@@ -132,7 +131,6 @@ async function sendEmail(data, type) {
         const percentRaw = ing.percentage ? Number(ing.percentage) : 0;
         const gramsRaw = Number(ing.calculatedGrams) || 0;
         
-        // Excel Add Row
         const row = sheet.addRow([
             ing.name,
             percentRaw / 100,
@@ -142,7 +140,6 @@ async function sendEmail(data, type) {
         
         const isFragrance = ing.name.toLowerCase().includes('fragrance');
 
-        // Style Excel Cells
         row.eachCell((cell, colNumber) => {
             cell.border = {
                 left: colNumber === 1 ? { style: 'thick' } : { style: 'thin' },
@@ -159,7 +156,6 @@ async function sendEmail(data, type) {
         row.getCell(3).numFmt = '0.00';
         if (galValue !== '-') row.getCell(4).numFmt = '0.0000';
 
-        // Add to HTML Table
         const highlightStyle = isFragrance ? 'background-color: #a9d08e; font-weight: bold;' : '';
         htmlTableRows += `
             <tr>
@@ -171,7 +167,6 @@ async function sendEmail(data, type) {
         `;
     });
 
-    // Excel Total Row
     const totalRow = sheet.addRow(['Total', 1, Number(totalGrams), '']);
     totalRow.font = { bold: true };
     totalRow.eachCell((cell, colNumber) => {
@@ -183,7 +178,6 @@ async function sendEmail(data, type) {
     });
     totalRow.getCell(2).numFmt = '0.00%';
 
-    // HTML Total Row
     htmlTableRows += `
         <tr style="font-weight: bold; background-color: #f8f9fa;">
             <td style="border: 1px solid #d0d7e5; padding: 8px;">Total</td>
@@ -227,7 +221,6 @@ async function sendEmail(data, type) {
         </div>
     `;
 
-    // --- 3. GENERATE ATTACHMENT & SEND ---
     const excelBuffer = await workbook.xlsx.writeBuffer();
     const cleanFileName = projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase() || 'blend';
     
@@ -244,3 +237,71 @@ async function sendEmail(data, type) {
     await transporter.sendMail(mailOptions);
     console.log("Email sent successfully.");
 }
+
+// 5S Audit Alert Trigger
+exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data();
+    const results = data.results || {};
+    
+    let threshold = 3; 
+    try {
+        const configDoc = await admin.firestore().collection('qc_settings').doc('five_s_config').get();
+        if (configDoc.exists && configDoc.data().alertThreshold !== undefined) {
+            threshold = configDoc.data().alertThreshold;
+        }
+    } catch (err) {
+        console.error("Failed to fetch threshold, using default.", err);
+    }
+
+    const actionsByOwner = {};
+
+    for (const [key, details] of Object.entries(results)) {
+        if (details.owner && details.points !== undefined && details.points !== "") {
+            const scoreGiven = parseInt(details.points);
+            
+            if (scoreGiven < threshold) {
+                if (!actionsByOwner[details.owner]) {
+                    actionsByOwner[details.owner] = [];
+                }
+                actionsByOwner[details.owner].push({
+                    ...details,
+                    questionId: key
+                });
+            }
+        }
+    }
+
+    const emailPromises = Object.keys(actionsByOwner).map(async (email) => {
+        const tasks = actionsByOwner[email];
+        if (tasks.length === 0) return null; 
+        
+        let htmlContent = `<h3>Action Required: 5S Audit Items</h3>
+        <p>You have been assigned action items from a recent 5S Audit because they scored below a ${threshold}.</p>
+        <ul>`;
+        
+        tasks.forEach(task => {
+            htmlContent += `<li>
+                <strong>Question:</strong> ${task.question || `Task ID ${task.questionId}`}<br/>
+                <strong>Action:</strong> ${task.action || 'No action specified'} <br/>
+                <strong>Due Date:</strong> ${task.dueDate || 'N/A'} <br/>
+                <strong>Score Given:</strong> <span style="color: red; font-weight: bold;">${task.points}</span>
+            </li><br/>`;
+        });
+        htmlContent += `</ul>`;
+
+        const mailOptions = {
+            from: `"Make USA QC" <${process.env.SMTP_EMAIL}>`,
+            to: email,
+            subject: 'Action Required: 5S Audit Tasks Assigned',
+            html: htmlContent
+        };
+
+        return transporter.sendMail(mailOptions);
+    });
+
+    return Promise.all(emailPromises)
+        .then(() => console.log('Audit alerts evaluated successfully.'))
+        .catch((error) => console.error('Error sending audit emails:', error));
+});

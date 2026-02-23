@@ -1,0 +1,59 @@
+/* src/QC/index.css */
+
+.qc-card {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    margin-bottom: 20px;
+}
+
+/* 5S Audit Table Styling */
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 15px;
+}
+
+.audit-table th {
+    background: #f8fafc;
+    padding: 12px;
+    text-align: left;
+    border-bottom: 2px solid #cbd5e1;
+    color: #334155;
+}
+
+.audit-table td {
+    padding: 12px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: middle;
+}
+
+.audit-input {
+    padding: 8px;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+}
+
+.audit-input:focus {
+    outline: none;
+    border-color: #8e44ad;
+    box-shadow: 0 0 0 2px rgba(142, 68, 173, 0.2);
+}
+
+.qc-btn-primary {
+    padding: 10px 20px;
+    background: #8e44ad;
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-weight: bold;
+    transition: background 0.2s ease;
+}
+
+.qc-btn-primary:hover {
+    background: #732d91;
+}
