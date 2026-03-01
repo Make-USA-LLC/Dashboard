@@ -305,3 +305,43 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
         .then(() => console.log('Audit alerts evaluated successfully.'))
         .catch((error) => console.error('Error sending audit emails:', error));
 });
+
+// --- QC Ready Notification Trigger ---
+exports.notifyQCReady = onCall({ cors: true }, async (request) => {
+    const { projectName, companyName } = request.data;
+    console.log(`QC Ready email requested for Project: ${projectName}`);
+
+    if (!projectName || !companyName) {
+        throw new HttpsError('invalid-argument', 'Project name and company name are required.');
+    }
+
+    const mailOptions = {
+        from: `"MakeUSA Production" <${process.env.SMTP_EMAIL}>`,
+        to: 'QCReady@makeit.buzz',
+        subject: `Action Required: QC Ready for ${projectName}`,
+        text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project has passed Production Management and requires a Quality Standard to be built and pictures uploaded.`,
+        html: `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+                <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">QC Action Required</h2>
+                <p style="font-size: 16px;">
+                    <strong>Company:</strong> ${companyName}<br>
+                    <strong>Project Name:</strong> ${projectName}
+                </p>
+                <div style="background-color: #fff2cc; border-left: 4px solid #ffc107; padding: 15px; margin-top: 20px;">
+                    <p style="margin: 0; font-size: 16px;">
+                        This project has passed Production Management and requires a <strong>Quality Standard to be built</strong> and <strong>pictures uploaded</strong>.
+                    </p>
+                </div>
+            </div>
+        `,
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log(`Successfully sent QC Ready email for ${projectName}.`);
+        return { success: true, message: 'Email sent to QC successfully.' };
+    } catch (error) {
+        console.error("Error sending QC Ready email:", error);
+        throw new HttpsError('internal', error.message || 'Error sending email to QC.');
+    }
+});

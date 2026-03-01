@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { db, auth } from '../firebase_config'; 
+import { db, auth, app } from '../firebase_config'; // <-- Added 'app' here
 import { collection, addDoc, updateDoc, doc, onSnapshot, query, where, deleteDoc, serverTimestamp, getDoc, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import { getFunctions, httpsCallable } from 'firebase/functions'; // <-- Added functions import
 import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 
@@ -24,6 +25,10 @@ const ProductionApp = () => {
     const [options, setOptions] = useState({ companies: [], categories: [], sizes: [] });
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
+
+    // Initialize Firebase Cloud Functions
+    const functions = getFunctions(app);
+    const notifyQCReady = httpsCallable(functions, 'notifyQCReady');
 
     // Job Data State
     const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
@@ -174,12 +179,33 @@ const ProductionApp = () => {
         setIsFormOpen(false);
     };
 
+    // --- UPDATED SEND TO QC LOGIC ---
     const sendToQC = async (job) => {
         if (confirm(`Send "${job.project}" to QC Module?`)) {
-            await updateDoc(doc(db, "production_pipeline", job.id), {
-                status: "qc_pending",
-                sentToQcAt: serverTimestamp()
-            });
+            try {
+                // 1. Update status in Firestore
+                await updateDoc(doc(db, "production_pipeline", job.id), {
+                    status: "qc_pending",
+                    sentToQcAt: serverTimestamp()
+                });
+
+                // 2. Trigger Email Cloud Function
+                try {
+                    await notifyQCReady({
+                        projectName: job.project,
+                        companyName: job.company
+                    });
+                    console.log("QC Notification Email sent successfully!");
+                } catch (emailError) {
+                    // We catch this separately so the UI doesn't break if the email fails but the DB update succeeded.
+                    console.error("Failed to send QC email:", emailError);
+                    alert("Job passed to QC, but there was an issue sending the email notification.");
+                }
+
+            } catch (error) {
+                console.error("Error passing to QC:", error);
+                alert("Failed to pass job to QC.");
+            }
         }
     };
 
