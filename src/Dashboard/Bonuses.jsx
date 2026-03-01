@@ -13,15 +13,11 @@ const calculateBonusesInternal = (report, globalConfig) => {
     const usedConfig = report.historicalConfig || globalConfig;
     const COST_PER_HR = parseFloat(usedConfig.costPerHour) || 0;
 
-    // 2. Calculate Profit
-    let totalHours = 0;
-    if (report.workerLog) {
-         const totalMin = report.workerLog.reduce((acc, w) => acc + (w.minutes || 0), 0);
-         totalHours = totalMin / 60;
-    } else {
-         const sec = (report.originalSeconds || 0) - (report.finalSeconds || 0);
-         totalHours = sec > 0 ? sec / 3600 : 0;
-    }
+    // 2. Calculate Profit (SYNCED WITH FINANCIALREPORT.JSX)
+    const orig = Number(report.originalSeconds) || 0;
+    const final = Number(report.finalSeconds) || 0;
+    const secondsSpent = orig - final;
+    const totalHours = secondsSpent > 0 ? (secondsSpent / 3600) : 0;
 
     const laborCost = totalHours * COST_PER_HR;
 
@@ -29,13 +25,13 @@ const calculateBonusesInternal = (report, globalConfig) => {
     if (report.agentName && usedConfig.agents) {
         const ag = usedConfig.agents.find(a => a.name === report.agentName);
         if (ag) {
-            const excluded = report.commissionExcluded || 0;
-            const basis = Math.max(0, (report.invoiceAmount || 0) - excluded);
+            const excluded = Number(report.commissionExcluded) || 0;
+            const basis = Math.max(0, (Number(report.invoiceAmount) || 0) - excluded);
             comm = basis * (parseFloat(ag.comm) / 100);
         }
     }
 
-    const profit = (report.invoiceAmount || 0) - laborCost - comm;
+    const profit = (Number(report.invoiceAmount) || 0) - laborCost - comm;
 
     // 3. Process Workers & Leader
     const log = report.workerLog || [];
@@ -87,12 +83,6 @@ const calculateBonusesInternal = (report, globalConfig) => {
         let w_pct = usedConfig.workerPoolPercent || 0;
 
         if (totalCount === 1) {
-            // 1 Employee: Use "Big Box" (workerPoolPercent_1) for pool, 0 for leader
-            // If the 1 person is a leader, they will get this pool via distribution logic if we put it in workerPool? 
-            // Actually, if we put it in workerPool, and they are marked as leader, they might NOT get it depending on distribution.
-            // BETTER STRATEGY: 
-            // If they are a leader, put it in leaderPool. If worker, put in workerPool.
-            // BUT simplified: Just put it in the pool matching their role.
             const val = usedConfig.workerPoolPercent_1 || 0;
             if (leaderCount === 1) { l_pct = val; w_pct = 0; }
             else { l_pct = 0; w_pct = val; }
@@ -334,18 +324,13 @@ const Bonuses = () => {
 
         const snapshot = {
             costPerHour: parseFloat(config.costPerHour) || 0,
-            
             leaderPoolPercent: parseFloat(config.leaderPoolPercent) || 0,
             workerPoolPercent: parseFloat(config.workerPoolPercent) || 0,
-            
             leaderPoolPercent_3: parseFloat(config.leaderPoolPercent_3) || 0,
             workerPoolPercent_3: parseFloat(config.workerPoolPercent_3) || 0,
-            
             leaderPoolPercent_2: parseFloat(config.leaderPoolPercent_2) || 0,
             workerPoolPercent_2: parseFloat(config.workerPoolPercent_2) || 0,
-
             workerPoolPercent_1: parseFloat(config.workerPoolPercent_1) || 0,
-            
             agents: config.agents || []
         };
 
@@ -367,6 +352,15 @@ const Bonuses = () => {
         if(!r) return;
         await updateDoc(doc(db, "reports", reportId), { bonusEligible: false, bonusIneligibleReason: r });
         loadData(config);
+    };
+
+    const handleRevertToPending = async (reportId) => {
+        if(window.confirm("Are you sure you want to revert this bonus back to pending?")) {
+            await updateDoc(doc(db, "reports", reportId), { 
+                bonusPaid: false 
+            });
+            loadData(config);
+        }
     };
 
     const handleEditBonus = async (reportId, personName, currentAmt) => {
@@ -547,9 +541,18 @@ const Bonuses = () => {
                                     </div>
                                 )}
                                 {view === 'paid' && (
-                                    <div className="history-footer">
-                                        <span className="history-label">Total Paid</span>
-                                        <span className="history-amount">${totalBonus.toFixed(2)}</span>
+                                    <div className="history-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                        <div>
+                                            <span className="history-label">Total Paid </span>
+                                            <span className="history-amount">${totalBonus.toFixed(2)}</span>
+                                        </div>
+                                        <button 
+                                            className="btn-card btn-outline-red" 
+                                            onClick={() => handleRevertToPending(r.id)}
+                                            style={{ padding: '4px 10px', fontSize: '12px', margin: '0', background: '#fff', border: '1px solid #e74c3c', color: '#e74c3c', borderRadius: '4px', cursor: 'pointer' }}
+                                        >
+                                            Revert to Pending
+                                        </button>
                                     </div>
                                 )}
                             </div>
