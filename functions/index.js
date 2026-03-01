@@ -307,41 +307,45 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
 });
 
 // --- QC Ready Notification Trigger ---
-exports.notifyQCReady = onCall({ cors: true }, async (request) => {
-    const { projectName, companyName } = request.data;
-    console.log(`QC Ready email requested for Project: ${projectName}`);
+// Remove the old notifyQCReady and use this instead:
+exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
 
-    if (!projectName || !companyName) {
-        throw new HttpsError('invalid-argument', 'Project name and company name are required.');
-    }
+    // Only trigger if the status JUST changed to "qc_pending"
+    if (before.status !== 'qc_pending' && after.status === 'qc_pending') {
+        const projectName = after.project || after.name || 'Unknown Project';
+        const companyName = after.company || 'Unknown Company';
+        
+        console.log(`Job sent to QC detected. Sending email for Project: ${projectName}`);
 
-    const mailOptions = {
-        from: `"MakeUSA Production" <${process.env.SMTP_EMAIL}>`,
-        to: 'QCReady@makeit.buzz',
-        subject: `Action Required: QC Ready for ${projectName}`,
-        text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project has passed Production Management and requires a Quality Standard to be built and pictures uploaded.`,
-        html: `
-            <div style="font-family: Arial, sans-serif; color: #333;">
-                <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">QC Action Required</h2>
-                <p style="font-size: 16px;">
-                    <strong>Company:</strong> ${companyName}<br>
-                    <strong>Project Name:</strong> ${projectName}
-                </p>
-                <div style="background-color: #fff2cc; border-left: 4px solid #ffc107; padding: 15px; margin-top: 20px;">
-                    <p style="margin: 0; font-size: 16px;">
-                        This project has passed Production Management and requires a <strong>Quality Standard to be built</strong> and <strong>pictures uploaded</strong>.
+        const mailOptions = {
+            from: `"MakeUSA Production" <${process.env.SMTP_EMAIL}>`,
+            to: 'QCReady@makeit.buzz',
+            subject: `Action Required: QC Ready for ${companyName} - ${projectName}`,
+            text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project has passed Production Management and requires a Quality Standard to be built and pictures uploaded.`,
+            html: `
+                <div style="font-family: Arial, sans-serif; color: #333;">
+                    <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">QC Action Required</h2>
+                    <p style="font-size: 16px;">
+                        <strong>Company:</strong> ${companyName}<br>
+                        <strong>Project Name:</strong> ${projectName}
                     </p>
+                    <div style="background-color: #fff2cc; border-left: 4px solid #ffc107; padding: 15px; margin-top: 20px;">
+                        <p style="margin: 0; font-size: 16px;">
+                            This project has passed Production Management and requires a <strong>Quality Standard to be built</strong> and <strong>pictures uploaded</strong>.
+                        </p>
+                    </div>
                 </div>
-            </div>
-        `,
-    };
+            `,
+        };
 
-    try {
-        await transporter.sendMail(mailOptions);
-        console.log(`Successfully sent QC Ready email for ${projectName}.`);
-        return { success: true, message: 'Email sent to QC successfully.' };
-    } catch (error) {
-        console.error("Error sending QC Ready email:", error);
-        throw new HttpsError('internal', error.message || 'Error sending email to QC.');
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`Successfully sent QC Ready email for ${projectName}.`);
+        } catch (error) {
+            console.error("Error sending QC Ready email:", error);
+        }
     }
+    return null;
 });
