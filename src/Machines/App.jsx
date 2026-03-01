@@ -34,12 +34,8 @@ export default function App() {
       
       {/* 1. TOP GLOBAL HEADER */}
       <header className="bg-slate-900 px-6 py-4 flex justify-between items-center shadow-lg sticky top-0 z-50">
-        <div className="flex items-center gap-4">
-           {/* Main Menu Link */}
-           <Link to="/" className="text-slate-400 hover:text-white text-sm font-medium no-underline transition-colors">
-             &larr; Main Menu
-           </Link>
-           <div className="w-px h-5 bg-slate-700"></div>
+        <div className="flex items-center gap-0">
+          <div className="w-px h-5 bg-slate-700"></div>
            <span className="text-white text-lg font-bold flex items-center gap-2">
              Make USA <span className="bg-amber-500 text-black px-2 py-0.5 rounded text-xs uppercase font-black tracking-wide">Machine & QC Reports</span>
            </span>

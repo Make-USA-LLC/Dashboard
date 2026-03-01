@@ -160,19 +160,47 @@ function SelectionGrid({ user }) {
 
 function ProtectedMainApp() {
   const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [authLoading, setAuthLoading] = useState(true);
+  
+  // Pull the global access check and role loading state
+  const { loading: roleLoading, hasAnyAccess } = useRole();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      setLoading(false);
+      setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  if (loading) return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center'}}>Loading...</div>;
+  // Wait for BOTH Firebase Auth AND Firestore Roles to load completely
+  if (authLoading || (user && roleLoading)) {
+    return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color: '#64748b'}}>Syncing Secure Profile...</div>;
+  }
   
+  // If they aren't logged in at all, show the Login page
   if (!user) return <Login />;
+
+  // BLOCK UNAUTHORIZED USERS
+  if (!hasAnyAccess) {
+    return (
+      <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
+        <div style={{background:'white', padding:'40px', borderRadius:'16px', textAlign:'center', boxShadow:'0 4px 20px rgba(0,0,0,0.08)', maxWidth:'400px'}}>
+          <ShieldAlert size={48} color="#ef4444" style={{marginBottom:'20px', display:'inline-block'}} />
+          <h2 style={{color:'#1e293b', marginTop:0, marginBottom:'10px', fontSize: '22px'}}>Access Denied</h2>
+          <p style={{color:'#64748b', marginBottom:'25px', fontSize: '15px', lineHeight: '1.5'}}>
+            Your account is authenticated, but you do not have permission to access any modules. Please contact your system administrator.
+          </p>
+          <button 
+            onClick={() => signOut(auth)} 
+            style={{background:'#0f172a', color:'white', border:'none', padding:'12px 24px', borderRadius:'8px', cursor:'pointer', fontWeight:'bold', width:'100%', fontSize: '15px'}}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ fontFamily: 'Segoe UI, sans-serif', minHeight: '100vh', backgroundColor: '#f1f5f9' }}>
@@ -206,7 +234,7 @@ function ProtectedMainApp() {
         
         {/* NEW ROUTES */}
         <Route path="/production/*" element={<RoleRoute system="production" feature="management"><ProductionApp /></RoleRoute>} />
-        <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> {/* NEW */}
+        <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> 
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
 
         {/* REPORTS */}

@@ -4,6 +4,7 @@ import HubApp from './App.jsx';
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import { MsalProvider } from "@azure/msal-react";
 import { msalConfig } from "./authConfig"; 
+import './index.css';
 
 const msalInstance = new PublicClientApplication(msalConfig);
 

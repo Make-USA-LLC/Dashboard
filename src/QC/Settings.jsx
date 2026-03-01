@@ -30,6 +30,7 @@ const Settings = () => {
     
     const [categories, setCategories] = useState([]);
     const [alertThreshold, setAlertThreshold] = useState(3);
+    const [ccEmail, setCcEmail] = useState(''); // <-- NEW STATE FOR CC EMAIL
     const [isSaving, setIsSaving] = useState(false);
     const [errorMsg, setErrorMsg] = useState('');
 
@@ -40,9 +41,11 @@ const Settings = () => {
                 if (ownersSnap.exists()) setOwners(ownersSnap.data().list || []);
 
                 const configSnap = await getDoc(doc(db, "qc_settings", "five_s_config"));
-                if (configSnap.exists() && configSnap.data().categories) {
-                    setCategories(configSnap.data().categories);
-                    setAlertThreshold(configSnap.data().alertThreshold || 3);
+                if (configSnap.exists()) {
+                    const data = configSnap.data();
+                    setCategories(data.categories || defaultAuditData);
+                    setAlertThreshold(data.alertThreshold || 3);
+                    setCcEmail(data.ccEmail || ''); // <-- LOAD CC EMAIL
                 } else {
                     setCategories(defaultAuditData);
                 }
@@ -55,7 +58,7 @@ const Settings = () => {
         fetchSettings();
     }, []);
 
-    // ... (Owner Management functions stay exactly the same: addOwner, removeOwner) ...
+    // ... Owner Management functions ...
     const addOwner = async () => {
         if (!newName || !newEmail) return;
         const updatedList = [...owners, { name: newName, email: newEmail }];
@@ -118,7 +121,8 @@ const Settings = () => {
         try {
             await setDoc(doc(db, "qc_settings", "five_s_config"), { 
                 categories,
-                alertThreshold: parseInt(alertThreshold)
+                alertThreshold: parseInt(alertThreshold),
+                ccEmail: ccEmail.trim() // <-- SAVE CC EMAIL
             });
             alert("Audit Configuration Saved Successfully!");
             setErrorMsg('');
@@ -152,10 +156,29 @@ const Settings = () => {
             
             <div style={styles.card}>
                 <h3>⚙️ Global Grading Rules & Alerts</h3>
-                <div style={{ padding: '15px', background: '#fffbeb', borderLeft: '4px solid #f59e0b', marginBottom: '20px' }}>
-                    <label style={{ fontWeight: 'bold' }}>Email assigned owner if ANY score is LESS THAN: </label>
-                    <input type="number" style={styles.numberInput} value={alertThreshold} onChange={(e) => setAlertThreshold(e.target.value)} />
-                    <span style={{ fontSize: '12px', marginLeft: '10px', color: '#666' }}>(Applies globally to all categories, regardless of scale)</span>
+                
+                {/* SETTINGS BOX */}
+                <div style={{ padding: '15px', background: '#fffbeb', borderLeft: '4px solid #f59e0b', marginBottom: '20px', borderRadius: '4px' }}>
+                    <div style={{ marginBottom: '15px' }}>
+                        <label style={{ fontWeight: 'bold' }}>Email assigned owner if ANY score is LESS THAN: </label>
+                        <input type="number" style={styles.numberInput} value={alertThreshold} onChange={(e) => setAlertThreshold(e.target.value)} />
+                        <span style={{ fontSize: '12px', marginLeft: '10px', color: '#666' }}>(Applies globally to all categories, regardless of scale)</span>
+                    </div>
+
+                    {/* NEW CC EMAIL FIELD */}
+                    <div style={{ borderTop: '1px solid #fcd34d', paddingTop: '15px' }}>
+                        <label style={{ fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Global CC Address for Alerts: </label>
+                        <input 
+                            type="email" 
+                            style={{...styles.input, maxWidth: '300px'}} 
+                            placeholder="e.g., manager@makeit.buzz" 
+                            value={ccEmail} 
+                            onChange={(e) => setCcEmail(e.target.value)} 
+                        />
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                            (Optional: If provided, this address will be CC'd on <strong>all</strong> automatic and manually resent 5S Action Required emails.)
+                        </div>
+                    </div>
                 </div>
 
                 <h3 style={{ borderBottom: '2px solid #8e44ad', paddingBottom: '10px', color: '#8e44ad' }}>📋 5S Audit Questionnaire Builder</h3>
@@ -169,7 +192,7 @@ const Settings = () => {
                                 onChange={(e) => updateCategoryField(cIdx, 'name', e.target.value)} 
                             />
                             
-                            {/* NEW: Grading Scale Inputs */}
+                            {/* Grading Scale Inputs */}
                             <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: '#e2e8f0', padding: '5px 10px', borderRadius: '5px' }}>
                                 <label style={{fontSize: '12px', fontWeight: 'bold'}}>Scale: Min</label>
                                 <input type="number" style={styles.numberInput} value={category.minScore ?? 0} onChange={(e) => updateCategoryField(cIdx, 'minScore', e.target.value)} />

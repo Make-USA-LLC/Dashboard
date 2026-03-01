@@ -238,7 +238,9 @@ async function sendEmail(data, type) {
     console.log("Email sent successfully.");
 }
 
-// 5S Audit Alert Trigger
+// ------------------------------------------------------------------
+// 1. ORIGINAL 5S AUDIT ALERT TRIGGER
+// ------------------------------------------------------------------
 exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (event) => {
     const snap = event.data;
     if (!snap) return;
@@ -246,13 +248,17 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
     const results = data.results || {};
     
     let threshold = 3; 
+    let ccEmail = null; // <-- NEW: Variable for CC Email
+    
     try {
         const configDoc = await admin.firestore().collection('qc_settings').doc('five_s_config').get();
-        if (configDoc.exists && configDoc.data().alertThreshold !== undefined) {
-            threshold = configDoc.data().alertThreshold;
+        if (configDoc.exists) {
+            const configData = configDoc.data();
+            if (configData.alertThreshold !== undefined) threshold = configData.alertThreshold;
+            if (configData.ccEmail) ccEmail = configData.ccEmail; // <-- NEW: Fetch CC Email
         }
     } catch (err) {
-        console.error("Failed to fetch threshold, using default.", err);
+        console.error("Failed to fetch threshold/cc, using default.", err);
     }
 
     const actionsByOwner = {};
@@ -260,15 +266,9 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
     for (const [key, details] of Object.entries(results)) {
         if (details.owner && details.points !== undefined && details.points !== "") {
             const scoreGiven = parseInt(details.points);
-            
             if (scoreGiven < threshold) {
-                if (!actionsByOwner[details.owner]) {
-                    actionsByOwner[details.owner] = [];
-                }
-                actionsByOwner[details.owner].push({
-                    ...details,
-                    questionId: key
-                });
+                if (!actionsByOwner[details.owner]) actionsByOwner[details.owner] = [];
+                actionsByOwner[details.owner].push({ ...details, questionId: key });
             }
         }
     }
@@ -298,6 +298,11 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
             html: htmlContent
         };
 
+        // <-- NEW: Attach CC if it exists in settings
+        if (ccEmail) {
+            mailOptions.cc = ccEmail;
+        }
+
         return transporter.sendMail(mailOptions);
     });
 
@@ -305,6 +310,96 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
         .then(() => console.log('Audit alerts evaluated successfully.'))
         .catch((error) => console.error('Error sending audit emails:', error));
 });
+
+// ------------------------------------------------------------------
+// 2. MANUAL RESEND TRIGGER FOR 5S AUDITS
+// ------------------------------------------------------------------
+exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', async (event) => {
+    const before = event.data.before.data();
+    const after = event.data.after.data();
+
+    // Only trigger if a new resend request was just stamped into the database
+    if (after.resendTimestamp && before.resendTimestamp?.seconds !== after.resendTimestamp?.seconds) {
+        console.log(`Manual resend triggered for Audit ID: ${event.params.auditId}`);
+        
+        // --- NEW: Extract and format the original Audit Date ---
+        const auditDateObj = after.timestamp ? new Date(after.timestamp.seconds * 1000) : new Date();
+        const auditDateString = auditDateObj.toLocaleDateString('en-US', { 
+            weekday: 'short', 
+            year: 'numeric', 
+            month: 'short', 
+            day: 'numeric' 
+        });
+
+        const results = after.results || {};
+        let threshold = 3; 
+        let ccEmail = null; 
+        
+        try {
+            const configDoc = await admin.firestore().collection('qc_settings').doc('five_s_config').get();
+            if (configDoc.exists) {
+                const configData = configDoc.data();
+                if (configData.alertThreshold !== undefined) threshold = configData.alertThreshold;
+                if (configData.ccEmail) ccEmail = configData.ccEmail; 
+            }
+        } catch (err) {
+            console.error("Failed to fetch threshold/cc, using default.", err);
+        }
+
+        const actionsByOwner = {};
+
+        for (const [key, details] of Object.entries(results)) {
+            if (details.owner && details.points !== undefined && details.points !== "") {
+                const scoreGiven = parseInt(details.points);
+                if (scoreGiven < threshold) {
+                    if (!actionsByOwner[details.owner]) actionsByOwner[details.owner] = [];
+                    actionsByOwner[details.owner].push({ ...details, questionId: key });
+                }
+            }
+        }
+
+        const emailPromises = Object.keys(actionsByOwner).map(async (email) => {
+            const tasks = actionsByOwner[email];
+            if (tasks.length === 0) return null; 
+            
+            // --- NEW: Added the formatted date to the email body ---
+            let htmlContent = `<h3>Action Required: 5S Audit Items (Reminder)</h3>
+            <p>You have been assigned action items from the 5S Audit conducted on <strong>${auditDateString}</strong> because they scored below a ${threshold}.</p>
+            <ul>`;
+            
+            tasks.forEach(task => {
+                htmlContent += `<li>
+                    <strong>Question:</strong> ${task.question || `Task ID ${task.questionId}`}<br/>
+                    <strong>Action:</strong> ${task.action || 'No action specified'} <br/>
+                    <strong>Due Date:</strong> ${task.dueDate || 'N/A'} <br/>
+                    <strong>Score Given:</strong> <span style="color: red; font-weight: bold;">${task.points}</span>
+                </li><br/>`;
+            });
+            htmlContent += `</ul>`;
+
+            const mailOptions = {
+                from: `"Make USA QC" <${process.env.SMTP_EMAIL}>`,
+                to: email,
+                // --- NEW: Added the date to the Subject Line ---
+                subject: `Reminder: 5S Audit Tasks Assigned (${auditDateString})`,
+                html: htmlContent
+            };
+
+            if (ccEmail) {
+                mailOptions.cc = ccEmail;
+            }
+
+            return transporter.sendMail(mailOptions);
+        });
+
+        return Promise.all(emailPromises)
+            .then(() => console.log('Audit alerts resent successfully.'))
+            .catch((error) => console.error('Error resending audit emails:', error));
+    }
+    
+    return null;
+});
+
 
 // --- QC Ready Notification Trigger ---
 // Remove the old notifyQCReady and use this instead:
