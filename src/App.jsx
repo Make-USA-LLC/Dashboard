@@ -31,7 +31,7 @@ import EmployeePortal from './Dashboard/EmployeePortal';
 import AgentPortal from './Dashboard/AgentPortal';
 import ShedApp from './Shed/App';
 import MasterAdmin from './MasterAdmin'; 
-import ReportsApp from './Machines/App'; 
+import ReportsApp from './Machines & QC Reports/App'; 
 import ShipmentApp from './Shipment/App'; 
 import ProductionApp from './Production/App'; 
 import QCApp from './QC/App';                 
@@ -134,14 +134,14 @@ function SelectionGrid({ user }) {
         )}
 
         {/* Machine Reports */}
-        {checkAccess('machines', 'analytics', 'view') && (
-          <Link to="/reports" style={cardStyle}>
-            <div style={{...iconBox, background: '#fee2e2', color: '#ef4444'}}>
-              <Activity size={32} />
-            </div>
-            <div><div style={titleStyle}>Machine & QC Reports</div></div>
-          </Link>
-        )}
+{checkAccess('reports', 'analytics', 'view') && (
+  <Link to="/reports" style={cardStyle}>
+    <div style={{...iconBox, background: '#fee2e2', color: '#ef4444'}}>
+      <Activity size={32} />
+    </div>
+    <div><div style={titleStyle}>Machine & QC Reports</div></div>
+  </Link>
+)}
 
         {/* MASTER ADMIN */}
         {checkAccess('admin', 'panel', 'view') && (
@@ -237,8 +237,8 @@ function ProtectedMainApp() {
         <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> 
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
 
-        {/* REPORTS */}
-        <Route path="/reports/*" element={<RoleRoute system="machines" feature="analytics"><ReportsApp /></RoleRoute>} />
+{/* REPORTS */}
+<Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
       </Routes>
     </div>
   );

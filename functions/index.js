@@ -1,8 +1,9 @@
-const { onDocumentUpdated, onDocumentCreated } = require("firebase-functions/v2/firestore");
+const { onDocumentUpdated, onDocumentCreated, onDocumentWritten } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
 const ExcelJS = require("exceljs");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 
 admin.initializeApp();
 
@@ -34,7 +35,9 @@ const transporter = nodemailer.createTransport({
     }
 });
 
-// Manual trigger from the Blending Dashboard
+// ------------------------------------------------------------------
+// 1. BLENDING DASHBOARD RESEND
+// ------------------------------------------------------------------
 exports.sendManualEmail = onCall({ cors: true }, async (request) => {
     const { id, type } = request.data;
     console.log(`Manual email requested for ${type} ID: ${id}`);
@@ -65,7 +68,9 @@ exports.sendManualEmail = onCall({ cors: true }, async (request) => {
     }
 });
 
-// Automated triggers
+// ------------------------------------------------------------------
+// 2. SAMPLE & PRODUCTION BLEND COMPLETED
+// ------------------------------------------------------------------
 exports.onSampleCompleted = onDocumentUpdated("blending_samples/{sampleId}", async (event) => {
     const before = event.data.before.data();
     const after = event.data.after.data();
@@ -82,6 +87,9 @@ exports.onProductionBlendCompleted = onDocumentUpdated("production_pipeline/{job
     }
 });
 
+// ------------------------------------------------------------------
+// 3. SEND EMAIL FUNCTION (Excel Generation)
+// ------------------------------------------------------------------
 async function sendEmail(data, type) {
     const companyName = String(data.company || ''); 
     const projectName = String(data.project || data.name || 'Unknown Project');
@@ -226,7 +234,7 @@ async function sendEmail(data, type) {
     
     const mailOptions = {
         from: `"MakeUSA Blending Lab" <${process.env.SMTP_EMAIL}>`,
-        to: 'blendingreports@makeit.buzz',
+        to: `"MakeUSA Blending Reports" <${process.env.BLENDING_REPORTS_EMAIL}>`,
         subject: `Blending Complete - ${type}: ${companyName} ${projectName}`,
         text: `Formula report for ${projectName} attached.`, 
         html: htmlBody, 
@@ -239,7 +247,7 @@ async function sendEmail(data, type) {
 }
 
 // ------------------------------------------------------------------
-// 1. ORIGINAL 5S AUDIT ALERT TRIGGER
+// 4. 5S AUDIT ALERT TRIGGER
 // ------------------------------------------------------------------
 exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (event) => {
     const snap = event.data;
@@ -248,14 +256,14 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
     const results = data.results || {};
     
     let threshold = 3; 
-    let ccEmail = null; // <-- NEW: Variable for CC Email
+    let ccEmail = null; 
     
     try {
         const configDoc = await admin.firestore().collection('qc_settings').doc('five_s_config').get();
         if (configDoc.exists) {
             const configData = configDoc.data();
             if (configData.alertThreshold !== undefined) threshold = configData.alertThreshold;
-            if (configData.ccEmail) ccEmail = configData.ccEmail; // <-- NEW: Fetch CC Email
+            if (configData.ccEmail) ccEmail = configData.ccEmail; 
         }
     } catch (err) {
         console.error("Failed to fetch threshold/cc, using default.", err);
@@ -298,7 +306,6 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
             html: htmlContent
         };
 
-        // <-- NEW: Attach CC if it exists in settings
         if (ccEmail) {
             mailOptions.cc = ccEmail;
         }
@@ -312,7 +319,7 @@ exports.sendAuditAlerts = onDocumentCreated('five_s_audits/{auditId}', async (ev
 });
 
 // ------------------------------------------------------------------
-// 2. MANUAL RESEND TRIGGER FOR 5S AUDITS
+// 5. MANUAL RESEND TRIGGER FOR 5S AUDITS
 // ------------------------------------------------------------------
 exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', async (event) => {
     const before = event.data.before.data();
@@ -322,7 +329,6 @@ exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', 
     if (after.resendTimestamp && before.resendTimestamp?.seconds !== after.resendTimestamp?.seconds) {
         console.log(`Manual resend triggered for Audit ID: ${event.params.auditId}`);
         
-        // --- NEW: Extract and format the original Audit Date ---
         const auditDateObj = after.timestamp ? new Date(after.timestamp.seconds * 1000) : new Date();
         const auditDateString = auditDateObj.toLocaleDateString('en-US', { 
             weekday: 'short', 
@@ -362,7 +368,6 @@ exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', 
             const tasks = actionsByOwner[email];
             if (tasks.length === 0) return null; 
             
-            // --- NEW: Added the formatted date to the email body ---
             let htmlContent = `<h3>Action Required: 5S Audit Items (Reminder)</h3>
             <p>You have been assigned action items from the 5S Audit conducted on <strong>${auditDateString}</strong> because they scored below a ${threshold}.</p>
             <ul>`;
@@ -380,7 +385,6 @@ exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', 
             const mailOptions = {
                 from: `"Make USA QC" <${process.env.SMTP_EMAIL}>`,
                 to: email,
-                // --- NEW: Added the date to the Subject Line ---
                 subject: `Reminder: 5S Audit Tasks Assigned (${auditDateString})`,
                 html: htmlContent
             };
@@ -400,9 +404,9 @@ exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', 
     return null;
 });
 
-
-// --- QC Ready Notification Trigger ---
-// Remove the old notifyQCReady and use this instead:
+// ------------------------------------------------------------------
+// 6. QC READY NOTIFICATION TRIGGER
+// ------------------------------------------------------------------
 exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", async (event) => {
     const before = event.data.before.data();
     const after = event.data.after.data();
@@ -416,7 +420,7 @@ exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", asy
 
         const mailOptions = {
             from: `"MakeUSA Production" <${process.env.SMTP_EMAIL}>`,
-            to: 'QCReady@makeit.buzz',
+            to: `"MakeUSA QC" <${process.env.QC_READY_EMAIL}>`,
             subject: `Action Required: QC Ready for ${companyName} - ${projectName}`,
             text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project has passed Production Management and requires a Quality Standard to be built and pictures uploaded.`,
             html: `
@@ -440,6 +444,214 @@ exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", asy
             console.log(`Successfully sent QC Ready email for ${projectName}.`);
         } catch (error) {
             console.error("Error sending QC Ready email:", error);
+        }
+    }
+    return null;
+});
+
+// ------------------------------------------------------------------
+// 7. HR BIRTHDAY AUTOMATIONS
+// ------------------------------------------------------------------
+
+// Helper function to fetch active employees with a valid birthday
+async function getActiveEmployeesWithBirthdays() {
+    const snapshot = await admin.firestore().collection('employees').where('status', '==', 'Active').get();
+    const employees = [];
+    
+    snapshot.forEach(doc => {
+        const data = doc.data();
+        if (data.birthday) {
+            // Handle Firestore Timestamp
+            const bdayDate = data.birthday.toDate ? data.birthday.toDate() : new Date(data.birthday);
+            
+            // Ensure the date is valid before adding to the list
+            if (!isNaN(bdayDate)) {
+                employees.push({
+                    name: data.name || `${data.firstName} ${data.lastName}`,
+                    birthday: bdayDate
+                });
+            }
+        }
+    });
+    
+    return employees;
+}
+
+// A. MONTHLY DIGEST (Runs 1st of every month at 8:00 AM)
+exports.monthlyBirthdayDigest = onSchedule({
+    schedule: "0 8 1 * *", 
+    timeZone: "America/New_York" 
+}, async (event) => {
+    const today = new Date();
+    const currentMonth = today.getMonth(); // 0-11
+    const monthName = today.toLocaleString('default', { month: 'long' });
+
+    const employees = await getActiveEmployeesWithBirthdays();
+    
+    // Find everyone born in the current month
+    const monthBirthdays = employees.filter(emp => emp.birthday.getMonth() === currentMonth);
+
+    if (monthBirthdays.length === 0) {
+        console.log(`No birthdays in ${monthName}. Skipping email.`);
+        return;
+    }
+
+    // Sort chronologically by the day of the month
+    monthBirthdays.sort((a, b) => a.birthday.getDate() - b.birthday.getDate());
+
+    let htmlList = '<ul style="font-size: 16px;">';
+    monthBirthdays.forEach(emp => {
+        htmlList += `<li style="margin-bottom: 5px;"><strong>${emp.name}</strong> - ${monthName} ${emp.birthday.getDate()}</li>`;
+    });
+    htmlList += '</ul>';
+
+    const mailOptions = {
+        from: `"MakeUSA HR" <${process.env.SMTP_EMAIL}>`,
+        to: `"MakeUSA Birthdays" <${process.env.BIRTHDAY_ANNOUNCEMENTS_EMAIL}>`,
+        subject: `🎂 Upcoming Birthdays in ${monthName}!`,
+        html: `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+                <h2 style="color: #2c3e50;">Team Birthdays for ${monthName}</h2>
+                <p>Here are the upcoming birthdays for this month:</p>
+                ${htmlList}
+            </div>
+        `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`Sent monthly birthday digest for ${monthName}.`);
+});
+
+// B. DAILY ALERT (Runs every day at 8:00 AM)
+exports.dailyBirthdayAlert = onSchedule({
+    schedule: "0 8 * * *", 
+    timeZone: "America/New_York"
+}, async (event) => {
+    const today = new Date();
+    const currentMonth = today.getMonth();
+    const currentDay = today.getDate();
+
+    const employees = await getActiveEmployeesWithBirthdays();
+    
+    // Find everyone born on exactly this month and day
+    const todaysBirthdays = employees.filter(emp => 
+        emp.birthday.getMonth() === currentMonth && 
+        emp.birthday.getDate() === currentDay
+    );
+
+    if (todaysBirthdays.length === 0) {
+        console.log("No birthdays today. Skipping email.");
+        return;
+    }
+
+    const names = todaysBirthdays.map(e => e.name).join(' and ');
+    
+    let htmlList = '<ul style="font-size: 16px;">';
+    todaysBirthdays.forEach(emp => {
+        htmlList += `<li style="margin-bottom: 5px;"><strong>${emp.name}</strong></li>`;
+    });
+    htmlList += '</ul>';
+
+    const mailOptions = {
+        from: `"MakeUSA HR" <${process.env.SMTP_EMAIL}>`,
+        to: `"MakeUSA Birthdays" <${process.env.BIRTHDAY_ANNOUNCEMENTS_EMAIL}>`,
+        subject: `🎉 Happy Birthday to ${names}!`,
+        html: `
+            <div style="font-family: Arial, sans-serif; color: #333;">
+                <h2 style="color: #2c3e50;">Today is a special day!</h2>
+                <p>Please wish a Happy Birthday to:</p>
+                ${htmlList}
+                <p style="margin-top: 20px; font-size: 12px; color: #666;">MakeUSA Team</p>
+            </div>
+        `
+    };
+
+    await transporter.sendMail(mailOptions);
+    console.log(`Sent daily birthday alert for ${names}.`);
+});
+
+// ==================================================================
+// 8. LOGISTICS & SHIPPING BILLING
+// ==================================================================
+
+exports.onShipmentReadyToBill = onDocumentWritten("shipments/{shipmentId}", async (event) => {
+    // If the document was deleted, do nothing
+    if (!event.data.after.exists) return null;
+
+    const before = event.data.before.exists ? event.data.before.data() : null;
+    const after = event.data.after.data();
+
+    // Define what it means to be "Ready to Bill"
+    const isReady = (data) => {
+        if (!data) return false;
+        const hasVendor = data.vendor && data.vendor.trim() !== "";
+        const isUnbilled = data.status === 'Unbilled';
+        const hasCharges = (parseFloat(data.dutiesAmount) > 0 || parseFloat(data.shippingCost) > 0);
+        return hasVendor && isUnbilled && hasCharges;
+    };
+
+    const wasReadyBefore = isReady(before);
+    const isReadyNow = isReady(after);
+
+    // ONLY send the email if it JUST transitioned to "Ready to Bill"
+    // (This prevents spamming if someone edits the description later)
+    if (!wasReadyBefore && isReadyNow) {
+        const vendor = after.vendor;
+        const tracking = after.trackingNumber || 'N/A';
+        const carrier = after.carrier || 'N/A';
+        const duties = parseFloat(after.dutiesAmount) || 0;
+        const shipping = parseFloat(after.shippingCost) || 0;
+        const description = after.description || 'No description provided';
+        const total = (duties + shipping).toFixed(2);
+
+        const mailOptions = {
+            from: `"MakeUSA Logistics" <${process.env.SMTP_EMAIL}>`,
+            to: `"MakeUSA Finance" <${process.env.SHIPMENT_BILLING_EMAIL}>`,
+            subject: `Action Required: New Bill Ready - ${vendor}`,
+            html: `
+                <div style="font-family: Arial, sans-serif; color: #333;">
+                    <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">Shipping / Tariff Bill Ready</h2>
+                    <p style="font-size: 16px;">
+                        A new shipment entry requires billing attention.
+                    </p>
+                    <table style="width: 100%; max-width: 500px; border-collapse: collapse; margin-top: 20px;">
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc; width: 35%;">Vendor</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${vendor}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Carrier & Tracking</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${carrier} - ${tracking}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Description</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${description}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #fffbeb; color: #b45309;">Duties / Taxes</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #d97706;">$${duties.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f0fdf4; color: #047857;">Shipping Cost</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #059669;">$${shipping.toFixed(2)}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #eff6ff; color: #1d4ed8;">Total Due</td>
+                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #2563eb; font-size: 16px;">$${total}</td>
+                        </tr>
+                    </table>
+                    <p style="margin-top: 20px; font-size: 14px; color: #64748b;">
+                        Log in to the MakeUSA Dashboard (Shipment > Finance Billing) to process and mark this as billed.
+                    </p>
+                </div>
+            `
+        };
+
+        try {
+            await transporter.sendMail(mailOptions);
+            console.log(`Sent Billing Notification for shipment: ${event.params.shipmentId} (Vendor: ${vendor})`);
+        } catch (error) {
+            console.error("Error sending billing notification:", error);
         }
     }
     return null;

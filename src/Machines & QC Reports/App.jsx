@@ -1,21 +1,28 @@
 import React from "react";
 import { Routes, Route, Link, Navigate, useLocation } from "react-router-dom"; 
 import { auth } from "../firebase_config"; 
-import { LayoutDashboard, Wrench, ClipboardCheck, AlertCircle } from "lucide-react"; // Added AlertCircle
+import { LayoutDashboard, Wrench, ClipboardCheck, AlertCircle } from "lucide-react";
+
+// IMPORT YOUR ROLE HOOK
+import { useRole } from "../hooks/useRole";
 
 // Sub-pages
 import Dashboard from "./Dashboard";
 import SetupLog from "./SetupLog";
 import QCLog from "./QCLog";
-import DowntimeReports from "./DowntimeReports"; // 1. IMPORT NEW COMPONENT
+import DowntimeReports from "./DowntimeReports"; 
 
-// UPDATE BASE PATH
 const BASE = "/reports";
 
 export default function App() {
   const user = auth.currentUser;
   const username = user?.displayName || user?.email || 'User';
   const loc = useLocation();
+  
+  // PULL IN PERMISSIONS
+  const { checkAccess } = useRole();
+  const canViewTech = checkAccess('reports', 'tech');
+  const canViewQC = checkAccess('reports', 'qc');
 
   // Helper for active tab styles
   const navClass = (path) => {
@@ -46,19 +53,31 @@ export default function App() {
       {/* 2. MODULE NAVIGATION */}
       <div className="max-w-7xl mx-auto px-6 mt-8 mb-6">
           <div className="flex flex-wrap gap-2 bg-slate-200/50 p-1 rounded-xl w-fit">
+              {/* Everyone with access to this app gets the dashboard */}
               <Link to={BASE} className={navClass('')}>
                   <LayoutDashboard size={18} /> Analytics Dashboard
               </Link>
-              <Link to={`${BASE}/setups`} className={navClass('/setups')}>
-                  <Wrench size={18} /> Machine Setups
-              </Link>
-              <Link to={`${BASE}/qc`} className={navClass('/qc')}>
-                  <ClipboardCheck size={18} /> QC Reports
-              </Link>
-              {/* 2. ADD NAVIGATION LINK */}
-              <Link to={`${BASE}/downtime`} className={navClass('/downtime')}>
-                  <AlertCircle size={18} /> Downtime
-              </Link>
+
+              {/* ONLY SHOW TO TECH/BOTH ROLES */}
+              {canViewTech && (
+                <Link to={`${BASE}/setups`} className={navClass('/setups')}>
+                    <Wrench size={18} /> Machine Setups
+                </Link>
+              )}
+
+              {/* ONLY SHOW TO QC/BOTH ROLES */}
+              {canViewQC && (
+                <Link to={`${BASE}/qc`} className={navClass('/qc')}>
+                    <ClipboardCheck size={18} /> QC Reports
+                </Link>
+              )}
+
+              {/* ONLY SHOW TO TECH/BOTH ROLES */}
+              {canViewTech && (
+                <Link to={`${BASE}/downtime`} className={navClass('/downtime')}>
+                    <AlertCircle size={18} /> Downtime
+                </Link>
+              )}
           </div>
       </div>
 
@@ -66,10 +85,13 @@ export default function App() {
       <div className="max-w-7xl mx-auto px-6 pb-20">
         <Routes>
           <Route path="/" element={<Dashboard />} />
-          <Route path="/setups" element={<SetupLog />} />
-          <Route path="/qc" element={<QCLog />} />
-          {/* 3. ADD ROUTE */}
-          <Route path="/downtime" element={<DowntimeReports />} />
+          
+          {/* PROTECT ROUTES AS WELL AS LINKS */}
+          {canViewTech && <Route path="/setups" element={<SetupLog />} />}
+          {canViewQC && <Route path="/qc" element={<QCLog />} />}
+          {canViewTech && <Route path="/downtime" element={<DowntimeReports />} />}
+          
+          {/* Catch-all sends them back to the Dashboard if they try to force a URL they don't have access to */}
           <Route path="*" element={<Navigate to={BASE} />} />
         </Routes>
       </div>

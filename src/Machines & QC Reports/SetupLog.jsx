@@ -3,8 +3,13 @@ import * as XLSX from 'xlsx';
 import { db } from '../firebase_config';
 import { collection, getDocs, doc, getDoc } from 'firebase/firestore';
 import { Search, Download, Hash, Activity, Filter, Settings } from 'lucide-react';
+import { useRole } from '../hooks/useRole'; // 1. IMPORT USER ROLE
 
 export default function SetupLog() {
+    // 2. CHECK FINANCE PERMISSIONS
+    const { checkAccess } = useRole();
+    const canViewFinance = checkAccess('reports', 'finance');
+
     const [loading, setLoading] = useState(true);
     const [errorMsg, setErrorMsg] = useState('');
     
@@ -87,8 +92,8 @@ export default function SetupLog() {
             ...data,
             dateObj,     
             machine,
-            company: data.company || "—", // ADDED
-            project: data.project || "—", // ADDED
+            company: data.company || "—", 
+            project: data.project || "—", 
             technician, 
             techList,
             techCount: techList.length,
@@ -103,22 +108,25 @@ export default function SetupLog() {
             setErrorMsg('');
 
             try {
-                const configSnap = await getDoc(doc(db, "config", "finance"));
-                if (configSnap.exists()) {
-                    setGlobalRate(configSnap.data().costPerHour || 0);
-                }
+                // Only load financial config if they have access
+                if (canViewFinance) {
+                    const configSnap = await getDoc(doc(db, "config", "finance"));
+                    if (configSnap.exists()) {
+                        setGlobalRate(configSnap.data().costPerHour || 0);
+                    }
 
-                const empSnap = await getDocs(collection(db, "employees"));
-                const empMap = {};
-                empSnap.forEach(d => {
-                    const data = d.data();
-                    const name = `${data.firstName || ''} ${data.lastName || ''}`.trim();
-                    let rate = parseFloat(data.compensation) || 0;
-                    if (data.type === 'Salary') rate = rate / 2080;
-                    if (name) empMap[name] = { rate };
-                    if (data.firstName) empMap[data.firstName] = { rate };
-                });
-                setEmployees(empMap);
+                    const empSnap = await getDocs(collection(db, "employees"));
+                    const empMap = {};
+                    empSnap.forEach(d => {
+                        const data = d.data();
+                        const name = `${data.firstName || ''} ${data.lastName || ''}`.trim();
+                        let rate = parseFloat(data.compensation) || 0;
+                        if (data.type === 'Salary') rate = rate / 2080;
+                        if (name) empMap[name] = { rate };
+                        if (data.firstName) empMap[data.firstName] = { rate };
+                    });
+                    setEmployees(empMap);
+                }
 
                 const snap = await getDocs(collection(db, "machine_setup_reports"));
                 setRawDocs(snap.docs.map(d => ({ 
@@ -140,10 +148,11 @@ export default function SetupLog() {
             }
         };
         initData();
-    }, []);
+    }, [canViewFinance]);
 
     // --- CALCULATIONS ---
     const getHourlyRate = (report) => {
+        if (!canViewFinance) return 0;
         if (costMode === 'custom') return parseFloat(customRate) || 0;
         if (costMode === 'employee') {
             const names = report.techList || [];
@@ -163,6 +172,7 @@ export default function SetupLog() {
     };
 
     const calculateCost = (report) => {
+        if (!canViewFinance) return 0;
         const rate = getHourlyRate(report);
         return (report.hours * rate);
     };
@@ -175,8 +185,8 @@ export default function SetupLog() {
             const lower = searchText.toLowerCase();
             temp = temp.filter(r => 
                 (r.machine || '').toLowerCase().includes(lower) ||
-                (r.company || '').toLowerCase().includes(lower) || // ADDED TO SEARCH
-                (r.project || '').toLowerCase().includes(lower) || // ADDED TO SEARCH
+                (r.company || '').toLowerCase().includes(lower) || 
+                (r.project || '').toLowerCase().includes(lower) || 
                 (r.technician || '').toLowerCase().includes(lower) ||
                 (r.notes || '').toLowerCase().includes(lower)
             );
@@ -202,19 +212,25 @@ export default function SetupLog() {
     const handleExport = () => {
         const exportData = filteredReports.map(r => {
             const rate = getHourlyRate(r);
-            return {
+            // 3. ONLY EXPORT FINANCIAL DATA IF AUTHORIZED
+            const row = {
                 Date: r.dateObj.toLocaleDateString() + ' ' + r.dateObj.toLocaleTimeString(),
                 Machine: r.machine,
-                Company: r.company, // ADDED
-                Project: r.project, // ADDED
+                Company: r.company, 
+                Project: r.project, 
                 Technicians: r.technician,
                 Count: r.techCount,
-                Duration_Hrs: r.hours.toFixed(4),
-                Rate_Basis: costMode,
-                Hourly_Rate: rate.toFixed(2),
-                Total_Cost: (r.hours * rate).toFixed(2),
-                Notes: r.notes || ''
+                Duration_Hrs: r.hours.toFixed(4)
             };
+
+            if (canViewFinance) {
+                row.Rate_Basis = costMode;
+                row.Hourly_Rate = rate.toFixed(2);
+                row.Total_Cost = (r.hours * rate).toFixed(2);
+            }
+
+            row.Notes = r.notes || '';
+            return row;
         });
         const ws = XLSX.utils.json_to_sheet(exportData);
         const wb = XLSX.utils.book_new();
@@ -236,31 +252,35 @@ export default function SetupLog() {
 
             <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 space-y-4">
                 <div className="flex flex-wrap gap-6 items-end">
-                    <div className="flex-1 min-w-[280px]">
-                        <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
-                            <Settings size={14}/> Cost Calculation Basis
-                        </label>
-                        <div className="flex gap-2">
-                            <select 
-                                value={costMode} 
-                                onChange={e => setCostMode(e.target.value)}
-                                className="flex-1 p-2.5 border rounded-lg text-sm font-bold bg-slate-50 focus:bg-white transition-colors"
-                            >
-                                <option value="global">Global Rate (${globalRate.toFixed(2)}/hr)</option>
-                                <option value="employee">Employee Specific Rate</option>
-                                <option value="custom">Custom Fixed Rate</option>
-                            </select>
-                            {costMode === 'custom' && (
-                                <input 
-                                    type="number" 
-                                    placeholder="$0.00"
-                                    value={customRate}
-                                    onChange={e => setCustomRate(e.target.value)}
-                                    className="w-24 p-2.5 border rounded-lg text-sm font-bold text-center"
-                                />
-                            )}
+                    
+                    {/* 4. HIDE CALCULATOR IF NOT FINANCE */}
+                    {canViewFinance && (
+                        <div className="flex-1 min-w-[280px]">
+                            <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
+                                <Settings size={14}/> Cost Calculation Basis
+                            </label>
+                            <div className="flex gap-2">
+                                <select 
+                                    value={costMode} 
+                                    onChange={e => setCostMode(e.target.value)}
+                                    className="flex-1 p-2.5 border rounded-lg text-sm font-bold bg-slate-50 focus:bg-white transition-colors"
+                                >
+                                    <option value="global">Global Rate (${globalRate.toFixed(2)}/hr)</option>
+                                    <option value="employee">Employee Specific Rate</option>
+                                    <option value="custom">Custom Fixed Rate</option>
+                                </select>
+                                {costMode === 'custom' && (
+                                    <input 
+                                        type="number" 
+                                        placeholder="$0.00"
+                                        value={customRate}
+                                        onChange={e => setCustomRate(e.target.value)}
+                                        className="w-24 p-2.5 border rounded-lg text-sm font-bold text-center"
+                                    />
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
 
                     <div>
                         <label className="flex items-center gap-2 text-xs font-bold text-slate-400 uppercase mb-2">
@@ -285,12 +305,15 @@ export default function SetupLog() {
                         />
                     </div>
 
-                    <div className="text-right border-l pl-6 border-slate-100">
-                        <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Period Cost</div>
-                        <div className="text-3xl font-black text-green-600">
-                            ${totalPeriodCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                    {/* 5. HIDE TOTAL COST IF NOT FINANCE */}
+                    {canViewFinance && (
+                        <div className="text-right border-l pl-6 border-slate-100">
+                            <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">Total Period Cost</div>
+                            <div className="text-3xl font-black text-green-600">
+                                ${totalPeriodCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                            </div>
                         </div>
-                    </div>
+                    )}
                 </div>
 
                 <div className="pt-2 border-t border-slate-50 flex justify-between items-center">
@@ -321,12 +344,14 @@ export default function SetupLog() {
                             <tr>
                                 <th className="p-4">Date</th>
                                 <th className="p-4">Machine / Line</th>
-                                <th className="p-4">Company</th> {/* ADDED COLUMN */}
-                                <th className="p-4">Project</th> {/* ADDED COLUMN */}
+                                <th className="p-4">Company</th> 
+                                <th className="p-4">Project</th> 
                                 <th className="p-4">Technician(s)</th>
                                 <th className="p-4 text-right">Duration</th>
-                                <th className="p-4 text-right">Rate</th>
-                                <th className="p-4 text-right">Cost</th>
+                                
+                                {/* 6. HIDE TABLE HEADERS IF NOT FINANCE */}
+                                {canViewFinance && <th className="p-4 text-right">Rate</th>}
+                                {canViewFinance && <th className="p-4 text-right">Cost</th>}
                                 
                                 <th className="p-4 text-right"></th>
                             </tr>
@@ -345,8 +370,8 @@ export default function SetupLog() {
                                                 <div className="text-[11px] text-slate-400">{r.dateObj.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</div>
                                             </td>
                                             <td className="p-4 font-black text-blue-600">{r.machine}</td>
-                                            <td className="p-4 text-slate-600 font-medium">{r.company}</td> {/* ADDED CELL */}
-                                            <td className="p-4 text-slate-500 italic">{r.project}</td> {/* ADDED CELL */}
+                                            <td className="p-4 text-slate-600 font-medium">{r.company}</td> 
+                                            <td className="p-4 text-slate-500 italic">{r.project}</td> 
                                             <td className="p-4">
                                                 <div className="flex items-center gap-2">
                                                     {r.techCount > 1 && (
@@ -361,8 +386,10 @@ export default function SetupLog() {
                                                 {r.hours.toFixed(2)} hrs
                                                 <div className="text-[10px] text-slate-400 font-normal">{Math.round(r.hours * 60)} mins</div>
                                             </td>
-                                            <td className="p-4 text-right font-mono text-slate-400">${rate.toFixed(2)}</td>
-                                            <td className="p-4 text-right font-mono font-black text-green-600">${cost.toFixed(2)}</td>
+                                            
+                                            {/* 7. HIDE TABLE CELLS IF NOT FINANCE */}
+                                            {canViewFinance && <td className="p-4 text-right font-mono text-slate-400">${rate.toFixed(2)}</td>}
+                                            {canViewFinance && <td className="p-4 text-right font-mono font-black text-green-600">${cost.toFixed(2)}</td>}
                                             
                                             <td className="p-4 text-right">
                                                 <button 
