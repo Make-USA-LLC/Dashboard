@@ -73,6 +73,16 @@ export default function Dashboard() {
       return { ...emp, nextDue };
   });
 
+  // Helper to format dates correctly (1st, 2nd, 3rd, 4th, etc.)
+  const getOrdinalSuffix = (i) => {
+      const j = i % 10;
+      const k = i % 100;
+      if (j === 1 && k !== 11) return i + "st";
+      if (j === 2 && k !== 12) return i + "nd";
+      if (j === 3 && k !== 13) return i + "rd";
+      return i + "th";
+  };
+
   if (loading) return <div style={{padding: 20}}>Loading Dashboard...</div>;
 
   return (
@@ -97,7 +107,8 @@ export default function Dashboard() {
                           return (
                               <div key={emp.id} style={{display:'flex', justifyContent:'space-between', borderBottom:'1px solid #f1f5f9', paddingBottom:5}}>
                                   <span style={{fontWeight:'bold'}}>{emp.firstName} {emp.lastName}</span>
-                                  <span style={{color:'#be123c'}}>{d.getDate()}th</span>
+                                  {/* Using the new ordinal helper here */}
+                                  <span style={{color:'#be123c'}}>{getOrdinalSuffix(d.getDate())}</span>
                               </div>
                           )
                       })}

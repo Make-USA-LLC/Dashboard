@@ -242,7 +242,7 @@ export default function Lockers() {
         <h2>Locker Layout</h2>
         {canEdit && (
             <div style={{display:'flex', gap: 10}}>
-                <Link to="/settings" state={{ activeTab: 'lockers' }}>
+                <Link to="/hr/settings" state={{ activeTab: 'lockers' }}>
                     <button style={{padding:'10px', background:'white', border:'1px solid #cbd5e1', borderRadius: 4, cursor:'pointer', color: '#334155'}}>⚙️ Configure Layout</button>
                 </Link>
                 <button className="primary" onClick={() => openAddModal(0)}>+ Add Lockers</button>
