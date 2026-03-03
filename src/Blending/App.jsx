@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { db, functions } from '../firebase_config'; 
-import { collection, updateDoc, doc, onSnapshot, query, where, serverTimestamp } from 'firebase/firestore';
+import { collection, updateDoc, doc, onSnapshot, query, where, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -9,6 +9,7 @@ import { InteractionStatus } from "@azure/msal-browser";
 // Import your split files
 import { styles, getGallons } from './utils';
 import SampleForm from './SampleForm';
+import UnlinkedBlendForm from './UnlinkedBlendForm';
 import ProcessingModal from './ProcessingModal';
 import ViewingModal from './ViewingModal';
 
@@ -21,9 +22,15 @@ export default function BlendingApp() {
     const [finishedBlends, setFinishedBlends] = useState([]);
     
     const [showSampleForm, setShowSampleForm] = useState(false);
+    const [showUnlinkedForm, setShowUnlinkedForm] = useState(false);
+    
     const [processingItem, setProcessingItem] = useState(null);
     const [viewingItem, setViewingItem] = useState(null);
     
+    // Linking State
+    const [linkingJobId, setLinkingJobId] = useState(null);
+    const [selectedTargetJob, setSelectedTargetJob] = useState('');
+
     const [searchTerm, setSearchTerm] = useState('');
     const [sortOption, setSortOption] = useState('dateDesc'); 
 
@@ -69,7 +76,7 @@ export default function BlendingApp() {
             const token = await getMsToken();
             if (!token) return false; 
 
-            const title = item.company ? `${item.company} - ${item.project || item.name}` : (item.project || item.name);
+            const title = item.company && item.company !== 'TBD' ? `${item.company} - ${item.project || item.name}` : (item.project || item.name);
             const finishDate = new Date().toLocaleString(); 
 
             const worksheetData = [
@@ -91,9 +98,10 @@ export default function BlendingApp() {
             const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
             const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-            const companyName = (item.company || 'Unknown_Company').trim();
+            const companyName = (item.company && item.company !== 'TBD' ? item.company : 'Unknown_Company').trim();
             const projectName = (item.project || item.name || 'Unknown_Project').trim();
             const fileName = `${projectName}_Blend.xlsx`;
+            
             let storagePath = item.type === 'sample' 
                 ? `/Documents/Production/Files/${companyName}/Samples/${String(new Date().getMonth() + 1).padStart(2, '0')}-${new Date().getFullYear()}/${fileName}`
                 : (item.sharepointFolder ? `${item.sharepointFolder}/${fileName}` : `/Documents/Production/Files/${companyName}/${projectName}/${fileName}`);
@@ -108,8 +116,7 @@ export default function BlendingApp() {
             });
 
             if (!response.ok) throw new Error("Upload response failed");
-            const responseData = await response.json();
-            console.log("SUCCESS! Saved Excel to SharePoint:", storagePath);
+            await response.json();
             return true;
         } catch (error) {
             console.error("Error saving Excel automatically:", error);
@@ -118,6 +125,9 @@ export default function BlendingApp() {
     };
 
     const markAsFinishedInline = async (item) => {
+        if (item.status === 'unlinked_blend') {
+            return alert("Error: This blend is unlinked. You cannot finish it until it is linked to a Production Run.");
+        }
         if (!item.calculatedIngredients) return alert("Please add information to calculate the formula first.");
         
         if (accounts.length === 0) {
@@ -147,6 +157,24 @@ export default function BlendingApp() {
         }
     };
 
+    const handleManualLink = async (unlinkedJob) => {
+        if (!selectedTargetJob) return alert("Select a target production job to link to.");
+        try {
+            await updateDoc(doc(db, "production_pipeline", selectedTargetJob), {
+                ingredients: unlinkedJob.ingredients,
+                blendingStatus: unlinkedJob.blendingStatus,
+                calculatedIngredients: unlinkedJob.calculatedIngredients || null,
+                totalBatchGrams: unlinkedJob.totalBatchGrams || null
+            });
+            await deleteDoc(doc(db, "production_pipeline", unlinkedJob.id));
+            alert("Linked to production job successfully! You can now finish the blend.");
+            setLinkingJobId(null);
+            setSelectedTargetJob('');
+        } catch(e) {
+            alert("Error linking: " + e.message);
+        }
+    };
+
     const handleBillItem = async (item) => {
         const invoice = prompt("Enter Invoice Number for Billing:");
         if (!invoice) return; 
@@ -170,7 +198,7 @@ export default function BlendingApp() {
         const printWindow = window.open('', '_blank');
         if (!printWindow) return alert("Please allow pop-ups for this site to print tickets.");
 
-        const title = item.company ? `${item.company} - ${item.project || item.name}` : (item.project || item.name);
+        const title = item.company && item.company !== 'TBD' ? `${item.company} - ${item.project || item.name}` : (item.project || item.name);
         let finishDate = item.completedAt?.seconds ? new Date(item.completedAt.seconds * 1000).toLocaleString() : new Date().toLocaleString(); 
         
         let html = `
@@ -188,7 +216,7 @@ export default function BlendingApp() {
             </style>
             </head><body>
             <h1>MakeUSA Blending Ticket</h1>
-            <h2>${item.type === 'sample' ? 'Sample: ' : 'Production: '} ${title}</h2>
+            <h2>${item.type === 'sample' ? 'Sample: ' : (item.status === 'unlinked_blend' ? 'Unlinked Prod: ' : 'Production: ')} ${title}</h2>
             <div class="meta-info">
                 <p><strong>Total Batch Size:</strong> ${item.totalBatchGrams} g</p>
                 <p><strong>Finished On:</strong> ${finishDate}</p>
@@ -213,6 +241,8 @@ export default function BlendingApp() {
         printWindow.document.write(html);
         printWindow.document.close();
     };
+
+    const eligibleLinkTargets = fullBlends.filter(j => j.status === 'production' && (!j.ingredients || j.ingredients.length === 0));
 
     const processedFinishedBlends = finishedBlends
         .filter(item => {
@@ -253,8 +283,7 @@ export default function BlendingApp() {
             {/* SAMPLES QUEUE */}
             {activeTab === 'samples_pending' && (
                 <div>
-                    <button onClick={() => setShowSampleForm(!showSampleForm)} style={{...styles.btn, marginBottom: '20px'}}>+ Create New Sample</button>
-                    
+                    <button onClick={() => setShowSampleForm(!showSampleForm)} style={{...styles.btn, marginBottom: '20px', background: '#2563eb', color: 'white'}}>+ New Sample</button>
                     {showSampleForm && <SampleForm setShowSampleForm={setShowSampleForm} styles={styles} />}
 
                     {pendingSamples.map(sample => (
@@ -271,13 +300,13 @@ export default function BlendingApp() {
                             
                             <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
                                 {!sample.calculatedIngredients ? (
-                                    <button onClick={() => setProcessingItem(sample)} style={{...styles.btn, background: '#3b82f6'}}>➕ Add Information</button>
+                                    <button onClick={() => setProcessingItem(sample)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Information</button>
                                 ) : (
                                     <>
                                         <button onClick={() => setProcessingItem(sample)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Info</button>
-                                        <button onClick={() => setViewingItem(sample)} style={{...styles.btn, background: '#3b82f6', padding: '8px 12px'}}>👀 View Excel</button>
-                                        <button onClick={() => printTicket(sample)} style={{...styles.btn, background: '#475569', padding: '8px 12px'}}>🖨️ Print</button>
-                                        <button onClick={() => markAsFinishedInline(sample)} style={{...styles.btn, background: '#10b981', padding: '8px 12px'}}>✅ Finish</button>
+                                        <button onClick={() => setViewingItem(sample)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
+                                        <button onClick={() => printTicket(sample)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
+                                        <button onClick={() => markAsFinishedInline(sample)} style={{...styles.btn, background: '#10b981', color: 'white', padding: '8px 12px'}}>✅ Finish</button>
                                     </>
                                 )}
                             </div>
@@ -289,31 +318,67 @@ export default function BlendingApp() {
             {/* PRODUCTION QUEUE */}
             {activeTab === 'full_blends' && (
                 <div>
+                    <button onClick={() => setShowUnlinkedForm(!showUnlinkedForm)} style={{...styles.btn, marginBottom: '20px', background: '#10b981', color: 'white'}}>+ Create Unlinked Production Blend</button>
+                    {showUnlinkedForm && <UnlinkedBlendForm setShowUnlinkedForm={setShowUnlinkedForm} styles={styles} />}
+
                     {fullBlends.length === 0 ? <p>No production jobs require blending right now.</p> : null}
-                    {fullBlends.map(job => (
-                        <div key={job.id} style={styles.card}>
+                    {fullBlends.map(job => {
+                        const isUnlinked = job.status === 'unlinked_blend';
+                        const missingFormula = (!job.ingredients || job.ingredients.length === 0 || job.ingredients[0].percentage === '');
+
+                        return (
+                        <div key={job.id} style={{...styles.card, borderLeft: isUnlinked ? '5px solid #10b981' : (missingFormula ? '5px solid #ef4444' : '1px solid #e0e0e0')}}>
                             <div style={{marginBottom: '15px'}}>
                                 <h3 style={{margin:'0 0 5px 0'}}>
                                     {job.project}
-                                    {job.calculatedIngredients && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Ready to Finish</span>}
+                                    {isUnlinked && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>UNLINKED (Awaiting Prod Job)</span>}
+                                    {job.calculatedIngredients && !isUnlinked && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Ready to Finish</span>}
+                                    {missingFormula && <span style={{fontSize: '12px', color: '#b91c1c', background: '#fee2e2', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Needs Formula</span>}
                                 </h3>
-                                <p style={{margin: 0, color:'#666'}}>{job.company} • {job.quantity} units</p>
+                                <p style={{margin: 0, color:'#666'}}>{job.company !== 'TBD' ? job.company : 'Company TBD'} {job.quantity ? `• ${job.quantity} units` : ''}</p>
                             </div>
                             
                             <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                {!job.calculatedIngredients ? (
-                                    <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#3b82f6'}}>➕ Add Information</button>
+                                {missingFormula ? (
+                                    <button onClick={() => { setActiveTab('samples_pending'); setShowSampleForm(true); }} style={{...styles.btn, background: '#ef4444', color: 'white'}}>➕ Request Formula Link via Samples Tab</button>
+                                ) : !job.calculatedIngredients ? (
+                                    <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Calculation Info</button>
                                 ) : (
                                     <>
                                         <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Info</button>
-                                        <button onClick={() => setViewingItem(job)} style={{...styles.btn, background: '#3b82f6', padding: '8px 12px'}}>👀 View Excel</button>
-                                        <button onClick={() => printTicket(job)} style={{...styles.btn, background: '#475569', padding: '8px 12px'}}>🖨️ Print</button>
-                                        <button onClick={() => markAsFinishedInline(job)} style={{...styles.btn, background: '#10b981', padding: '8px 12px'}}>✅ Finish</button>
+                                        <button onClick={() => setViewingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
+                                        <button onClick={() => printTicket(job)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
+                                        
+                                        {/* Physical Block on the Finish Button */}
+                                        {isUnlinked ? (
+                                            <button disabled style={{...styles.btn, background: '#94a3b8', color: 'white', padding: '8px 12px', cursor: 'not-allowed'}}>❌ Cannot Finish (Unlinked)</button>
+                                        ) : (
+                                            <button onClick={() => markAsFinishedInline(job)} style={{...styles.btn, background: '#10b981', color: 'white', padding: '8px 12px'}}>✅ Finish</button>
+                                        )}
                                     </>
                                 )}
                             </div>
+
+                            {/* Manual Linking Block for the Blending Lab */}
+                            {isUnlinked && (
+                                <div style={{background: '#f8fafc', padding: '10px', marginTop: '15px', borderRadius: '5px', border: '1px dashed #cbd5e1'}}>
+                                    <p style={{margin: '0 0 10px 0', fontSize: '13px', color: '#334155'}}><strong>🔗 Link to Production Run:</strong> If Production Management already created the job, select it below to link.</p>
+                                    <div style={{display: 'flex', gap: '10px'}}>
+                                        <select style={{...styles.input, flex: 1}} value={linkingJobId === job.id ? selectedTargetJob : ''} onChange={e => {
+                                            setLinkingJobId(job.id);
+                                            setSelectedTargetJob(e.target.value);
+                                        }}>
+                                            <option value="">-- Select Job --</option>
+                                            {eligibleLinkTargets.map(t => (
+                                                <option key={t.id} value={t.id}>{t.project} ({t.company}) - {t.quantity} units</option>
+                                            ))}
+                                        </select>
+                                        <button onClick={() => handleManualLink(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>Link to Job</button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
-                    ))}
+                    )})}
                 </div>
             )}
 
@@ -336,21 +401,30 @@ export default function BlendingApp() {
 
                     {processedFinishedBlends.map(item => {
                         const isBilled = item.billed;
+                        const canBeBilled = item.type === 'production'; 
+
                         return (
-                            <div key={item.id} style={{...styles.card, borderLeft: `5px solid ${isBilled ? '#10b981' : '#f59e0b'}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <div key={item.id} style={{...styles.card, borderLeft: `5px solid ${isBilled ? '#10b981' : (canBeBilled ? '#f59e0b' : '#3b82f6')}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                                 <div>
                                     <h3 style={{margin:'0 0 5px 0'}}>
                                         {item.project || item.name} 
-                                        <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px', marginLeft: '10px'}}>{item.type}</span>
+                                        <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px', marginLeft: '10px'}}>
+                                            {item.type === 'sample' ? 'Sample' : 'Production'}
+                                        </span>
                                     </h3>
-                                    <p style={{margin:0, color:'#666'}}>{item.company} • Batch: {item.totalBatchGrams}g</p>
+                                    <p style={{margin:0, color:'#666'}}>{item.company !== 'TBD' ? item.company : 'Company TBD'} • Batch: {item.totalBatchGrams}g</p>
                                     {isBilled && <p style={{margin: '5px 0 0 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold'}}>✓ Billed (Inv: {item.invoiceNumber})</p>}
                                 </div>
                                 <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                    <button onClick={() => setViewingItem(item)} style={{...styles.btn, background: '#3b82f6', padding: '8px 12px'}}>👀 View Excel</button>
-                                    <button onClick={() => printTicket(item)} style={{...styles.btn, background: '#475569', padding: '8px 12px'}}>🖨️ Print</button>
-                                    <button onClick={() => emailFinishedBlend(item)} style={{...styles.btn, background: '#8b5cf6', padding: '8px 12px'}}>✉️ Email</button>
-                                    {!isBilled && <button onClick={() => handleBillItem(item)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>💰 Bill</button>}
+                                    <button onClick={() => setViewingItem(item)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
+                                    <button onClick={() => printTicket(item)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
+                                    
+                                    {canBeBilled && (
+                                        <>
+                                            <button onClick={() => emailFinishedBlend(item)} style={{...styles.btn, background: '#8b5cf6', color: 'white', padding: '8px 12px'}}>✉️ Email</button>
+                                            {!isBilled && <button onClick={() => handleBillItem(item)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>💰 Bill</button>}
+                                        </>
+                                    )}
                                 </div>
                             </div>
                         );

@@ -19,7 +19,8 @@ const FEATURES = [
     { id: 'settings', label: 'Project Info' },
     { id: 'workers', label: 'Worker DB' },
     { id: 'fleet', label: 'Fleet Mgmt' },
-    { id: 'queue', label: 'Project Queue' },
+    { id: 'queue_add', label: 'Project Queue (Add New)' }, // <-- Line 1 for Adding
+    { id: 'queue', label: 'Project Queue (Edit/Remove)' }, // <-- Line 2 for Editing
     { id: 'finance', label: 'Finance Input' },
     { id: 'bonuses', label: 'Bonus Manager' },
     { id: 'search', label: 'Project Archive' },
@@ -51,7 +52,7 @@ const Admin = () => {
                     await checkAccess(user);
                 });
             } else {
-                navigate('/'); // Redirect to home/login if not logged in
+                navigate('/');
             }
         });
         return () => unsubscribe();
@@ -74,7 +75,7 @@ const Admin = () => {
 
                 if (!hasAccess) {
                     alert("Access Denied.");
-                    navigate('/dashboard'); // FIXED: Go back to Dashboard if denied, not root
+                    navigate('/dashboard'); 
                     return;
                 }
                 
@@ -84,7 +85,6 @@ const Admin = () => {
         }
     };
 
-    // --- DATA FETCHING ---
     const fetchRolesConfig = async () => {
         const snap = await getDoc(doc(db, "config", "roles"));
         if (snap.exists()) setRolesConfig(snap.data());
@@ -102,7 +102,6 @@ const Admin = () => {
         if (snap.exists()) setGlobalSettings(snap.data());
     };
 
-    // --- ACTIONS: USERS ---
     const handleAddUser = async () => {
         if (!newUserEmail) return alert("Enter email");
         const email = newUserEmail.toLowerCase().trim();
@@ -128,13 +127,6 @@ const Admin = () => {
         }
     };
 
-    const handleToggleGlobalLogin = async (val) => {
-        const newState = { ...globalSettings, allowEmailLogin: val };
-        setGlobalSettings(newState);
-        await setDoc(doc(db, "config", "global"), newState, { merge: true });
-    };
-
-    // --- ACTIONS: ROLES ---
     const handleAddRole = () => {
         const roleKey = newRoleName.trim().toLowerCase().replace(/\s+/g, '_');
         if (!roleKey) return;
@@ -166,16 +158,13 @@ const Admin = () => {
             newConfig[roleKey][viewKey] = true;
             newConfig[roleKey][editKey] = true;
         }
+        
         setRolesConfig(newConfig);
     };
 
     const saveAllRoles = async () => {
         await setDoc(doc(db, "config", "roles"), rolesConfig);
         alert("Roles Configuration Saved!");
-    };
-
-    const handleLogout = () => {
-        signOut(auth).then(() => window.location.href = '/');
     };
 
     const sortedRoles = Object.keys(rolesConfig).sort((a, b) => 
@@ -186,7 +175,6 @@ const Admin = () => {
         <div className="admin-page-wrapper" style={{background:'#f4f7f6', minHeight:'100vh'}}>
             <div className="admin-top-bar">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
-                    {/* FIXED: Point explicitly to /dashboard */}
                     <button 
                         onClick={() => navigate('/dashboard')} 
                         style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}
@@ -194,7 +182,6 @@ const Admin = () => {
                         &larr; Dashboard
                     </button>
                 </div>
-               
             </div>
 
             <div className="admin-container">

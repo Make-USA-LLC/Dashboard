@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { db, auth, app } from '../firebase_config'; // <-- Added 'app' here
+import { db, auth, app } from '../firebase_config'; 
 import { collection, addDoc, updateDoc, doc, onSnapshot, query, where, deleteDoc, serverTimestamp, getDoc, arrayUnion } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 import { useMsal } from "@azure/msal-react";
@@ -25,12 +25,14 @@ const ProductionApp = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
 
-
     // Job Data State
     const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
     
     // Blending States
-    const [requiresBlending, setRequiresBlending] = useState(false);
+    const [blendMode, setBlendMode] = useState('none'); // 'none', 'new', 'link'
+    const [selectedUnlinkedId, setSelectedUnlinkedId] = useState('');
+    const [unlinkedBlends, setUnlinkedBlends] = useState([]);
+    
     const [ingredients, setIngredients] = useState([
         { name: 'B40 190 Proof', percentage: '' },
         { name: 'DI Water', percentage: '' },
@@ -46,6 +48,7 @@ const ProductionApp = () => {
             }
         });
 
+        // 1. Fetch main active production jobs
         const q = query(collection(db, "production_pipeline"), where("status", "==", "production"));
         const unsubQueue = onSnapshot(q, (snap) => {
             const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
@@ -53,7 +56,13 @@ const ProductionApp = () => {
             setJobs(list);
         });
 
-        return () => { unsubscribe(); unsubQueue(); };
+        // 2. Fetch Unlinked Blends created by the Blending Lab
+        const qUnlinked = query(collection(db, "production_pipeline"), where("status", "==", "unlinked_blend"));
+        const unsubUnlinked = onSnapshot(qUnlinked, (snap) => {
+            setUnlinkedBlends(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+        });
+
+        return () => { unsubscribe(); unsubQueue(); unsubUnlinked(); };
     }, []);
 
     const handleLogin = async () => {
@@ -148,55 +157,76 @@ const ProductionApp = () => {
     const handleCreate = async () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         
-        if (requiresBlending) {
-            // STRICT PERCENTAGE VALIDATION
-            const totalRaw = ingredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
-            const roundedTotal = Math.round(totalRaw * 10000) / 10000; // Account for JS float math
-            if (roundedTotal !== 100) {
-                return alert(`Error: Formulation percentages must equal exactly 100%. Current total is ${roundedTotal}%.`);
-            }
-        }
+        if (blendMode === 'link') {
+            if (!selectedUnlinkedId) return alert("Please select an Unlinked Blend to attach to this job.");
+            
+            // Promote the unlinked blend to a full production job instead of creating a new one!
+            await updateDoc(doc(db, "production_pipeline", selectedUnlinkedId), {
+                ...form,
+                status: "production", // This moves it into the main production queue!
+                techSheetUploaded: false,
+                techSheets: [],
+                componentsArrived: false,
+            });
 
-        await addDoc(collection(db, "production_pipeline"), {
-            ...form,
-            status: "production",
-            requiresBlending,
-            blendingStatus: requiresBlending ? "pending" : "not_required",
-            ingredients: requiresBlending ? ingredients : [],
-            techSheetUploaded: false,
-            techSheets: [],
-            componentsArrived: false,
-            createdAt: serverTimestamp()
-        });
+        } else if (blendMode === 'new') {
+            let finalIngredients = ingredients.filter(ing => ing.percentage !== '');
+            const totalRaw = finalIngredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
+            const roundedTotal = Math.round(totalRaw * 10000) / 10000; 
+            
+            if (finalIngredients.length > 0 && roundedTotal !== 100 && roundedTotal !== 0) {
+                 if(!confirm(`Warning: Percentages total ${roundedTotal}%. Ensure the Blending Lab completes the formula. Proceed?`)) return;
+            }
+
+            await addDoc(collection(db, "production_pipeline"), {
+                ...form,
+                status: "production",
+                requiresBlending: true,
+                blendingStatus: "pending",
+                ingredients: finalIngredients,
+                techSheetUploaded: false,
+                techSheets: [],
+                componentsArrived: false,
+                createdAt: serverTimestamp()
+            });
+
+        } else {
+            // No Blending Required
+            await addDoc(collection(db, "production_pipeline"), {
+                ...form,
+                status: "production",
+                requiresBlending: false,
+                blendingStatus: "not_required",
+                ingredients: [],
+                techSheetUploaded: false,
+                techSheets: [],
+                componentsArrived: false,
+                createdAt: serverTimestamp()
+            });
+        }
         
+        // Reset form
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
-        setRequiresBlending(false);
+        setBlendMode('none');
+        setSelectedUnlinkedId('');
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
     };
 
-    // --- UPDATED SEND TO QC LOGIC ---
-    // --- CLEANED UP SEND TO QC LOGIC ---
     const sendToQC = async (job) => {
         if (confirm(`Send "${job.project}" to QC Module?`)) {
             try {
-                // All we do is update the database. 
-                // The Cloud Function will see this happen and send the email automatically!
                 await updateDoc(doc(db, "production_pipeline", job.id), {
                     status: "qc_pending",
                     sentToQcAt: serverTimestamp()
                 });
-                
-                // Show success message
                 alert("Passed to QC successfully! The email notification is being sent in the background.");
-
             } catch (error) {
                 console.error("Error passing to QC:", error);
                 alert("Failed to pass job to QC.");
             }
         }
     };
-
 
     if (!user) return <div style={{padding:50, textAlign:'center'}}>Please log in to Firebase first.</div>;
 
@@ -241,16 +271,40 @@ const ProductionApp = () => {
                         <div><label style={styles.label}>Price per Unit</label><input type="number" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
                     </div>
 
-                    {/* BLENDING SECTION */}
                     <div style={{ borderTop: '1px solid #ccc', paddingTop: '15px', marginTop: '15px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '10px', fontWeight: 'bold', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={requiresBlending} onChange={(e) => setRequiresBlending(e.target.checked)} />
-                            Requires Blending Phase
-                        </label>
+                        <h4 style={{margin: '0 0 10px 0', color: '#333'}}>Blending Phase Requirement</h4>
+                        
+                        <div style={{ display: 'flex', gap: '15px', marginBottom: '15px', flexWrap: 'wrap' }}>
+                            <label style={{ cursor: 'pointer', fontSize: '13px' }}>
+                                <input type="radio" checked={blendMode === 'none'} onChange={() => setBlendMode('none')} /> No Blending Phase
+                            </label>
+                            <label style={{ cursor: 'pointer', fontSize: '13px', color: '#047857', fontWeight: 'bold' }}>
+                                <input type="radio" checked={blendMode === 'link'} onChange={() => setBlendMode('link')} /> Link Existing Pre-Blend (Started by Lab)
+                            </label>
+                            <label style={{ cursor: 'pointer', fontSize: '13px' }}>
+                                <input type="radio" checked={blendMode === 'new'} onChange={() => setBlendMode('new')} /> Request New Blending (Create Formula)
+                            </label>
+                        </div>
 
-                        {requiresBlending && (
-                            <div style={{ marginTop: '15px', background: 'white', padding: '15px', borderRadius: '5px', border: '1px dashed #aaa' }}>
-                                <h4>Formulation Percentages (%)</h4>
+                        {blendMode === 'link' && (
+                            <div style={{ background: '#ecfdf5', padding: '15px', borderRadius: '5px', border: '1px dashed #10b981' }}>
+                                <label style={{...styles.label, color: '#047857'}}>Select the Unlinked Blend generated by the Blending Lab</label>
+                                <select style={styles.input} value={selectedUnlinkedId} onChange={e => setSelectedUnlinkedId(e.target.value)}>
+                                    <option value="">-- Choose Unlinked Blend --</option>
+                                    {unlinkedBlends.map(ub => (
+                                        <option key={ub.id} value={ub.id}>
+                                            {ub.project} {ub.company !== 'TBD' ? `(${ub.company})` : ''} - Status: {ub.blendingStatus.toUpperCase()}
+                                        </option>
+                                    ))}
+                                </select>
+                                {unlinkedBlends.length === 0 && <p style={{fontSize: '12px', color: '#b91c1c', margin: '5px 0 0 0'}}>No unlinked blends available.</p>}
+                            </div>
+                        )}
+
+                        {blendMode === 'new' && (
+                            <div style={{ background: 'white', padding: '15px', borderRadius: '5px', border: '1px dashed #aaa' }}>
+                                <h4>Optional: Pre-fill Formulation Percentages (%)</h4>
+                                <p style={{fontSize: '12px', color: '#666', marginTop: 0}}>If you leave this blank, the Blending Lab must fill it in.</p>
                                 {ingredients.map((ing, idx) => (
                                     <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
                                         {idx === 0 ? (
@@ -263,7 +317,7 @@ const ProductionApp = () => {
                                                 style={styles.input} 
                                                 placeholder="Ingredient Name" 
                                                 value={ing.name} 
-                                                readOnly={idx < 3} // Lock base ingredients
+                                                readOnly={idx < 3} 
                                                 onChange={(e) => handleIngredientChange(idx, 'name', e.target.value)} 
                                             />
                                         )}

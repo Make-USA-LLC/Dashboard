@@ -8,7 +8,10 @@ import { onAuthStateChanged } from 'firebase/auth';
 const UpcomingProjects = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
+    
+    // Permission States
     const [canEdit, setCanEdit] = useState(false);
+    const [canAdd, setCanAdd] = useState(false);
     
     // Config Data
     const [costPerHour, setCostPerHour] = useState(0);
@@ -40,19 +43,32 @@ const UpcomingProjects = () => {
 
     const checkAccess = async (user) => {
         const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/'); // Or handle error
+        if (!uSnap.exists()) return navigate('/'); 
         const role = uSnap.data().role;
 
         const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let edit = false;
+        let editPerm = false;
+        let addPerm = false;
         
-        if (role === 'admin') edit = true;
-        else if (rolesSnap.exists()) {
+        if (role === 'admin') {
+            editPerm = true;
+            addPerm = true;
+        } else if (rolesSnap.exists()) {
             const rc = rolesSnap.data()[role];
-            if (rc && (rc['queue_edit'] || rc['admin_edit'])) edit = true;
+            if (rc) {
+                if (rc['admin_edit']) {
+                    editPerm = true;
+                    addPerm = true;
+                }
+                
+                // Strictly separated:
+                if (rc['queue_edit']) editPerm = true;
+                if (rc['queue_add_edit'] || rc['queue_add_view']) addPerm = true;
+            }
         }
 
-        setCanEdit(edit);
+        setCanEdit(editPerm);
+        setCanAdd(addPerm);
         await Promise.all([loadFinanceConfig(), loadOptions()]);
         initQueueListener();
         setLoading(false);
@@ -107,7 +123,9 @@ const UpcomingProjects = () => {
     };
 
     const handleSubmit = async () => {
-        if (!canEdit) return alert("Access Denied");
+        // Strict Permission Checks decoupled from each other
+        if (editingId && !canEdit) return alert("Access Denied: You do not have permission to edit projects.");
+        if (!editingId && !canAdd) return alert("Access Denied: You do not have permission to add new projects.");
 
         const { company, project, category, size, quantity, price } = form;
         const qty = parseFloat(quantity) || 0;
@@ -134,12 +152,13 @@ const UpcomingProjects = () => {
             } else {
                 payload.createdAt = serverTimestamp();
                 await addDoc(collection(db, "project_queue"), payload);
-                handleCancel(); // Reset form
+                handleCancel(); 
             }
         } catch (e) { alert("Error: " + e.message); }
     };
 
     const handleEdit = (job) => {
+        if (!canEdit) return;
         setEditingId(job.id);
         setForm({
             company: job.company || '',
@@ -158,7 +177,7 @@ const UpcomingProjects = () => {
     };
 
     const handleDelete = async (id) => {
-        if (!canEdit) return alert("Access Denied");
+        if (!canEdit) return alert("Access Denied: You do not have permission to remove projects.");
         if (window.confirm("Remove from queue?")) {
             if (editingId === id) handleCancel();
             await deleteDoc(doc(db, "project_queue", id));
@@ -166,6 +185,9 @@ const UpcomingProjects = () => {
     };
 
     if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Queue...</div>;
+
+    // Logic: Form shows if they have Add Access AND aren't editing anything OR if they specifically clicked Edit.
+    const showForm = (canAdd && !editingId) || (editingId !== null);
 
     return (
         <div className="up-wrapper">
@@ -179,77 +201,82 @@ const UpcomingProjects = () => {
 
             <div className="up-container">
                 <div className={`up-card ${editingId ? 'edit-mode' : ''}`}>
-                    <h2 style={{color: editingId ? '#f39c12' : '#2c3e50'}}>
-                        {editingId ? "Edit Project" : "Add New Project"}
-                    </h2>
+                    
+                    {showForm && (
+                        <>
+                            <h2 style={{color: editingId ? '#f39c12' : '#2c3e50'}}>
+                                {editingId ? "Edit Project" : "Add New Project"}
+                            </h2>
 
-                    {canEdit && (
-                        <div id="inputSection">
-                            <button className="up-link-btn" onClick={() => navigate('/ProjectOptions')}>
-                                Manage Dropdowns &rarr;
-                            </button>
-
-                            <div className="up-form-row">
-                                <div className="up-form-group">
-                                    <label className="up-label">Company</label>
-                                    <select className="up-select" id="company" value={form.company} onChange={handleFormChange}>
-                                        <option value="">-- Select Company --</option>
-                                        {(options.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-                                <div className="up-form-group">
-                                    <label className="up-label">Project Name</label>
-                                    <input className="up-input" type="text" id="project" value={form.project} onChange={handleFormChange} />
-                                </div>
-                            </div>
-
-                            <div className="up-form-row">
-                                <div className="up-form-group">
-                                    <label className="up-label">Category</label>
-                                    <select className="up-select" id="category" value={form.category} onChange={handleFormChange}>
-                                        <option value="">-- Select Category --</option>
-                                        {(options.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
-                                    </select>
-                                </div>
-                                <div className="up-form-group">
-                                    <label className="up-label">Size</label>
-                                    <select className="up-select" id="size" value={form.size} onChange={handleFormChange}>
-                                        <option value="">-- Select Size --</option>
-                                        {(options.sizes || []).map(s => <option key={s} value={s}>{s}</option>)}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div className="up-form-row">
-                                <div className="up-form-group">
-                                    <label className="up-label">Quantity (Units)</label>
-                                    <input className="up-input" type="number" id="quantity" placeholder="e.g. 5000" value={form.quantity} onChange={handleFormChange} />
-                                </div>
-                                <div className="up-form-group">
-                                    <label className="up-label">Price Per Unit ($)</label>
-                                    <input className="up-input" type="number" id="price" placeholder="e.g. 0.75" step="0.01" value={form.price} onChange={handleFormChange} />
-                                </div>
-                            </div>
-
-                            <div className="up-form-row">
-                                <div className="up-form-group">
-                                    <label className="up-label">Calculated Time Budget (Read Only)</label>
-                                    <input type="text" className="up-input up-calc-preview" disabled value={timePreview} />
-                                </div>
-                                <div style={{display:'flex', gap:'10px'}}>
-                                    {editingId && (
-                                        <button className="btn btn-gray" onClick={handleCancel}>Cancel</button>
-                                    )}
-                                    <button 
-                                        className={`btn ${editingId ? 'btn-blue' : 'btn-green'}`} 
-                                        onClick={handleSubmit}
-                                    >
-                                        {editingId ? "Update Project" : "Add to Queue"}
+                            <div id="inputSection">
+                                {canEdit && (
+                                    <button className="up-link-btn" onClick={() => navigate('/ProjectOptions')}>
+                                        Manage Dropdowns &rarr;
                                     </button>
+                                )}
+
+                                <div className="up-form-row">
+                                    <div className="up-form-group">
+                                        <label className="up-label">Company</label>
+                                        <select className="up-select" id="company" value={form.company} onChange={handleFormChange}>
+                                            <option value="">-- Select Company --</option>
+                                            {(options.companies || []).map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="up-form-group">
+                                        <label className="up-label">Project Name</label>
+                                        <input className="up-input" type="text" id="project" value={form.project} onChange={handleFormChange} />
+                                    </div>
                                 </div>
+
+                                <div className="up-form-row">
+                                    <div className="up-form-group">
+                                        <label className="up-label">Category</label>
+                                        <select className="up-select" id="category" value={form.category} onChange={handleFormChange}>
+                                            <option value="">-- Select Category --</option>
+                                            {(options.categories || []).map(c => <option key={c} value={c}>{c}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="up-form-group">
+                                        <label className="up-label">Size</label>
+                                        <select className="up-select" id="size" value={form.size} onChange={handleFormChange}>
+                                            <option value="">-- Select Size --</option>
+                                            {(options.sizes || []).map(s => <option key={s} value={s}>{s}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="up-form-row">
+                                    <div className="up-form-group">
+                                        <label className="up-label">Quantity (Units)</label>
+                                        <input className="up-input" type="number" id="quantity" placeholder="e.g. 5000" value={form.quantity} onChange={handleFormChange} />
+                                    </div>
+                                    <div className="up-form-group">
+                                        <label className="up-label">Price Per Unit ($)</label>
+                                        <input className="up-input" type="number" id="price" placeholder="e.g. 0.75" step="0.01" value={form.price} onChange={handleFormChange} />
+                                    </div>
+                                </div>
+
+                                <div className="up-form-row">
+                                    <div className="up-form-group">
+                                        <label className="up-label">Calculated Time Budget (Read Only)</label>
+                                        <input type="text" className="up-input up-calc-preview" disabled value={timePreview} />
+                                    </div>
+                                    <div style={{display:'flex', gap:'10px'}}>
+                                        {editingId && (
+                                            <button className="btn btn-gray" onClick={handleCancel}>Cancel</button>
+                                        )}
+                                        <button 
+                                            className={`btn ${editingId ? 'btn-blue' : 'btn-green'}`} 
+                                            onClick={handleSubmit}
+                                        >
+                                            {editingId ? "Update Project" : "Add to Queue"}
+                                        </button>
+                                    </div>
+                                </div>
+                                <hr style={{margin:'30px 0', border:0, borderTop:'1px solid #eee'}} />
                             </div>
-                            <hr style={{margin:'30px 0', border:0, borderTop:'1px solid #eee'}} />
-                        </div>
+                        </>
                     )}
 
                     <h3 style={{marginTop:0, color:'#2c3e50'}}>Pending Projects</h3>

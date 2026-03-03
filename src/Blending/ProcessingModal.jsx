@@ -5,6 +5,7 @@ import { parseSizeFromText } from './utils';
 
 export default function ProcessingModal({ processingItem, setProcessingItem, styles }) {
     const [calcMode, setCalcMode] = useState('auto'); 
+    const [units, setUnits] = useState('');
     const [fillWeight, setFillWeight] = useState('');
     const [fillUnit, setFillUnit] = useState('ml');
     const [errorMargin, setErrorMargin] = useState(3);
@@ -19,6 +20,7 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
             setErrorMargin(processingItem.calcParams.errorMargin || 3);
             setFragranceGrams(processingItem.calcParams.fragranceGrams || '');
             setOverrideGrams(processingItem.calcParams.overrideGrams || '');
+            setUnits(processingItem.calcParams.units || processingItem.quantity || '');
         } else {
             const autoParsed = parseSizeFromText(processingItem.size) || 
                                parseSizeFromText(processingItem.volume) || 
@@ -30,6 +32,7 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
             setErrorMargin(3);
             setFragranceGrams('');
             setOverrideGrams('');
+            setUnits(processingItem.quantity || '');
 
             if (autoParsed) {
                 setFillWeight(autoParsed.weight);
@@ -41,18 +44,26 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
         }
     }, [processingItem]);
 
+    // Lock Logic: Lock if it's a real Production job (not unlinked) and the PM provided the value
+    const isProdJob = processingItem.type === 'production' && processingItem.status !== 'unlinked_blend';
+    const unitsLocked = isProdJob && processingItem.quantity !== "" && processingItem.quantity != null;
+    
+    // Only lock size if PM provided a size AND our auto-parser successfully read a weight from it
+    // If auto-parse failed, we leave it unlocked so the lab can manually fix the weight
+    const sizeLocked = isProdJob && processingItem.size !== "" && processingItem.size != null && fillWeight !== "";
+
     let previewCalculations = null;
     let previewTotalGrams = 0;
     
     if (processingItem && processingItem.ingredients) {
         if (calcMode === 'auto' && fillWeight && !isNaN(fillWeight)) {
-            const units = processingItem.quantity ? Number(processingItem.quantity) : 1;
+            const calcUnits = units ? Number(units) : 1; // Default to 1 if blank to prevent zeroing out preview
             const weight = Number(fillWeight);
             let multiplier = 1;
             if (fillUnit === 'oz') multiplier = 28.3495;
             if (fillUnit === 'gal') multiplier = 3785.41;
             
-            const baseGrams = units * weight * multiplier;
+            const baseGrams = calcUnits * weight * multiplier;
             previewTotalGrams = baseGrams * (1 + (Number(errorMargin) / 100));
             
             previewCalculations = processingItem.ingredients.map(ing => {
@@ -86,9 +97,14 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
         const updatePayload = {
             calculatedIngredients: previewCalculations,
             totalBatchGrams: previewTotalGrams.toFixed(2),
-            calcParams: { mode: calcMode, fillWeight, fillUnit, errorMargin, fragranceGrams, overrideGrams },
+            calcParams: { mode: calcMode, fillWeight, fillUnit, errorMargin, fragranceGrams, overrideGrams, units },
             lastSavedAt: serverTimestamp()
         };
+
+        // If the lab edited units on an Unlinked Blend, push that edit to the main pipeline document too
+        if (!unitsLocked && calcMode === 'auto') {
+            updatePayload.quantity = units;
+        }
 
         const collectionName = processingItem.type === 'sample' ? "blending_samples" : "production_pipeline";
         await updateDoc(doc(db, collectionName, processingItem.id), updatePayload);
@@ -113,19 +129,45 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
                     <div style={{display: 'flex', gap: '15px', marginBottom: '25px', flexWrap: 'wrap', alignItems: 'flex-end'}}>
                         <div style={{flex: 1, minWidth: '80px'}}>
                             <label style={{display:'block', fontSize:'13px', color:'#555', fontWeight:'bold'}}>Units</label>
-                            <input type="number" style={{...styles.input, background:'#e2e8f0'}} value={processingItem.quantity || 1} readOnly title="Units are pulled from the Job Ticket" />
+                            <input 
+                                type="number" 
+                                style={{...styles.input, background: unitsLocked ? '#e2e8f0' : '#fff', cursor: unitsLocked ? 'not-allowed' : 'text'}} 
+                                value={units} 
+                                onChange={e => setUnits(e.target.value)}
+                                readOnly={unitsLocked} 
+                                title={unitsLocked ? "Units are locked from Production" : "Enter Expected Units"} 
+                            />
                         </div>
                         <div style={{flex: 1, minWidth: '100px'}}>
                             <label style={{display:'block', fontSize:'13px', color:'#555', fontWeight:'bold'}}>Fill Weight</label>
-                            <input type="number" style={styles.input} value={fillWeight} onChange={e => setFillWeight(e.target.value)} placeholder="e.g. 100" autoFocus />
+                            <input 
+                                type="number" 
+                                style={{...styles.input, background: sizeLocked ? '#e2e8f0' : '#fff', cursor: sizeLocked ? 'not-allowed' : 'text'}} 
+                                value={fillWeight} 
+                                onChange={e => setFillWeight(e.target.value)} 
+                                placeholder="e.g. 100" 
+                                autoFocus={!sizeLocked}
+                                readOnly={sizeLocked}
+                                title={sizeLocked ? `Size locked from Production: ${processingItem.size}` : ""}
+                            />
                         </div>
                         <div style={{flex: 1, minWidth: '80px'}}>
                             <label style={{display:'block', fontSize:'13px', color:'#555', fontWeight:'bold'}}>Unit</label>
-                            <select style={styles.input} value={fillUnit} onChange={e => setFillUnit(e.target.value)}>
-                                <option value="ml">ml</option>
-                                <option value="oz">oz</option>
-                                <option value="gal">gal</option>
-                            </select>
+                            {sizeLocked ? (
+                                <input 
+                                    type="text" 
+                                    style={{...styles.input, background: '#e2e8f0', cursor: 'not-allowed'}} 
+                                    value={fillUnit} 
+                                    readOnly 
+                                    title="Locked from Production"
+                                />
+                            ) : (
+                                <select style={styles.input} value={fillUnit} onChange={e => setFillUnit(e.target.value)}>
+                                    <option value="ml">ml</option>
+                                    <option value="oz">oz</option>
+                                    <option value="gal">gal</option>
+                                </select>
+                            )}
                         </div>
                         <div style={{flex: 1, minWidth: '80px'}}>
                             <label style={{display:'block', fontSize:'13px', color:'#555', fontWeight:'bold'}}>Waste %</label>
