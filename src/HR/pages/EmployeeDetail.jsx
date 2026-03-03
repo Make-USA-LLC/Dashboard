@@ -16,7 +16,7 @@ const safeFormatDate = (dateVal) => {
     } catch (e) { return "Invalid Date"; }
 };
 
-const getYearlyAllowance = (viewYear, hireTimestamp, salaryStartTimestamp) => {
+const getYearlyAllowance = (viewYear, hireTimestamp, salaryStartTimestamp, config = {pto: 15, sick: 5}) => {
     const effectiveTimestamp = salaryStartTimestamp || hireTimestamp;
     if (!effectiveTimestamp) return { pto: 0, sick: 0, status: "Unknown" };
     const startDate = new Date(effectiveTimestamp * 1000);
@@ -34,12 +34,12 @@ const getYearlyAllowance = (viewYear, hireTimestamp, salaryStartTimestamp) => {
             const msPerDay = 1000 * 60 * 60 * 24;
             const daysActive = Math.ceil((endOfYear - startDate) / msPerDay);
             return {
-                pto: parseFloat(((daysActive / daysInYear) * 15).toFixed(2)),
-                sick: parseFloat(((daysActive / daysInYear) * 5).toFixed(2)),
+                pto: parseFloat(((daysActive / daysInYear) * config.pto).toFixed(2)),
+                sick: parseFloat(((daysActive / daysInYear) * config.sick).toFixed(2)),
                 status: "Prorated (Start Year)"
             };
         }
-        return { pto: 15.00, sick: 5.00, status: "Full Year" };
+        return { pto: config.pto, sick: config.sick, status: "Full Year" };
     }
 
     if (viewYear === currentYear) {
@@ -47,10 +47,10 @@ const getYearlyAllowance = (viewYear, hireTimestamp, salaryStartTimestamp) => {
         const startOfAccrual = startDate > startOfYear ? startDate : startOfYear;
         const msPerDay = 1000 * 60 * 60 * 24;
         const daysPassed = Math.ceil((now - startOfAccrual) / msPerDay);
-        let accruedPto = daysPassed > 0 ? (daysPassed / 365) * 15 : 0;
+        let accruedPto = daysPassed > 0 ? (daysPassed / 365) * config.pto : 0;
         let sickAllowance = startDate > startOfYear 
-            ? ((Math.ceil((new Date(currentYear, 11, 31) - startDate) / msPerDay)) / 365) * 5 
-            : 5.00;
+            ? ((Math.ceil((new Date(currentYear, 11, 31) - startDate) / msPerDay)) / 365) * config.sick 
+            : config.sick;
         return { 
             pto: parseFloat(accruedPto.toFixed(2)), 
             sick: parseFloat(sickAllowance.toFixed(2)),
@@ -130,6 +130,7 @@ export default function EmployeeDetail() {
   const [employee, setEmployee] = useState(null); 
   const [pastReviews, setPastReviews] = useState([]); 
   const [departmentOptions, setDepartmentOptions] = useState([]); 
+  const [timeOffConfig, setTimeOffConfig] = useState({ pto: 15, sick: 5 });
   
   const [heldKeys, setHeldKeys] = useState([]);
   const [heldAssets, setHeldAssets] = useState([]);
@@ -215,8 +216,14 @@ export default function EmployeeDetail() {
 
       const globalSnap = await getDoc(doc(db, "settings", "global_options"));
       if(globalSnap.exists()) {
-          if (globalSnap.data().departments) setDepartmentOptions(globalSnap.data().departments);
-          if (globalSnap.data().certTypes) setCertOptions(globalSnap.data().certTypes);
+          const data = globalSnap.data();
+          if (data.departments) setDepartmentOptions(data.departments);
+          if (data.certTypes) setCertOptions(data.certTypes);
+          
+          setTimeOffConfig({
+              pto: data.defaultPto !== undefined ? data.defaultPto : 15,
+              sick: data.defaultSick !== undefined ? data.defaultSick : 5
+          });
       }
     };
     initData();
@@ -350,7 +357,7 @@ export default function EmployeeDetail() {
           hireDate: formatDate(employee.hireDate), salaryStartDate: formatDate(employee.salaryStartDate), 
           birthday: formatDate(employee.birthday), lastReviewDate: formatDate(employee.lastReviewDate),
           terminationDate: formatDate(employee.terminationDate),
-          cardId: employee.cardId || "" // Load cardId
+          cardId: employee.cardId || "" 
       });
       setIsEditModalOpen(true);
   };
@@ -369,18 +376,15 @@ export default function EmployeeDetail() {
       if (editFormData.lastReviewDate) updates.lastReviewDate = new Date(editFormData.lastReviewDate + 'T12:00:00');
       if (editFormData.terminationDate) { updates.terminationDate = new Date(editFormData.terminationDate + 'T12:00:00'); } else { updates.terminationDate = null; }
       
-      // Update Card ID
       updates.cardId = editFormData.cardId;
 
       try {
           await updateDoc(doc(db, "employees", id), updates);
           
-          // SYNC TO WORKERS COLLECTION (For iPad/Portal)
           if (editFormData.cardId) {
-             // If cardId exists, ensure the workers doc exists with correct name/email
              await setDoc(doc(db, "workers", editFormData.cardId), {
                  name: updates.name,
-                 email: updates.email || "", // Enables Portal Login
+                 email: updates.email || "", 
                  employeeDocId: id,
                  syncedFromHR: true
              });
@@ -401,11 +405,9 @@ export default function EmployeeDetail() {
 
   const handleTerminateClick = () => { setTerminationDateInput(new Date().toISOString().split('T')[0]); setIsTerminateModalOpen(true); };
   
-  // UPDATED: Confirm Termination Function
   const confirmTermination = async (e) => {
       e.preventDefault(); if(!confirm("Are you sure? This will remove iPad/Portal access immediately.")) return;
       
-      // 1. Archive in HR
       const updates = { 
           status: "Inactive", 
           terminationDate: new Date(terminationDateInput + 'T12:00:00'),
@@ -413,17 +415,12 @@ export default function EmployeeDetail() {
       };
       await updateDoc(doc(db, "employees", id), updates);
 
-      // 2. Remove from iPad System (Workers Collection)
       try {
-          // Find linked worker docs by employee ID
           const qWorkers = query(collection(db, "workers"), where("employeeDocId", "==", id));
           const workerSnaps = await getDocs(qWorkers);
-          
-          // Delete them
           const deletePromises = workerSnaps.docs.map(w => deleteDoc(doc(db, "workers", w.id)));
           await Promise.all(deletePromises);
           
-          // Also try deleting by stored cardId just in case of sync drift
           if (employee.cardId) {
              await deleteDoc(doc(db, "workers", employee.cardId)).catch(() => {});
           }
@@ -453,7 +450,7 @@ export default function EmployeeDetail() {
       logAudit("Employee Rehired", employee.name, "Reactivated and reset logs.");
       const newLocal = {...employee, ...updates}; setEmployee(newLocal);
   };
-  const saveSickCarryover = async (val) => { let num = parseFloat(val); if(isNaN(num)) num=0; if(num>5) num=5; if(num<0) num=0; setSickCarryover(num); await updateDoc(doc(db, "employees", id), { sickCarryover: num }); setEmployee({ ...employee, sickCarryover: num }); };
+  const saveSickCarryover = async (val) => { let num = parseFloat(val); if(isNaN(num)) num=0; if(num>timeOffConfig.sick) num=timeOffConfig.sick; if(num<0) num=0; setSickCarryover(num); await updateDoc(doc(db, "employees", id), { sickCarryover: num }); setEmployee({ ...employee, sickCarryover: num }); };
   const toggleChecklist = async (type, item) => { 
       const currentList = employee[type] || {}; 
       const newVal = !currentList[item];
@@ -504,11 +501,11 @@ export default function EmployeeDetail() {
   const filteredPtoLogs = (employee.ptoLog || []).filter(log => log.date.startsWith(String(viewYear)));
   const filteredHourlyLogs = (employee.hourlyLog || []).filter(log => log.date.startsWith(String(viewYear)));
 
-  const yearlyAllowance = getYearlyAllowance(viewYear, employee.hireDate?.seconds, employee.salaryStartDate?.seconds);
+  const yearlyAllowance = getYearlyAllowance(viewYear, employee.hireDate?.seconds, employee.salaryStartDate?.seconds, timeOffConfig);
   let usedPTO = 0, usedSick = 0, addedComp = 0, ptoAdjustments = 0, sickAdjustments = 0;
   filteredPtoLogs.forEach(log => { if (log.type === "PTO") usedPTO += log.amount; if (log.type === "Sick") usedSick += log.amount; if (log.type === "Comp") addedComp += log.amount; if (log.type === "PTO Adjustment") ptoAdjustments += log.amount; if (log.type === "Sick Adjustment") sickAdjustments += log.amount; if (log.type === "Adjustment") ptoAdjustments += log.amount; });
   let autoCarryover = 0;
-  if (viewYear > startYear && viewYear >= 2026) { const prevYear = viewYear - 1; const prevLogs = (employee.ptoLog || []).filter(log => log.date.startsWith(String(prevYear))); let sickUsedPrev = 0; prevLogs.forEach(log => { if(log.type === "Sick") sickUsedPrev += log.amount; }); const allowance = 5; const remainder = Math.max(0, allowance - sickUsedPrev); autoCarryover = Math.min(remainder, 5); }
+  if (viewYear > startYear && viewYear >= 2026) { const prevYear = viewYear - 1; const prevLogs = (employee.ptoLog || []).filter(log => log.date.startsWith(String(prevYear))); let sickUsedPrev = 0; prevLogs.forEach(log => { if(log.type === "Sick") sickUsedPrev += log.amount; }); const allowance = timeOffConfig.sick; const remainder = Math.max(0, allowance - sickUsedPrev); autoCarryover = Math.min(remainder, allowance); }
   const ptoBalance = (yearlyAllowance.pto + addedComp + ptoAdjustments - usedPTO).toFixed(2);
   const isPtoNegative = parseFloat(ptoBalance) < 0;
   const sickBalance = ((yearlyAllowance.sick + autoCarryover + sickAdjustments) - usedSick).toFixed(2);
@@ -539,12 +536,10 @@ export default function EmployeeDetail() {
                 </div>
                 {employee.department && <div style={{fontSize:'12px', color:'#334155', fontWeight:'bold', background:'#f1f5f9', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5}}>🏢 {employee.department}</div>}
                 
-                {/* Display Card ID in Header */}
                 {employee.cardId && (
                    <div style={{fontSize:'12px', color:'#15803d', fontWeight:'bold', background:'#f0fdf4', border:'1px solid #bbf7d0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5, marginLeft: 5}}>🆔 {employee.cardId}</div>
                 )}
 
-                {/* UPDATED: Termination Reason Display */}
                 {employee.terminationDate && (
                     <div style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold', marginTop: 5}}>
                         🚫 Terminated: {safeFormatDate(employee.terminationDate)}
@@ -559,7 +554,6 @@ export default function EmployeeDetail() {
                     {canViewMoney && employee.compensation && <span style={{color: '#334155', fontWeight:'bold', fontSize: '13px', marginLeft: 10}}>{employee.type === "Salary" ? `$${employee.compensation}/yr` : `$${employee.compensation}/hr`}</span>}
                 </div>
             </div>
-            {/* ... (Rest of header buttons) ... */}
             <div style={{textAlign:'right'}}>
                <div style={{marginTop: 20}}>
                    {employee.status === "Inactive" ? (
@@ -580,7 +574,6 @@ export default function EmployeeDetail() {
             {showDocuments  && <TabButton name="documents" label="Documents" icon="📁" />}
         </div>
 
-        {/* ... (All Tab contents remain unchanged) ... */}
         {activeTab === 'timeoff' && showTimeOff && (
             <div className="card" style={{marginBottom: '24px', opacity: isLocked ? 0.6 : 1}}>
               <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 20}}>
@@ -658,7 +651,6 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-        {/* ... (Other Tabs like Assets, Training, Checklists, Performance, Documents remain the same) ... */}
         {activeTab === 'assets' && showAssets && (
             <div className="card" style={{opacity: isLocked ? 0.7 : 1}}>
                 <h3>Assets & Resources</h3>
@@ -716,7 +708,6 @@ export default function EmployeeDetail() {
             </div>
         )}
 
-        {/* ... (Training, Checklists, Performance, Documents remain the same) ... */}
         {activeTab === 'training' && showTraining && (
             <div className="card">
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom: 20}}>
@@ -817,7 +808,6 @@ export default function EmployeeDetail() {
         )}
 
       {/* --- MODALS --- */}
-      {/* (Key, Asset Modals removed for brevity, keep as is) */}
       {assignKeyModal && (
         <div className="modal-overlay" onClick={(e) => {if(e.target.className === 'modal-overlay') setAssignKeyModal(false)}}>
           <div className="modal">
@@ -864,7 +854,6 @@ export default function EmployeeDetail() {
                     <div style={{flex:1}}><label>Last Name</label><input value={editFormData.lastName} onChange={e => setEditFormData({...editFormData, lastName: e.target.value})} required disabled={!canEditGeneralInfo} style={{background: !canEditGeneralInfo ? '#f1f5f9' : 'white'}}/></div>
                 </div>
                 
-                {/* ADDED: Card ID Input to Edit Modal */}
                 <div style={{marginTop: 10, marginBottom: 10, background: '#f0fdf4', padding: 10, borderRadius: 6, border: '1px solid #bbf7d0'}}>
                     <label style={{fontSize:'12px', fontWeight:'bold', display:'block', color:'#166534'}}>RFID Card Assignment & Portal Sync</label>
                     <input 
@@ -906,7 +895,6 @@ export default function EmployeeDetail() {
         </div>
       )}
 
-      {/* ... (Comp, Adjust, Terminate, Cert Modals remain the same) ... */}
       {isCompModalOpen && (
         <div className="modal-overlay" onClick={(e) => {if(e.target.className === 'modal-overlay') setIsCompModalOpen(false)}}>
           <div className="modal" style={{maxHeight: '90vh', overflowY: 'auto', maxWidth: '95%'}}>

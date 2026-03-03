@@ -33,7 +33,21 @@ export default function Reviews() {
   const [scores, setScores] = useState({});
   const [reviewNotes, setReviewNotes] = useState(""); 
   
-  const canApprove = allowedApprovers.includes(currentUserEmail) || canEdit;
+  // --- NEW: Master Admin State ---
+  const [isMasterAdmin, setIsMasterAdmin] = useState(false);
+
+  useEffect(() => {
+      const checkMasterAdmin = async () => {
+          if (auth.currentUser?.email) {
+              const adminSnap = await getDoc(doc(db, "master_admin_access", auth.currentUser.email));
+              if (adminSnap.exists()) setIsMasterAdmin(true);
+          }
+      };
+      checkMasterAdmin();
+  }, []);
+
+  // UPDATED: Only Master Admins OR Explicitly Listed Approvers can approve
+  const canApprove = allowedApprovers.includes(currentUserEmail) || isMasterAdmin;
 
   // RESET
   const closeAndReset = () => {
