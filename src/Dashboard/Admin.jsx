@@ -19,8 +19,9 @@ const FEATURES = [
     { id: 'settings', label: 'Project Info' },
     { id: 'workers', label: 'Worker DB' },
     { id: 'fleet', label: 'Fleet Mgmt' },
-    { id: 'queue_add', label: 'Project Queue (Add New)' }, // <-- Line 1 for Adding
-    { id: 'queue', label: 'Project Queue (Edit/Remove)' }, // <-- Line 2 for Editing
+    { id: 'queue_add', label: 'Project Queue (Add New)' }, 
+    { id: 'queue', label: 'Project Queue (Edit/Remove)' }, 
+    { id: 'prod_input', label: 'Production Input' }, // <-- NEW: Dedicated Production Input Perm
     { id: 'finance', label: 'Finance Input' },
     { id: 'bonuses', label: 'Bonus Manager' },
     { id: 'search', label: 'Project Archive' },

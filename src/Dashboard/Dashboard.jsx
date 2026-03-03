@@ -218,7 +218,8 @@ const Dashboard = () => {
 
   if (loading) return <div className="loading">Loading...</div>;
 
-  const canViewFinance = hasPerm('finance', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view');
+  // INCLUDE prod_input inside canViewFinance so the category header renders
+  const canViewFinance = hasPerm('finance', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view');
   const canViewQueue = hasPerm('queue', 'view') || hasPerm('search', 'view') || hasPerm('summary', 'view');
   const canViewIpads = hasPerm('fleet', 'view') || hasPerm('timer', 'view');
 
@@ -267,8 +268,8 @@ const Dashboard = () => {
                         </li>
                     )}
 
-                    {/* Production Input */}
-                    {(hasPerm('queue', 'edit') || hasPerm('admin', 'edit')) && (
+                    {/* Production Input - STRICTLY checking the new prod_input perm */}
+                    {hasPerm('prod_input', 'view') && (
                          <li className="nav-item" onClick={() => navigate(`${BASE}/production-input`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#3498db'}}>input</span> Production Input</div>
                         </li>

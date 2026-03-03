@@ -249,7 +249,8 @@ const ProductionInput = () => {
         if (role === 'admin') allowed = true;
         else if (rolesSnap.exists()) {
             const rc = rolesSnap.data()[role];
-            if (rc && (rc['queue_edit'] || rc['admin_edit'])) allowed = true;
+            // Check specifically for the new Production Input permission instead of queue_edit
+            if (rc && (rc['prod_input_view'] || rc['prod_input_edit'] || rc['admin_edit'])) allowed = true;
         }
 
         if (allowed) {
