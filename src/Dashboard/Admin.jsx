@@ -21,8 +21,11 @@ const FEATURES = [
     { id: 'fleet', label: 'Fleet Mgmt' },
     { id: 'queue_add', label: 'Project Queue (Add New)' }, 
     { id: 'queue', label: 'Project Queue (Edit/Remove)' }, 
-    { id: 'prod_input', label: 'Production Input' }, // <-- NEW: Dedicated Production Input Perm
-    { id: 'finance', label: 'Finance Input' },
+    { id: 'manual_ingest', label: 'Manual Ingest' },          // <-- NEW
+    { id: 'prod_input', label: 'Production Input' },
+    { id: 'finance', label: 'Finance Input / Setup' },
+    { id: 'financial_report', label: 'Financial Report' }, 
+    { id: 'commissions', label: 'Commissions & Agents' }, 
     { id: 'bonuses', label: 'Bonus Manager' },
     { id: 'search', label: 'Project Archive' },
     { id: 'summary', label: 'Past Prod Summary' },

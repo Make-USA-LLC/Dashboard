@@ -26,7 +26,7 @@ const ProductionApp = () => {
     const [uploadingId, setUploadingId] = useState(null);
 
     // Job Data State
-    const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
+    const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
     
     // Blending States
     const [blendMode, setBlendMode] = useState('none'); // 'none', 'new', 'link'
@@ -157,13 +157,19 @@ const ProductionApp = () => {
     const handleCreate = async () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         
+        // Strip out notes if they didn't actually submit a new blend request
+        const finalPayload = { ...form };
+        if (blendMode !== 'new') {
+            finalPayload.notes = ''; 
+        }
+
         if (blendMode === 'link') {
             if (!selectedUnlinkedId) return alert("Please select an Unlinked Blend to attach to this job.");
             
-            // Promote the unlinked blend to a full production job instead of creating a new one!
+            // Promote the unlinked blend to a full production job instead of creating a new one
             await updateDoc(doc(db, "production_pipeline", selectedUnlinkedId), {
-                ...form,
-                status: "production", // This moves it into the main production queue!
+                ...finalPayload,
+                status: "production", 
                 techSheetUploaded: false,
                 techSheets: [],
                 componentsArrived: false,
@@ -179,7 +185,7 @@ const ProductionApp = () => {
             }
 
             await addDoc(collection(db, "production_pipeline"), {
-                ...form,
+                ...finalPayload,
                 status: "production",
                 requiresBlending: true,
                 blendingStatus: "pending",
@@ -193,7 +199,7 @@ const ProductionApp = () => {
         } else {
             // No Blending Required
             await addDoc(collection(db, "production_pipeline"), {
-                ...form,
+                ...finalPayload,
                 status: "production",
                 requiresBlending: false,
                 blendingStatus: "not_required",
@@ -206,7 +212,7 @@ const ProductionApp = () => {
         }
         
         // Reset form
-        setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
+        setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
         setBlendMode('none');
         setSelectedUnlinkedId('');
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
@@ -303,7 +309,19 @@ const ProductionApp = () => {
 
                         {blendMode === 'new' && (
                             <div style={{ background: 'white', padding: '15px', borderRadius: '5px', border: '1px dashed #aaa' }}>
-                                <h4>Optional: Pre-fill Formulation Percentages (%)</h4>
+                                
+                                {/* Moved Notes Field Here */}
+                                <div style={{ marginBottom: '15px' }}>
+                                    <label style={{...styles.label, color: '#333'}}>Notes for Blending Lab (Optional)</label>
+                                    <textarea 
+                                        style={{...styles.input, height: '60px', resize: 'vertical'}} 
+                                        placeholder="e.g., Use alternate fragrance, priority rush..." 
+                                        value={form.notes} 
+                                        onChange={e=>setForm({...form, notes: e.target.value})} 
+                                    />
+                                </div>
+
+                                <h4 style={{marginTop: '0'}}>Optional: Pre-fill Formulation Percentages (%)</h4>
                                 <p style={{fontSize: '12px', color: '#666', marginTop: 0}}>If you leave this blank, the Blending Lab must fill it in.</p>
                                 {ingredients.map((ing, idx) => (
                                     <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
@@ -351,6 +369,13 @@ const ProductionApp = () => {
                         <div style={{maxWidth: '50%'}}>
                             <h3 style={{margin:'0 0 5px 0'}}>{job.project}</h3>
                             <div style={{color:'#666'}}>{job.company} • {job.quantity} units</div>
+                            
+                            {/* Display Job Notes directly on the card if they exist */}
+                            {job.notes && (
+                                <div style={{marginTop: '8px', padding: '6px 10px', background: '#fef3c7', borderLeft: '3px solid #f59e0b', borderRadius: '4px', fontSize: '12px', color: '#92400e'}}>
+                                    <strong>📝 Note:</strong> {job.notes}
+                                </div>
+                            )}
                             
                             {job.techSheets && job.techSheets.length > 0 && (
                                 <ul style={styles.linkList}>

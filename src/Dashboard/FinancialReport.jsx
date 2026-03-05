@@ -28,25 +28,26 @@ const FinancialReport = () => {
     }, []);
 
     const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/');
-        const role = uSnap.data().role;
+    const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
+    if (!uSnap.exists()) return navigate('/');
+    const role = uSnap.data().role;
 
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc && (rc['finance_view'] || rc['admin_view'])) allowed = true;
-        }
+    const rolesSnap = await getDoc(doc(db, "config", "roles"));
+    let allowed = false;
+    if (role === 'admin') allowed = true;
+    else if (rolesSnap.exists()) {
+        const rc = rolesSnap.data()[role];
+        // Now exclusively looking for the new Financial Report permission
+        if (rc && (rc['financial_report_view'] || rc['admin_view'])) allowed = true;
+    }
 
-        if (allowed) {
-            setHasAccess(true);
-            await loadConfig();
-        } else {
-            setLoading(false);
-        }
-    };
+    if (allowed) {
+        setHasAccess(true);
+        await loadConfig();
+    } else {
+        setLoading(false);
+    }
+};
 
     const loadConfig = async () => {
         try {

@@ -219,7 +219,7 @@ const Dashboard = () => {
   if (loading) return <div className="loading">Loading...</div>;
 
   // INCLUDE prod_input inside canViewFinance so the category header renders
-  const canViewFinance = hasPerm('finance', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view');
+const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view') || hasPerm('manual_ingest', 'view');
   const canViewQueue = hasPerm('queue', 'view') || hasPerm('search', 'view') || hasPerm('summary', 'view');
   const canViewIpads = hasPerm('fleet', 'view') || hasPerm('timer', 'view');
 
@@ -262,11 +262,11 @@ const Dashboard = () => {
                     <div className="section-header">Finance & Reporting</div>
                     
                     {/* Manual Ingest */}
-                    {(hasPerm('admin', 'edit') || hasPerm('queue', 'edit')) && (
-                         <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
-                            <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
-                        </li>
-                    )}
+{hasPerm('manual_ingest', 'view') && (
+     <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
+        <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
+    </li>
+)}
 
                     {/* Production Input - STRICTLY checking the new prod_input perm */}
                     {hasPerm('prod_input', 'view') && (
@@ -286,11 +286,11 @@ const Dashboard = () => {
                     )}
 
                     {/* Financial Report */}
-                    {hasPerm('finance', 'view') && (
-                        <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
-                            <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
-                        </li>
-                    )}
+                    {hasPerm('financial_report', 'view') && (
+    <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
+        <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
+    </li>
+)}
 
                     {/* Bonuses */}
                     {hasPerm('bonuses', 'view') && (
@@ -305,16 +305,16 @@ const Dashboard = () => {
                     )}
 
                     {/* Commissions */}
-                    {(hasPerm('commissions', 'view') || hasPerm('finance', 'view')) && (
-                        <>
-                            <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
-                                <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
-                            </li>
-                            <li className="nav-item" onClick={() => navigate(`${BASE}/agent-reports`)}>
-                                <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>summarize</span> Agent Reports</div>
-                            </li>
-                        </>
-                    )}
+                    {hasPerm('commissions', 'view') && (
+    <>
+        <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
+            <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
+        </li>
+        <li className="nav-item" onClick={() => navigate(`${BASE}/agent-reports`)}>
+            <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>summarize</span> Agent Reports</div>
+        </li>
+    </>
+)}
 
                     {/* Finance Setup */}
                     {hasPerm('finance', 'edit') && (

@@ -30,30 +30,26 @@ const ManualIngest = () => {
     }, []);
 
     const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
+    const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
+    if (!uSnap.exists()) return denyAccess();
+    const role = uSnap.data().role;
 
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc && (rc['admin_edit'] || rc['queue_edit'])) allowed = true;
-        }
+    const rolesSnap = await getDoc(doc(db, "config", "roles"));
+    let allowed = false;
+    if (role === 'admin') allowed = true;
+    else if (rolesSnap.exists()) {
+        const rc = rolesSnap.data()[role];
+        // Now explicitly checking for manual_ingest
+        if (rc && (rc['manual_ingest_view'] || rc['manual_ingest_edit'] || rc['admin_edit'])) allowed = true;
+    }
 
-        if (allowed) {
-            await fetchWorkers();
-            setLoading(false);
-        } else {
-            denyAccess();
-        }
-    };
-
-    const denyAccess = () => {
-        alert("Access Denied");
-        navigate('/');
-    };
+    if (allowed) {
+        await fetchWorkers();
+        setLoading(false);
+    } else {
+        denyAccess();
+    }
+};
 
     const fetchWorkers = async () => {
         try {

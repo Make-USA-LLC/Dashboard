@@ -5,6 +5,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
     const [project, setProject] = useState('');
     const [company, setCompany] = useState('');
+    const [notes, setNotes] = useState(''); // Added notes state
     const [ingredients, setIngredients] = useState([
         { name: 'B40 190 Proof', percentage: '' },
         { name: 'DI Water', percentage: '' },
@@ -23,7 +24,8 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
         await addDoc(collection(db, "production_pipeline"), {
             company: company,
             project: project,
-            quantity: "", // Explicitly blank so the Processing Modal forces the lab to enter it
+            quantity: "", 
+            notes: notes, // Save notes to database
             ingredients: validIngredients,
             requiresBlending: true,
             blendingStatus: "pending",
@@ -34,6 +36,7 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
         
         setCompany('');
         setProject('');
+        setNotes('');
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setShowUnlinkedForm(false);
     };
@@ -50,6 +53,15 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
             <div style={{display: 'flex', gap: '15px', marginBottom: '15px'}}>
                 <input style={styles.input} placeholder="Company Name (Required)" value={company} onChange={e => setCompany(e.target.value)} />
                 <input style={styles.input} placeholder="Project Name / Identifier (Required)" value={project} onChange={e => setProject(e.target.value)} />
+            </div>
+
+            <div style={{marginBottom: '15px'}}>
+                <textarea 
+                    style={{...styles.input, height: '60px', resize: 'vertical'}} 
+                    placeholder="Optional Notes for Blending Lab (e.g., Use alternate fragrance, priority rush...)" 
+                    value={notes} 
+                    onChange={e => setNotes(e.target.value)} 
+                />
             </div>
             
             <h4 style={{ margin: '0 0 10px 0' }}>Formulation Percentages</h4>
