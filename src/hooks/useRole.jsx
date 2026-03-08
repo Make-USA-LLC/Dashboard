@@ -8,7 +8,7 @@ export function RoleProvider({ children }) {
   const [access, setAccess] = useState({ 
       ipad: null, hr: null, tech: false, shed: false, 
       master: false, shipment: null, production: false, qc: false,
-      blending: false, reports: null
+      blending: false, reports: null, wifi: null // <-- Added wifi
   });
   const [loading, setLoading] = useState(true);
 
@@ -22,23 +22,21 @@ export function RoleProvider({ children }) {
           setAccess({ 
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
               master: true, shipment: 'Admin', production: true, qc: true,
-              blending: true, reports: 'Both_Finance'
+              blending: true, reports: 'Both_Finance', wifi: 'Master Admin' // <-- Added wifi
           });
           setLoading(false);
           return;
         }
 
         // --- ROBUST LOADING TRACKER ---
-        // Prevents false-negatives by ensuring EVERY database is checked exactly once
         const loadedTracker = { 
             ipad: false, hr: false, tech: false, shed: false, 
             shipment: false, prod: false, qc: false, 
-            blending: false, reports: false, master: false 
+            blending: false, reports: false, master: false, wifi: false // <-- Added wifi
         };
 
         const markLoaded = (key) => {
             loadedTracker[key] = true;
-            // If all values in the dictionary are true, we are officially done loading
             if (Object.values(loadedTracker).every(status => status === true)) {
                 setLoading(false);
             }
@@ -54,19 +52,21 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "qc_access", email), (s) => { setAccess(v => ({ ...v, qc: s.exists() })); markLoaded('qc'); }, () => markLoaded('qc')),
           onSnapshot(doc(db, "blending_access", email), (s) => { setAccess(v => ({ ...v, blending: s.exists() })); markLoaded('blending'); }, () => markLoaded('blending')),
           onSnapshot(doc(db, "machine_access", email), (s) => { setAccess(v => ({ ...v, reports: s.data()?.role })); markLoaded('reports'); }, () => markLoaded('reports')),
-          onSnapshot(doc(db, "master_admin_access", email), (s) => { setAccess(v => ({ ...v, master: s.exists() })); markLoaded('master'); }, () => markLoaded('master'))
+          onSnapshot(doc(db, "master_admin_access", email), (s) => { setAccess(v => ({ ...v, master: s.exists() })); markLoaded('master'); }, () => markLoaded('master')),
+          // --- NEW WI-FI LISTENER ---
+          onSnapshot(doc(db, "wifi_access", email), (s) => { setAccess(v => ({ ...v, wifi: s.data()?.role })); markLoaded('wifi'); }, () => markLoaded('wifi'))
         ];
         return () => unsubs.forEach(un => un());
       } else {
-        setAccess({ ipad: null, hr: null, tech: false, shed: false, master: false, shipment: null, production: false, qc: false, blending: false, reports: null });
+        setAccess({ ipad: null, hr: null, tech: false, shed: false, master: false, shipment: null, production: false, qc: false, blending: false, reports: null, wifi: null });
         setLoading(false);
       }
     });
     return () => unsubscribeAuth();
   }, []);
 
-  // Check if the user has ANY valid permissions
-  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports;
+  // Check if the user has ANY valid permissions (Now includes Wi-Fi)
+  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi;
 
   const checkAccess = (system, feature) => {
     if (access.master) return true;
@@ -89,13 +89,13 @@ export function RoleProvider({ children }) {
     if (system === 'ipad') return !!access.ipad;
     if (system === 'hr') return !!access.hr;
     if (system === 'shipment') return !!access.shipment;
+    if (system === 'wifi') return !!access.wifi; // <-- Intercepts Wi-Fi requests
     if (system === 'admin') return access.master;
     
     return false;
   };
 
   return (
-    // Expose hasAnyAccess globally to App.jsx
     <RoleContext.Provider value={{ checkAccess, loading, roleData: access, hasAnyAccess }}>
       {children}
     </RoleContext.Provider>
