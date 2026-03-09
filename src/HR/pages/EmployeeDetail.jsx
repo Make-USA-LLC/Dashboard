@@ -125,13 +125,16 @@ export default function EmployeeDetail() {
   const showDocuments = checkAccess('documents', 'view');
   
   const canEditHardware = checkAccess('assets_hardware', 'edit'); 
-  const showKeysLockers = checkAccess('assets_keys', 'view') || checkAccess('assets_lockers', 'view');    
+  const showKeysLockers = checkAccess('assets_keys', 'view') || checkAccess('assets_lockers', 'view');  
 
   const [employee, setEmployee] = useState(null); 
   const [pastReviews, setPastReviews] = useState([]); 
   const [departmentOptions, setDepartmentOptions] = useState([]); 
   const [timeOffConfig, setTimeOffConfig] = useState({ pto: 15, sick: 5 });
   
+  // Added: List of employees for the manager dropdown
+  const [employeesList, setEmployeesList] = useState([]);
+
   const [heldKeys, setHeldKeys] = useState([]);
   const [heldAssets, setHeldAssets] = useState([]);
   const [availableLockers, setAvailableLockers] = useState([]);
@@ -180,6 +183,14 @@ export default function EmployeeDetail() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
   useEffect(() => {
+    // Fetch all active employees for the manager dropdown and display
+    const unsubEmployees = onSnapshot(collection(db, "employees"), (snapshot) => {
+        const list = snapshot.docs
+            .map(doc => ({ id: doc.id, ...doc.data() }))
+            .filter(emp => emp.status === "Active");
+        setEmployeesList(list);
+    });
+
     const initData = async () => {
       const docSnap = await getDoc(doc(db, "employees", id));
       if (!docSnap.exists()) return;
@@ -227,6 +238,7 @@ export default function EmployeeDetail() {
       }
     };
     initData();
+    return () => unsubEmployees();
   }, [id, checkAccess]);
 
   useEffect(() => {
@@ -357,7 +369,8 @@ export default function EmployeeDetail() {
           hireDate: formatDate(employee.hireDate), salaryStartDate: formatDate(employee.salaryStartDate), 
           birthday: formatDate(employee.birthday), lastReviewDate: formatDate(employee.lastReviewDate),
           terminationDate: formatDate(employee.terminationDate),
-          cardId: employee.cardId || "" 
+          cardId: employee.cardId || "",
+          managerId: employee.managerId || "" // Added managerId
       });
       setIsEditModalOpen(true);
   };
@@ -365,7 +378,8 @@ export default function EmployeeDetail() {
   const handleEditSubmit = async (e) => {
       e.preventDefault();
       const updates = { 
-          firstName: editFormData.firstName, lastName: editFormData.lastName, name: `${editFormData.firstName} ${editFormData.lastName}`, email: editFormData.email, phone: editFormData.phone, addressStreet: editFormData.addressStreet, addressCity: editFormData.addressCity, addressState: editFormData.addressState, addressZip: editFormData.addressZip, type: editFormData.type, department: editFormData.department 
+          firstName: editFormData.firstName, lastName: editFormData.lastName, name: `${editFormData.firstName} ${editFormData.lastName}`, email: editFormData.email, phone: editFormData.phone, addressStreet: editFormData.addressStreet, addressCity: editFormData.addressCity, addressState: editFormData.addressState, addressZip: editFormData.addressZip, type: editFormData.type, department: editFormData.department,
+          managerId: editFormData.managerId || null // Added managerId
       };
       
       if (canEditMoney) { updates.compensation = editFormData.compensation; }
@@ -398,6 +412,9 @@ export default function EmployeeDetail() {
           if(updates.lastReviewDate) newLocal.lastReviewDate = { seconds: updates.lastReviewDate.getTime()/1000 };
           if(updates.terminationDate) newLocal.terminationDate = { seconds: updates.terminationDate.getTime()/1000 };
           else newLocal.terminationDate = null;
+          
+          newLocal.managerId = updates.managerId; // Sync local state
+
           setEmployee(newLocal);
           setIsEditModalOpen(false);
       } catch (err) { console.error(err); alert("Error saving: " + err.message); }
@@ -481,6 +498,10 @@ export default function EmployeeDetail() {
   let reviewDisplay = "No Review Yet";
   if (employee.lastReviewDate) { const rd = employee.lastReviewDate.seconds ? new Date(employee.lastReviewDate.seconds * 1000) : new Date(employee.lastReviewDate); if (!isNaN(rd)) reviewDisplay = rd.toLocaleDateString(); }
   
+  // Find Manager Name
+  const manager = employeesList.find(e => e.id === employee.managerId);
+  const managerName = manager ? `${manager.firstName} ${manager.lastName}` : "Top Level";
+
   const currentYear = new Date().getFullYear();
   let startYear = currentYear;
   if (employee.hireDate) startYear = new Date(employee.hireDate.seconds * 1000).getFullYear();
@@ -535,6 +556,10 @@ export default function EmployeeDetail() {
                     {canStartReview && !isLocked && <button onClick={handleStartReview} style={{fontSize:'12px', color:'#ca8a04', border:'1px solid #ca8a04', padding:'2px 8px', borderRadius: 4, cursor:'pointer'}}>⭐ Start Review</button>}
                 </div>
                 {employee.department && <div style={{fontSize:'12px', color:'#334155', fontWeight:'bold', background:'#f1f5f9', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5}}>🏢 {employee.department}</div>}
+                
+                {employee.managerId && (
+                    <div style={{fontSize:'12px', color:'#475569', fontWeight:'bold', background:'#e2e8f0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5, marginLeft: 5}}>👤 Reports to: {managerName}</div>
+                )}
                 
                 {employee.cardId && (
                    <div style={{fontSize:'12px', color:'#15803d', fontWeight:'bold', background:'#f0fdf4', border:'1px solid #bbf7d0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginTop: 5, marginBottom: 5, marginLeft: 5}}>🆔 {employee.cardId}</div>
@@ -882,6 +907,25 @@ export default function EmployeeDetail() {
                 </div>
                 <label style={{marginTop: 10, display: 'block', fontWeight: 'bold'}}>Department</label>
                 <select value={editFormData.department} onChange={e => setEditFormData({...editFormData, department: e.target.value})} style={{width: '100%', marginBottom: 10}} disabled={!canEditGeneralInfo}><option value="">-- None --</option>{departmentOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select>
+                
+                {/* MANAGER ASSIGNMENT ADDED HERE */}
+                <label style={{marginTop: 10, display: 'block', fontWeight: 'bold'}}>Reports To (Manager)</label>
+                <select 
+                    value={editFormData.managerId || ""} 
+                    onChange={e => setEditFormData({...editFormData, managerId: e.target.value})} 
+                    style={{width: '100%', marginBottom: 10}} 
+                    disabled={!canEditGeneralInfo}
+                >
+                    <option value="">-- No Manager (Top Level) --</option>
+                    {employeesList.map(emp => (
+                        emp.id !== id && ( // Prevent assigning an employee as their own manager
+                            <option key={emp.id} value={emp.id}>
+                                {emp.firstName} {emp.lastName}
+                            </option>
+                        )
+                    ))}
+                </select>
+
                 <div style={{marginTop: 15, padding: 10, background: '#fee2e2', borderRadius: 6}}>
                     <label style={{fontWeight: 'bold', color: '#b91c1c'}}>Termination Date (Optional)</label>
                     <input type="date" value={editFormData.terminationDate} onChange={e => setEditFormData({...editFormData, terminationDate: e.target.value})} style={{border: '1px solid #f87171'}} disabled={!canEditGeneralInfo}/>

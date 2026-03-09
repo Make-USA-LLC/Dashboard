@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-// Add setDoc to imports
 import { collection, addDoc, onSnapshot, getDoc, doc, writeBatch, setDoc } from 'firebase/firestore';
 import { db } from '../../firebase_config';
 import { logAudit } from '../utils/logger'; 
@@ -25,11 +24,11 @@ export default function Employees() {
   const canViewMoney = checkAccess('financials', 'view');
   const canViewArchived = checkAccess('employees', 'view'); 
 
-  // ADDED: cardId to state
+  // ADDED: managerId to state
   const [formData, setFormData] = useState({ 
     firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", 
     type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "",
-    cardId: "" 
+    cardId: "", managerId: ""
   });
 
   useEffect(() => {
@@ -67,7 +66,6 @@ export default function Employees() {
           const searchLower = searchTerm.toLowerCase();
           const fullName = getDisplayName(emp).toLowerCase();
           const email = (emp.email || "").toLowerCase();
-          // Added: Search by Card ID too
           const card = (emp.cardId || "").toLowerCase();
           return fullName.includes(searchLower) || email.includes(searchLower) || card.includes(searchLower);
       }
@@ -90,22 +88,23 @@ export default function Employees() {
 
     const fullName = `${formData.firstName} ${formData.lastName}`;
 
-    // 1. Create Employee Record
+    // 1. Create Employee Record (Added managerId)
     const newEmpRef = await addDoc(collection(db, "employees"), {
       firstName: formData.firstName, lastName: formData.lastName, email: formData.email || "", phone: formData.phone || "",
       addressStreet: formData.addressStreet || "", addressCity: formData.addressCity || "", addressState: formData.addressState || "", addressZip: formData.addressZip || "",
       type: formData.type, department: formData.department || "", status: "Active", compensation: formData.compensation,
       name: fullName, hireDate: properHireDate, birthday: properBirthday, lastReviewDate: properReviewDate,
       onboarding: initialOnboarding, offboarding: initialOffboarding, assignedKeyId: null, assignedLockerId: null, ptoLog: [],
-      cardId: formData.cardId || "" // Save Card ID
+      cardId: formData.cardId || "",
+      managerId: formData.managerId || null
     });
 
-    // 2. Sync to Workers Collection (For iPad/Portal)
+    // 2. Sync to Workers Collection
     if (formData.cardId) {
         try {
             await setDoc(doc(db, "workers", formData.cardId), {
                 name: fullName,
-                email: formData.email || "", // This enables Portal Access
+                email: formData.email || "", 
                 employeeDocId: newEmpRef.id,
                 syncedFromHR: true
             });
@@ -118,11 +117,10 @@ export default function Employees() {
 
     logAudit("Create Employee", fullName, "Manual Creation via Directory");
     setIsModalOpen(false);
-    setFormData({ firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "", cardId: "" });
+    setFormData({ firstName: "", lastName: "", email: "", phone: "", addressStreet: "", addressCity: "", addressState: "", addressZip: "", type: "Salary", department: "", compensation: "", hireDate: new Date().toISOString().split('T')[0], birthday: "", cardId: "", managerId: "" });
   };
 
   const handleFileUpload = async (e) => {
-      // ... (Keep existing CSV import logic mostly same, unless you want to parse Card ID from CSV too)
       if (!canEdit) return;
       const file = e.target.files[0]; if (!file) return;
       setImporting(true); 
@@ -137,7 +135,6 @@ export default function Employees() {
   };
 
   const parseCSVFull = (text) => {
-    // ... (Keep existing CSV parser)
     const rows = []; let currentRow = []; let currentVal = ""; let inQuotes = false;
     for (let i = 0; i < text.length; i++) {
         const char = text[i]; const nextChar = text[i + 1];
@@ -153,7 +150,6 @@ export default function Employees() {
   };
 
   const parseFlexibleDate = (dateString) => {
-      // ... (Keep existing date parser)
       if (!dateString) return null;
       const cleanDate = dateString.replace(/(\r\n|\n|\r)/gm, "").trim();
       if (cleanDate.includes('/')) {
@@ -168,9 +164,6 @@ export default function Employees() {
   };
 
   const processCSV = async (csvText) => {
-      // ... (Keep existing CSV process logic)
-      // Note: If you want CSV to import Card IDs, you'd add it to the map here.
-      // For brevity, I'll leave the bulk import as-is for now.
       console.log("Starting CSV Import...");
       const rows = parseCSVFull(csvText);
       if (rows.length < 2) { alert("File empty."); return; }
@@ -222,7 +215,7 @@ export default function Employees() {
               addressStreet: getVal("Street Address", 4), addressCity: getVal("City", 5), addressState: getVal("State", 6), addressZip: getVal("Zip", 7),
               birthday: bdayDate, compensation: compValue, type: typeValue, department: deptRaw || "",
               lastReviewDate: reviewDate, hireDate: hireDateValue,
-              cardId: "" // Default empty for bulk import
+              cardId: "", managerId: null
           };
           empData.name = `${empData.firstName} ${empData.lastName}`.trim();
           
@@ -242,7 +235,6 @@ export default function Employees() {
 
   return (
     <div>
-      {/* HEADER */}
       <div style={{background:'white', padding: 20, borderRadius: 12, boxShadow: '0 2px 4px rgba(0,0,0,0.05)', marginBottom: 20}}>
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom: 15}}>
               <h2 style={{margin:0}}>Staff Directory</h2>
@@ -293,7 +285,6 @@ export default function Employees() {
                         </div>
                         {emp.department && <div style={{fontSize:'11px', color:'#334155', fontWeight:'bold', background:'#f8fafc', border:'1px solid #e2e8f0', display:'inline-block', padding:'2px 6px', borderRadius:4, marginBottom: 10}}>🏢 {emp.department}</div>}
                         
-                        {/* Added: Card ID Display */}
                         {emp.cardId && <div style={{fontSize:'11px', color:'#64748b', marginBottom: 5}}>🆔 Card: {emp.cardId}</div>}
                         
                         <div style={{fontSize:'12px', color:'#475569', marginTop: 5, marginBottom: 10}}>Last Review: <strong>{reviewDisplay}</strong></div>
@@ -314,7 +305,6 @@ export default function Employees() {
             <form onSubmit={handleAdd}>
               <div style={{display:'flex', gap:'10px'}}><input placeholder="First Name *" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} required /><input placeholder="Last Name *" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} required /></div>
               
-              {/* Added: Card ID Input */}
               <div style={{marginTop: 10, background: '#f0fdf4', padding: 10, borderRadius: 6, border: '1px solid #bbf7d0'}}>
                   <label style={{fontSize:'12px', fontWeight:'bold', display:'block', color:'#166534'}}>RFID Card Assignment</label>
                   <input placeholder="Scan Card or Enter ID..." value={formData.cardId} onChange={e => setFormData({...formData, cardId: e.target.value})} style={{width: '100%', marginTop: 5, border: '1px solid #16a34a'}} />
@@ -329,6 +319,15 @@ export default function Employees() {
               <input type="email" placeholder="Email Address" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
               <input type="tel" placeholder="Phone Number" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
               
+              {/* Added: Manager Assignment */}
+              <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', fontSize:'12px', marginTop: 10}}>Reports To (Manager)</label>
+              <select value={formData.managerId} onChange={e => setFormData({...formData, managerId: e.target.value})}>
+                  <option value="">-- No Manager (Top Level) --</option>
+                  {employees.filter(e => e.status === "Active").map(emp => (
+                      <option key={emp.id} value={emp.id}>{getDisplayName(emp)}</option>
+                  ))}
+              </select>
+
               <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', fontSize:'12px', marginTop: 10}}>Employee Type</label><select value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}><option value="Salary">Salary (Full Benefits)</option><option value="Hourly">Hourly (Time Log)</option></select>
               <div style={{marginTop:'20px', display:'flex', gap:'10px'}}><button type="button" onClick={() => setIsModalOpen(false)} style={{flex:1, background:'#f1f5f9', color:'black'}}>Cancel</button><button type="submit" className="primary" style={{flex:1}}>Add Employee</button></div>
             </form>

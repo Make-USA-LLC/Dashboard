@@ -6,6 +6,7 @@ import './HR.css';
 // Page Imports
 import Dashboard from './pages/Dashboard';
 import Employees from './pages/Employees';
+import OrgChart from './pages/OrgChart'; // <-- ADDED
 import EmployeeDetail from './pages/EmployeeDetail';
 import Lockers from './pages/Lockers';
 import Keys from './pages/Keys';
@@ -54,6 +55,7 @@ function NavBar() {
         <Link to={`${BASE}`} style={{textDecoration:'none', color:'black', fontSize:'20px', fontWeight:'bold'}}>HR Suite</Link>
         <div style={{display:'flex', gap:'20px', fontSize:'15px'}}>
           {canEmployees && <NavLink to="/employees">Staff</NavLink>}
+          {canEmployees && <NavLink to="/org-chart">Org Chart</NavLink>} {/* <-- ADDED */}
           {canSchedule && <NavLink to="/schedule">Schedule</NavLink>}
           {canReviews && <NavLink to="/reviews">Reviews</NavLink>}
           {canKeys && <NavLink to="/keys">Keys</NavLink>}
@@ -88,6 +90,7 @@ export default function App() {
           <Routes>
             <Route path="" element={<Dashboard />} />
             <Route path="employees" element={<RoleRoute resource="employees"><Employees /></RoleRoute>} />
+            <Route path="org-chart" element={<RoleRoute resource="employees"><OrgChart /></RoleRoute>} /> {/* <-- ADDED */}
             <Route path="employee/:id" element={<RoleRoute resource="employees"><EmployeeDetail /></RoleRoute>} />
             <Route path="schedule" element={<RoleRoute resource="schedule"><Schedule /></RoleRoute>} />
             <Route path="reviews" element={<RoleRoute resource="reviews"><Reviews /></RoleRoute>} />
