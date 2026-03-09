@@ -2,6 +2,7 @@ import React from 'react';
 import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useRole, RoleProvider } from './hooks/useRole'; 
 import './HR.css'; 
+import Loader from '../components/Loader';
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
@@ -22,7 +23,7 @@ const BASE = "/hr";
 
 function RoleRoute({ children, resource, action = 'view' }) {
   const { checkAccess, loading } = useRole();
-  if (loading) return <div style={{padding:20}}>Verifying permissions...</div>;
+  if (loading) return <Loader message="Verifying permissions..." />;
   if (!checkAccess || !checkAccess(resource, action)) return <Navigate to={`${BASE}`} replace />;
   return children;
 }

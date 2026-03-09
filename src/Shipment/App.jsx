@@ -3,6 +3,7 @@ import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-r
 import { useRole } from '../hooks/useRole';
 import { LogOut, PlusCircle, DollarSign, History, Shield } from 'lucide-react';
 
+import Loader from '../components/Loader';
 import ShipmentInput from './ShipmentInput';
 import BillingFinance from './BillingFinance';
 import PastBills from './PastBills';
@@ -30,7 +31,7 @@ const ShipmentApp = () => {
   const myRole = roleData?.shipment || 'Input';
   const canBill = myRole === 'Admin' || myRole === 'Finance';
 
-  if (loading) return <div>Loading App...</div>;
+  if (loading) return <Loader message="Loading Shipment App..." />;
 
   return (
     <div style={{ minHeight: 'calc(100vh - 60px)', background: '#f8fafc', padding: '20px' }}>

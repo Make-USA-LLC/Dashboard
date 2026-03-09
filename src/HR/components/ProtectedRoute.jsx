@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from '../firebase';
+import Loader from '../../components/Loader';
 
 export default function ProtectedRoute({ children }) {
   const [user, setUser] = useState(null);
@@ -15,7 +16,7 @@ export default function ProtectedRoute({ children }) {
     return () => unsubscribe();
   }, []);
 
-  if (loading) return <p>Loading access...</p>;
+  if (loading) return <Loader message="Loading access..." />;
   
   // If no user is found, kick them to login
   if (!user) return <Navigate to="/login" />;

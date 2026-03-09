@@ -45,7 +45,7 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
         <div style={{...styles.card, background: '#f0fdf4', border: '1px solid #86efac', marginBottom: '20px'}}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <div>
-                    <h3 style={{ margin: 0, color: '#166534' }}>+ New Unlinked Production Blend</h3>
+                    <h3 style={{ margin: 0, color: '#166534' }}>+ New Production Blend</h3>
                     <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#15803d' }}>Create a blend formula now. It cannot be finished until linked to a Production job.</p>
                 </div>
             </div>
@@ -92,7 +92,7 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
             
             <div style={{ display: 'flex', gap: '10px' }}>
                 <button onClick={() => setShowUnlinkedForm(false)} style={{...styles.btn, background: '#e2e8f0', color: '#333'}}>Cancel</button>
-                <button onClick={handleSave} style={{...styles.btn, background: '#10b981', color: 'white'}}>Save Unlinked Blend</button>
+                <button onClick={handleSave} style={{...styles.btn, background: '#10b981', color: 'white'}}>Save Blend</button>
             </div>
         </div>
     );

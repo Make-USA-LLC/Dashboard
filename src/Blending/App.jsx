@@ -1,72 +1,32 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { db, functions } from '../firebase_config'; 
-import { collection, updateDoc, doc, onSnapshot, query, where, deleteDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
 
-// Import your split files
 import { styles, getGallons } from './utils';
-import SampleForm from './SampleForm';
-import UnlinkedBlendForm from './UnlinkedBlendForm';
 import ProcessingModal from './ProcessingModal';
 import ViewingModal from './ViewingModal';
 
+import SampleQueue from './SampleQueue';
+import ProductionQueue from './ProductionQueue';
+import FinishedSamples from './FinishedSamples';
+import FinishedProduction from './FinishedProduction';
+
 export default function BlendingApp() {
     const { instance, accounts, inProgress } = useMsal();
-
     const [activeTab, setActiveTab] = useState('samples_pending'); 
-    const [pendingSamples, setPendingSamples] = useState([]);
-    const [fullBlends, setFullBlends] = useState([]);
-    const [finishedBlends, setFinishedBlends] = useState([]);
     
-    const [showSampleForm, setShowSampleForm] = useState(false);
-    const [showUnlinkedForm, setShowUnlinkedForm] = useState(false);
-    
+    // Shared Modal States
     const [processingItem, setProcessingItem] = useState(null);
     const [viewingItem, setViewingItem] = useState(null);
-    
-    // Linking State
-    const [linkingJobId, setLinkingJobId] = useState(null);
-    const [selectedTargetJob, setSelectedTargetJob] = useState('');
-
-    // Inline Formula Editor State
-    const [addingFormulaItem, setAddingFormulaItem] = useState(null);
-    const [formulaIngredients, setFormulaIngredients] = useState([
-        { name: 'B40 190 Proof', percentage: '' },
-        { name: 'DI Water', percentage: '' },
-        { name: 'Fragrance Oil', percentage: '', isOil: true }
-    ]);
-
-    const [searchTerm, setSearchTerm] = useState('');
-    const [sortOption, setSortOption] = useState('dateDesc'); 
-
-    useEffect(() => {
-        const qSamples = query(collection(db, "blending_samples"), where("status", "==", "pending"));
-        const unsub1 = onSnapshot(qSamples, (snap) => setPendingSamples(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'sample' }))));
-
-        const qProd = query(collection(db, "production_pipeline"), where("requiresBlending", "==", true), where("blendingStatus", "==", "pending"));
-        const unsub2 = onSnapshot(qProd, (snap) => setFullBlends(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'production' }))));
-
-        const qFinished = query(collection(db, "blending_samples"), where("status", "==", "completed"));
-        const unsub3 = onSnapshot(qFinished, (snap) => {
-            const s = snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'sample' }));
-            const qProdFin = query(collection(db, "production_pipeline"), where("requiresBlending", "==", true), where("blendingStatus", "==", "completed"));
-            onSnapshot(qProdFin, (snap2) => {
-                const p = snap2.docs.map(d => ({ id: d.id, ...d.data(), type: 'production' }));
-                setFinishedBlends([...s, ...p]);
-            });
-        });
-
-        return () => { unsub1(); unsub2(); unsub3(); };
-    }, []);
 
     const handleLogin = async () => {
         if (inProgress !== InteractionStatus.None) return;
-        try {
-            await instance.loginRedirect({ scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], prompt: "select_account" });
-        } catch (error) { console.error("Login failed:", error); }
+        try { await instance.loginRedirect({ scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], prompt: "select_account" }); } 
+        catch (error) { console.error("Login failed:", error); }
     };
 
     const getMsToken = useCallback(async () => {
@@ -74,8 +34,7 @@ export default function BlendingApp() {
         const request = { scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], account: accounts[0] };
         try { return (await instance.acquireTokenSilent(request)).accessToken; } 
         catch (err) {
-            try { await instance.acquireTokenRedirect(request); } 
-            catch(e) { return null; }
+            try { await instance.acquireTokenRedirect(request); } catch(e) { return null; }
         }
     }, [accounts, instance]);
 
@@ -112,7 +71,7 @@ export default function BlendingApp() {
             
             let storagePath = item.type === 'sample' 
                 ? `/Documents/Production/Files/${companyName}/Samples/${String(new Date().getMonth() + 1).padStart(2, '0')}-${new Date().getFullYear()}/${fileName}`
-                : (item.sharepointFolder ? `${item.sharepointFolder}/${fileName}` : `/Documents/Production/Files/${companyName}/${projectName}/${fileName}`);
+                : (item.sharepointFolder ? `${item.sharepointFolder}/${fileName}` : `/Documents/Production/Files/${companyName.replace(/[^a-zA-Z0-9 -]/g, "")}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}-${new Date().getFullYear()}/${projectName.replace(/[^a-zA-Z0-9 -]/g, "")}/${fileName}`);
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
             const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${storagePath}:/content?@microsoft.graph.conflictBehavior=replace`;
@@ -124,7 +83,6 @@ export default function BlendingApp() {
             });
 
             if (!response.ok) throw new Error("Upload response failed");
-            await response.json();
             return true;
         } catch (error) {
             console.error("Error saving Excel automatically:", error);
@@ -133,14 +91,8 @@ export default function BlendingApp() {
     };
 
     const markAsFinishedInline = async (item) => {
-        if (item.status === 'unlinked_blend') {
-            return alert("Error: This blend is unlinked. You cannot finish it until it is linked to a Production Run.");
-        }
         if (!item.calculatedIngredients) return alert("Please add information to calculate the formula first.");
-        
-        if (accounts.length === 0) {
-            if (!confirm("SharePoint is not connected. The Excel file will NOT be saved automatically. Do you still want to finish this blend?")) return;
-        }
+        if (accounts.length === 0 && !confirm("SharePoint is not connected. The Excel file will NOT be saved automatically. Do you still want to finish this blend?")) return;
 
         try {
             const updatePayload = { completedAt: serverTimestamp() };
@@ -165,30 +117,10 @@ export default function BlendingApp() {
         }
     };
 
-    const handleManualLink = async (unlinkedJob) => {
-        if (!selectedTargetJob) return alert("Select a target production job to link to.");
-        try {
-            await updateDoc(doc(db, "production_pipeline", selectedTargetJob), {
-                ingredients: unlinkedJob.ingredients,
-                blendingStatus: unlinkedJob.blendingStatus,
-                calculatedIngredients: unlinkedJob.calculatedIngredients || null,
-                totalBatchGrams: unlinkedJob.totalBatchGrams || null
-            });
-            await deleteDoc(doc(db, "production_pipeline", unlinkedJob.id));
-            alert("Linked to production job successfully! You can now finish the blend.");
-            setLinkingJobId(null);
-            setSelectedTargetJob('');
-        } catch(e) {
-            alert("Error linking: " + e.message);
-        }
-    };
-
     const handleBillItem = async (item) => {
         const invoice = prompt("Enter Invoice Number for Billing:");
         if (!invoice) return; 
-        const updatePayload = { billed: true, invoiceNumber: invoice, billedAt: serverTimestamp() };
-        if (item.type === 'sample') await updateDoc(doc(db, "blending_samples", item.id), updatePayload);
-        else await updateDoc(doc(db, "production_pipeline", item.id), updatePayload);
+        await updateDoc(doc(db, "production_pipeline", item.id), { billed: true, invoiceNumber: invoice, billedAt: serverTimestamp() });
     };
 
     const emailFinishedBlend = async (item) => {
@@ -224,7 +156,7 @@ export default function BlendingApp() {
             </style>
             </head><body>
             <h1>MakeUSA Blending Ticket</h1>
-            <h2>${item.type === 'sample' ? 'Sample: ' : (item.status === 'unlinked_blend' ? 'Unlinked Prod: ' : 'Production: ')} ${title}</h2>
+            <h2>${item.type === 'sample' ? 'Sample: ' : 'Production: '} ${title}</h2>
             <div class="meta-info">
                 <p><strong>Total Batch Size:</strong> ${item.totalBatchGrams} g</p>
                 <p><strong>Finished On:</strong> ${finishDate}</p>
@@ -232,60 +164,14 @@ export default function BlendingApp() {
             <table>
                 <tr><th>Formula (Ingredient)</th><th>%</th><th>gr</th><th>Gallons</th></tr>
                 ${item.calculatedIngredients.map(ing => `
-                    <tr>
-                        <td>${ing.name}</td>
-                        <td>${ing.percentage}</td>
-                        <td><strong>${ing.calculatedGrams}</strong></td>
-                        <td>${getGallons(ing.name, ing.calculatedGrams)}</td>
-                    </tr>
+                    <tr><td>${ing.name}</td><td>${ing.percentage}</td><td><strong>${ing.calculatedGrams}</strong></td><td>${getGallons(ing.name, ing.calculatedGrams)}</td></tr>
                 `).join('')}
             </table>
-            <script>
-                setTimeout(() => { window.print(); }, 250);
-                window.onafterprint = () => { window.close(); };
-            </script>
+            <script>setTimeout(() => { window.print(); }, 250); window.onafterprint = () => { window.close(); };</script>
             </body></html>
         `;
         printWindow.document.write(html);
         printWindow.document.close();
-    };
-
-    const eligibleLinkTargets = fullBlends.filter(j => j.status === 'production' && (!j.ingredients || j.ingredients.length === 0));
-
-    const processedFinishedBlends = finishedBlends
-        .filter(item => {
-            const searchLower = searchTerm.toLowerCase();
-            const itemName = (item.project || item.name || '').toLowerCase();
-            const itemCompany = (item.company || '').toLowerCase();
-            return itemName.includes(searchLower) || itemCompany.includes(searchLower) || item.type.includes(searchLower);
-        })
-        .sort((a, b) => {
-            if (sortOption === 'dateDesc') return (b.completedAt?.seconds || 0) - (a.completedAt?.seconds || 0);
-            if (sortOption === 'dateAsc') return (a.completedAt?.seconds || 0) - (b.completedAt?.seconds || 0);
-            if (sortOption === 'nameAsc') return (a.project || a.name || '').toLowerCase().localeCompare((b.project || b.name || '').toLowerCase());
-            if (sortOption === 'nameDesc') return (b.project || b.name || '').toLowerCase().localeCompare((a.project || a.name || '').toLowerCase());
-            if (sortOption === 'sizeDesc') return Number(b.totalBatchGrams || 0) - Number(a.totalBatchGrams || 0);
-            if (sortOption === 'sizeAsc') return Number(a.totalBatchGrams || 0) - Number(b.totalBatchGrams || 0);
-            return 0;
-        });
-
-    const handleSaveFormula = async (jobId) => {
-        const totalRaw = formulaIngredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
-        const roundedTotal = Math.round(totalRaw * 10000) / 10000; 
-        if (roundedTotal !== 100) return alert(`Error: Formula must equal exactly 100%. Current total is ${roundedTotal}%.`);
-
-        const validIngredients = formulaIngredients.filter(ing => ing.percentage !== '');
-
-        try {
-            await updateDoc(doc(db, "production_pipeline", jobId), {
-                ingredients: validIngredients
-            });
-            alert("Formula added successfully!");
-            setAddingFormulaItem(null);
-        } catch (error) {
-            console.error("Error saving formula:", error);
-            alert("Failed to save formula.");
-        }
     };
 
     return (
@@ -295,222 +181,22 @@ export default function BlendingApp() {
                 <div>
                     {accounts.length === 0 ? (
                         <button onClick={handleLogin} style={{...styles.btn, background:'#0078d4', color:'white', fontSize:'13px'}}>Connect SharePoint</button>
-                    ) : (
-                        <span style={{color: '#10b981', fontWeight:'bold', fontSize:'13px'}}>✓ SharePoint Connected</span>
-                    )}
+                    ) : ( <span style={{color: '#10b981', fontWeight:'bold', fontSize:'13px'}}>✓ SharePoint Connected</span> )}
                 </div>
             </div>
             
             <div style={styles.tabs}>
-                <button style={styles.tab(activeTab === 'samples_pending')} onClick={() => setActiveTab('samples_pending')}>Samples Queue ({pendingSamples.length})</button>
-                <button style={styles.tab(activeTab === 'full_blends')} onClick={() => setActiveTab('full_blends')}>Production Queue ({fullBlends.length})</button>
-                <button style={styles.tab(activeTab === 'finished')} onClick={() => setActiveTab('finished')}>Finished Blends ({finishedBlends.length})</button>
+                <button style={styles.tab(activeTab === 'samples_pending')} onClick={() => setActiveTab('samples_pending')}>Samples Queue</button>
+                <button style={styles.tab(activeTab === 'full_blends')} onClick={() => setActiveTab('full_blends')}>Production Queue</button>
+                <button style={styles.tab(activeTab === 'finished_samples')} onClick={() => setActiveTab('finished_samples')}>Finished Samples</button>
+                <button style={styles.tab(activeTab === 'finished_production')} onClick={() => setActiveTab('finished_production')}>Finished Production</button>
             </div>
 
-            {/* SAMPLES QUEUE */}
-            {activeTab === 'samples_pending' && (
-                <div>
-                    <button onClick={() => setShowSampleForm(!showSampleForm)} style={{...styles.btn, marginBottom: '20px', background: '#2563eb', color: 'white'}}>+ New Sample</button>
-                    {showSampleForm && <SampleForm setShowSampleForm={setShowSampleForm} styles={styles} />}
+            {activeTab === 'samples_pending' && <SampleQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
+            {activeTab === 'full_blends' && <ProductionQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
+            {activeTab === 'finished_samples' && <FinishedSamples setViewingItem={setViewingItem} printTicket={printTicket} />}
+            {activeTab === 'finished_production' && <FinishedProduction setViewingItem={setViewingItem} printTicket={printTicket} emailFinishedBlend={emailFinishedBlend} handleBillItem={handleBillItem} />}
 
-                    {pendingSamples.map(sample => (
-                        <div key={sample.id} style={styles.card}>
-                            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px'}}>
-                                <div>
-                                    <h3 style={{margin: '0 0 5px 0'}}>
-                                        {sample.project || sample.name} 
-                                        {sample.calculatedIngredients && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Ready to Finish</span>}
-                                    </h3>
-                                    <p style={{margin: 0, color:'#666'}}>{sample.company}</p>
-                                </div>
-                            </div>
-                            
-                            <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                {!sample.calculatedIngredients ? (
-                                    <button onClick={() => setProcessingItem(sample)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Information</button>
-                                ) : (
-                                    <>
-                                        <button onClick={() => setProcessingItem(sample)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Info</button>
-                                        <button onClick={() => setViewingItem(sample)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
-                                        <button onClick={() => printTicket(sample)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
-                                        <button onClick={() => markAsFinishedInline(sample)} style={{...styles.btn, background: '#10b981', color: 'white', padding: '8px 12px'}}>✅ Finish</button>
-                                    </>
-                                )}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            )}
-
-            {/* PRODUCTION QUEUE */}
-            {activeTab === 'full_blends' && (
-                <div>
-                    <button onClick={() => setShowUnlinkedForm(!showUnlinkedForm)} style={{...styles.btn, marginBottom: '20px', background: '#10b981', color: 'white'}}>+ Create Unlinked Production Blend</button>
-                    {showUnlinkedForm && <UnlinkedBlendForm setShowUnlinkedForm={setShowUnlinkedForm} styles={styles} />}
-
-                    {fullBlends.length === 0 ? <p>No production jobs require blending right now.</p> : null}
-                    {fullBlends.map(job => {
-                        const isUnlinked = job.status === 'unlinked_blend';
-                        const missingFormula = (!job.ingredients || job.ingredients.length === 0 || job.ingredients[0].percentage === '');
-
-                        return (
-                        <div key={job.id} style={{...styles.card, borderLeft: isUnlinked ? '5px solid #10b981' : (missingFormula ? '5px solid #ef4444' : '1px solid #e0e0e0')}}>
-                            <div style={{marginBottom: '15px'}}>
-                                <h3 style={{margin:'0 0 5px 0'}}>
-                                    {job.project}
-                                    {isUnlinked && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>UNLINKED (Awaiting Prod Job)</span>}
-                                    {job.calculatedIngredients && !isUnlinked && <span style={{fontSize: '12px', color: '#047857', background: '#d1fae5', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Ready to Finish</span>}
-                                    {missingFormula && <span style={{fontSize: '12px', color: '#b91c1c', background: '#fee2e2', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px'}}>Needs Formula</span>}
-                                </h3>
-                                <p style={{margin: 0, color:'#666'}}>{job.company !== 'TBD' ? job.company : 'Company TBD'} {job.quantity ? `• ${job.quantity} units` : ''}</p>
-                                
-                                {/* Display Notes if they exist */}
-                                {job.notes && (
-                                    <div style={{marginTop: '10px', padding: '8px 12px', background: '#fef3c7', borderLeft: '4px solid #f59e0b', borderRadius: '4px', fontSize: '13px', color: '#92400e'}}>
-                                        <strong>📝 Note:</strong> {job.notes}
-                                    </div>
-                                )}
-                            </div>
-                            
-                            <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                {missingFormula ? (
-                                    <button onClick={() => {
-                                        setAddingFormulaItem(job);
-                                        setFormulaIngredients([
-                                            { name: 'B40 190 Proof', percentage: '' },
-                                            { name: 'DI Water', percentage: '' },
-                                            { name: 'Fragrance Oil', percentage: '', isOil: true }
-                                        ]);
-                                    }} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Percentages to blend</button>
-                                ) : !job.calculatedIngredients ? (
-                                    <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Calculation Info</button>
-                                ) : (
-                                    <>
-                                        <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Info</button>
-                                        <button onClick={() => setViewingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
-                                        <button onClick={() => printTicket(job)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
-                                        
-                                        {/* Physical Block on the Finish Button */}
-                                        {isUnlinked ? (
-                                            <button disabled style={{...styles.btn, background: '#94a3b8', color: 'white', padding: '8px 12px', cursor: 'not-allowed'}}>❌ Cannot Finish (Unlinked)</button>
-                                        ) : (
-                                            <button onClick={() => markAsFinishedInline(job)} style={{...styles.btn, background: '#10b981', color: 'white', padding: '8px 12px'}}>✅ Finish</button>
-                                        )}
-                                    </>
-                                )}
-                            </div>
-
-                            {/* Inline Formula Editor for Bare Production Jobs */}
-                            {addingFormulaItem && addingFormulaItem.id === job.id && (
-                                <div style={{background: '#f8fafc', padding: '15px', marginTop: '15px', borderRadius: '5px', border: '1px solid #cbd5e1'}}>
-                                    <h4 style={{ margin: '0 0 10px 0', color: '#334155' }}>Enter Formula for {job.project}</h4>
-                                    
-                                    {formulaIngredients.map((ing, idx) => (
-                                        <div key={idx} style={{display:'flex', gap:'10px', marginBottom:'10px'}}>
-                                            {idx === 0 ? (
-                                                <select style={styles.input} value={ing.name} onChange={e => {
-                                                    const newIng = [...formulaIngredients]; newIng[idx].name = e.target.value; setFormulaIngredients(newIng);
-                                                }}>
-                                                    <option value="B40 190 Proof">B40 190 Proof</option>
-                                                    <option value="B40 200 Proof">B40 200 Proof</option>
-                                                </select>
-                                            ) : (
-                                                <input style={styles.input} value={ing.name} readOnly={idx < 3} placeholder="Ingredient Name" onChange={e => {
-                                                    const newIng = [...formulaIngredients]; newIng[idx].name = e.target.value; setFormulaIngredients(newIng);
-                                                }} />
-                                            )}
-                                            <input type="number" step="0.001" style={styles.input} placeholder="%" value={ing.percentage} onChange={e => {
-                                                const newIng = [...formulaIngredients]; newIng[idx].percentage = e.target.value; setFormulaIngredients(newIng);
-                                            }} />
-                                            {idx >= 3 && (
-                                                <button onClick={() => setFormulaIngredients(formulaIngredients.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer' }}>✖</button>
-                                            )}
-                                        </div>
-                                    ))}
-                                    
-                                    <button onClick={() => setFormulaIngredients([...formulaIngredients, {name:'', percentage:''}])} style={{background:'none', border:'none', color:'#2563eb', cursor:'pointer', marginBottom: '15px', fontWeight: 'bold'}}>+ Add Ingredient</button>
-                                    
-                                    <div style={{ display: 'flex', gap: '10px' }}>
-                                        <button onClick={() => setAddingFormulaItem(null)} style={{...styles.btn, background: '#e2e8f0', color: '#333'}}>Cancel</button>
-                                        <button onClick={() => handleSaveFormula(job.id)} style={{...styles.btn, background: '#10b981', color: 'white'}}>💾 Save Formula</button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Manual Linking Block for the Blending Lab */}
-                            {isUnlinked && (
-                                <div style={{background: '#f8fafc', padding: '10px', marginTop: '15px', borderRadius: '5px', border: '1px dashed #cbd5e1'}}>
-                                    <p style={{margin: '0 0 10px 0', fontSize: '13px', color: '#334155'}}><strong>🔗 Link to Production Run:</strong> If Production Management already created the job, select it below to link.</p>
-                                    <div style={{display: 'flex', gap: '10px'}}>
-                                        <select style={{...styles.input, flex: 1}} value={linkingJobId === job.id ? selectedTargetJob : ''} onChange={e => {
-                                            setLinkingJobId(job.id);
-                                            setSelectedTargetJob(e.target.value);
-                                        }}>
-                                            <option value="">-- Select Job --</option>
-                                            {eligibleLinkTargets.map(t => (
-                                                <option key={t.id} value={t.id}>{t.project} ({t.company}) - {t.quantity} units</option>
-                                            ))}
-                                        </select>
-                                        <button onClick={() => handleManualLink(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>Link to Job</button>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                    )})}
-                </div>
-            )}
-
-            {/* FINISHED BLENDS */}
-            {activeTab === 'finished' && (
-                <div>
-                    <div style={{ display: 'flex', gap: '15px', marginBottom: '20px' }}>
-                        <input type="text" placeholder="Search by name, project, or company..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} style={{ ...styles.input, flex: 1 }} />
-                        <select value={sortOption} onChange={(e) => setSortOption(e.target.value)} style={{ ...styles.input, width: '200px' }}>
-                            <option value="dateDesc">Newest First</option>
-                            <option value="dateAsc">Oldest First</option>
-                            <option value="nameAsc">Name (A-Z)</option>
-                            <option value="nameDesc">Name (Z-A)</option>
-                            <option value="sizeDesc">Largest Batch First</option>
-                            <option value="sizeAsc">Smallest Batch First</option>
-                        </select>
-                    </div>
-
-                    {processedFinishedBlends.length === 0 && <p style={{ color: '#666', fontStyle: 'italic' }}>No finished blends match your criteria.</p>}
-
-                    {processedFinishedBlends.map(item => {
-                        const isBilled = item.billed;
-                        const canBeBilled = item.type === 'production'; 
-
-                        return (
-                            <div key={item.id} style={{...styles.card, borderLeft: `5px solid ${isBilled ? '#10b981' : (canBeBilled ? '#f59e0b' : '#3b82f6')}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                                <div>
-                                    <h3 style={{margin:'0 0 5px 0'}}>
-                                        {item.project || item.name} 
-                                        <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px', marginLeft: '10px'}}>
-                                            {item.type === 'sample' ? 'Sample' : 'Production'}
-                                        </span>
-                                    </h3>
-                                    <p style={{margin:0, color:'#666'}}>{item.company !== 'TBD' ? item.company : 'Company TBD'} • Batch: {item.totalBatchGrams}g</p>
-                                    {isBilled && <p style={{margin: '5px 0 0 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold'}}>✓ Billed (Inv: {item.invoiceNumber})</p>}
-                                </div>
-                                <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
-                                    <button onClick={() => setViewingItem(item)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
-                                    <button onClick={() => printTicket(item)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
-                                    
-                                    {canBeBilled && (
-                                        <>
-                                            <button onClick={() => emailFinishedBlend(item)} style={{...styles.btn, background: '#8b5cf6', color: 'white', padding: '8px 12px'}}>✉️ Email</button>
-                                            {!isBilled && <button onClick={() => handleBillItem(item)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>💰 Bill</button>}
-                                        </>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
-            {/* MODALS */}
             {processingItem && <ProcessingModal processingItem={processingItem} setProcessingItem={setProcessingItem} styles={styles} />}
             {viewingItem && <ViewingModal viewingItem={viewingItem} setViewingItem={setViewingItem} emailFinishedBlend={emailFinishedBlend} printTicket={printTicket} styles={styles} />}
         </div>

@@ -2,17 +2,12 @@
 import React from 'react';
 import { useRole } from '../hooks/useRole';
 import AccessDenied from './AccessDenied';
+import Loader from './Loader';
 
 const RoleRoute = ({ children, system, feature, action = 'view' }) => {
   const { checkAccess, loading } = useRole();
 
-  if (loading) {
-    return (
-      <div style={{height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center'}}>
-        Validating Permissions...
-      </div>
-    );
-  }
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center'}}><Loader message="Validating Permissions..." /></div>;
 
   // Use the system name for the error page title (e.g., "Technicians", "Shed")
   const systemLabels = {

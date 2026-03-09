@@ -3,6 +3,7 @@ import { db, auth } from '../firebase_config';
 import { doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
 
+import Loader from '../components/Loader';
 import Generator from './Generator';
 import Logs from './Logs';
 import Admin from './Admin';
@@ -45,7 +46,7 @@ export default function WifiApp() {
         return () => unsubscribe();
     }, []);
 
-    if (loading) return <div style={{padding: '40px', textAlign: 'center'}}>Loading Wi-Fi Management...</div>;
+    if (loading) return <Loader message="Loading Wi-Fi Management..." />;
 
     return (
         <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto', fontFamily: 'sans-serif' }}>

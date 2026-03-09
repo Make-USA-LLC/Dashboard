@@ -26,6 +26,7 @@ import StaffManagement from './StaffManagement';
 import ProjectSummary from './ProjectSummary';
 import UpcomingProjects from './UpcomingProjects';
 import Workers from './Workers';
+import Loader from '../components/Loader';
 import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, signOut } from './firebase_config.jsx';
 
 function App() {
@@ -82,7 +83,7 @@ function App() {
     setLoading(false);
   };
 
-  if (loading) return <div style={{color:'white', background:'#1e3c72', height:'100vh', display:'flex', justifyContent:'center', alignItems:'center'}}>Loading System...</div>;
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading System..." /></div>;
 
   const DashboardGuard = ({ children }) => {
       if (!user) return <Login type="admin" />;

@@ -11,6 +11,7 @@ import DomainRouter from './components/DomainRouter';
 import LinksManager from './LinksManager';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
+import Loader from './components/Loader';
 
 import HRApp from './HR/App'; 
 import TechApp from './Techs/App'; 
@@ -34,7 +35,7 @@ import Login from './Login';
 function SelectionGrid({ user }) {
   const { checkAccess, loading } = useRole();
 
-  if (loading) return <div style={{padding: '40px', textAlign: 'center'}}>Syncing Permissions...</div>;
+  if (loading) return <Loader message="Syncing Permissions..." />;
 
   return (
     <div style={{ padding: '40px', maxWidth: 1200, margin: '0 auto' }}>
@@ -140,10 +141,10 @@ function ProtectedMainApp() {
     return () => unsubscribe();
   }, []);
 
-  if (authLoading || (user && roleLoading)) {
-    return <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color: '#64748b'}}>Syncing Secure Profile...</div>;
-  }
-  
+if (authLoading || (user && roleLoading)) {
+    return <div style={{height: '100vh', display: 'flex', alignItems: 'center'}}><Loader message="Syncing Secure Profile..." /></div>;
+  }  
+
   if (!user) return <Login />;
 
   if (!hasAnyAccess) {
