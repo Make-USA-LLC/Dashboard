@@ -159,6 +159,7 @@ export default function EmployeeDetail() {
   const [isTerminateModalOpen, setIsTerminateModalOpen] = useState(false);
   const [terminationDateInput, setTerminationDateInput] = useState(new Date().toISOString().split('T')[0]);
   const [terminationReason, setTerminationReason] = useState("");
+  const [terminationNotes, setTerminationNotes] = useState("");
 
   const [certOptions, setCertOptions] = useState([]);
   const [isCertModalOpen, setIsCertModalOpen] = useState(false);
@@ -420,7 +421,12 @@ export default function EmployeeDetail() {
       } catch (err) { console.error(err); alert("Error saving: " + err.message); }
   };
 
-  const handleTerminateClick = () => { setTerminationDateInput(new Date().toISOString().split('T')[0]); setIsTerminateModalOpen(true); };
+  const handleTerminateClick = () => { 
+      setTerminationDateInput(new Date().toISOString().split('T')[0]); 
+      setTerminationReason("");
+      setTerminationNotes("");
+      setIsTerminateModalOpen(true); 
+  };
   
   const confirmTermination = async (e) => {
       e.preventDefault(); if(!confirm("Are you sure? This will remove iPad/Portal access immediately.")) return;
@@ -428,7 +434,8 @@ export default function EmployeeDetail() {
       const updates = { 
           status: "Inactive", 
           terminationDate: new Date(terminationDateInput + 'T12:00:00'),
-          terminationReason: terminationReason 
+          terminationReason: terminationReason,
+          terminationNotes: terminationNotes 
       };
       await updateDoc(doc(db, "employees", id), updates);
 
@@ -569,6 +576,7 @@ export default function EmployeeDetail() {
                     <div style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold', marginTop: 5}}>
                         🚫 Terminated: {safeFormatDate(employee.terminationDate)}
                         {employee.terminationReason && <span style={{color: '#991b1b', marginLeft: '5px'}}>({employee.terminationReason})</span>}
+                        {employee.terminationNotes && <div style={{color: '#7f1d1d', marginTop: 2, fontWeight: 'normal', fontStyle: 'italic'}}>Notes: {employee.terminationNotes}</div>}
                     </div>
                 )}
 
@@ -994,7 +1002,7 @@ export default function EmployeeDetail() {
                 <label>Termination Date</label>
                 <input type="date" value={terminationDateInput} onChange={e => setTerminationDateInput(e.target.value)} required />
                 <label style={{marginTop: 10, display:'block'}}>Reason for Termination</label>
-                <select value={terminationReason} onChange={e => setTerminationReason(e.target.value)} required style={{width:'100%', marginBottom: 20}}>
+                <select value={terminationReason} onChange={e => setTerminationReason(e.target.value)} required style={{width:'100%', marginBottom: 10}}>
                     <option value="">-- Select Reason --</option>
                     <option value="Voluntary Resignation">Voluntary Resignation</option>
                     <option value="Involuntary - Performance">Involuntary - Performance</option>
@@ -1002,6 +1010,15 @@ export default function EmployeeDetail() {
                     <option value="Layoff / RIF">Layoff / RIF</option>
                     <option value="Other">Other</option>
                 </select>
+                
+                <label style={{display:'block', marginBottom: '5px'}}>Additional Notes (Optional)</label>
+                <textarea 
+                    value={terminationNotes} 
+                    onChange={e => setTerminationNotes(e.target.value)} 
+                    placeholder="Enter any additional details about the termination..."
+                    style={{width:'100%', marginBottom: 20, minHeight: '60px', padding: '8px', borderRadius: '4px', border: '1px solid #cbd5e1', fontFamily: 'inherit'}}
+                />
+
                 <div style={{marginTop: 20, display:'flex', gap: 10}}>
                     <button type="button" onClick={() => setIsTerminateModalOpen(false)} style={{flex:1}}>Cancel</button>
                     <button type="submit" style={{flex:1, background:'#ef4444', color:'white', fontWeight:'bold', border:'none'}}>Terminate</button>
