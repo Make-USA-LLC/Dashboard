@@ -106,7 +106,7 @@ export default function ProcessingModal({ processingItem, setProcessingItem, sty
             updatePayload.quantity = units;
         }
 
-        const collectionName = processingItem.type === 'sample' ? "blending_samples" : "production_pipeline";
+        const collectionName = processingItem.type === 'sample' ? "blending_samples" : "blending_queue";
         await updateDoc(doc(db, collectionName, processingItem.id), updatePayload);
         setProcessingItem(null);
     };

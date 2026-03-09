@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import * as XLSX from 'xlsx';
 import { db, functions } from '../firebase_config'; 
-import { updateDoc, doc, serverTimestamp } from 'firebase/firestore';
+import { updateDoc, doc, serverTimestamp, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -19,7 +19,6 @@ export default function BlendingApp() {
     const { instance, accounts, inProgress } = useMsal();
     const [activeTab, setActiveTab] = useState('samples_pending'); 
     
-    // Shared Modal States
     const [processingItem, setProcessingItem] = useState(null);
     const [viewingItem, setViewingItem] = useState(null);
 
@@ -65,16 +64,34 @@ export default function BlendingApp() {
             const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
             const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-            const companyName = (item.company && item.company !== 'TBD' ? item.company : 'Unknown_Company').trim();
-            const projectName = (item.project || item.name || 'Unknown_Project').trim();
-            const fileName = `${projectName}_Blend.xlsx`;
+            // Sanitize standard names
+            const rawCompany = (item.company && item.company !== 'TBD' ? item.company : 'Unknown_Company').trim();
+            const rawProject = (item.project || item.name || 'Unknown_Project').trim();
             
-            let storagePath = item.type === 'sample' 
-                ? `/Documents/Production/Files/${companyName}/Samples/${String(new Date().getMonth() + 1).padStart(2, '0')}-${new Date().getFullYear()}/${fileName}`
-                : (item.sharepointFolder ? `${item.sharepointFolder}/${fileName}` : `/Documents/Production/Files/${companyName.replace(/[^a-zA-Z0-9 -]/g, "")}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}-${new Date().getFullYear()}/${projectName.replace(/[^a-zA-Z0-9 -]/g, "")}/${fileName}`);
+            const safeCompany = rawCompany.replace(/[^a-zA-Z0-9 -_]/g, "").trim() || "Unknown_Company";
+            const safeProject = rawProject.replace(/[^a-zA-Z0-9 -_]/g, "").trim() || "Unknown_Project";
+            
+            const fileName = `${safeProject}_Blend.xlsx`;
+            
+            let storagePath = '';
+            
+            if (item.type === 'sample') {
+                storagePath = `/Documents/Production/Files/${safeCompany}/Samples/${String(new Date().getMonth() + 1).padStart(2, '0')}-${new Date().getFullYear()}/${fileName}`;
+            } else {
+                // CRITICAL FIX 1: Strip out # from the existing sharepoint folder string if it exists!
+                if (item.sharepointFolder) {
+                    const cleanFolder = item.sharepointFolder.replace(/#/g, ''); 
+                    storagePath = `${cleanFolder}/${fileName}`;
+                } else {
+                    storagePath = `/Documents/Production/Files/${safeCompany}/${(new Date().getMonth() + 1).toString().padStart(2, '0')}-${new Date().getFullYear()}/${safeProject}/${fileName}`;
+                }
+            }
+
+            // CRITICAL FIX 2: Encode the URL to safely handle spaces
+            const encodedPath = storagePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
-            const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${storagePath}:/content?@microsoft.graph.conflictBehavior=replace`;
+            const uploadUrl = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${encodedPath}:/content?@microsoft.graph.conflictBehavior=replace`;
 
             const response = await fetch(uploadUrl, {
                 method: "PUT",
@@ -82,7 +99,11 @@ export default function BlendingApp() {
                 body: blob
             });
 
-            if (!response.ok) throw new Error("Upload response failed");
+            if (!response.ok) {
+                const errorData = await response.json();
+                console.error("SharePoint Upload Error:", errorData);
+                throw new Error("Upload response failed");
+            }
             return true;
         } catch (error) {
             console.error("Error saving Excel automatically:", error);
@@ -95,13 +116,29 @@ export default function BlendingApp() {
         if (accounts.length === 0 && !confirm("SharePoint is not connected. The Excel file will NOT be saved automatically. Do you still want to finish this blend?")) return;
 
         try {
-            const updatePayload = { completedAt: serverTimestamp() };
+            const finishDate = serverTimestamp();
+            
             if (item.type === 'sample') {
-                updatePayload.status = "completed";
-                await updateDoc(doc(db, "blending_samples", item.id), updatePayload);
+                await updateDoc(doc(db, "blending_samples", item.id), { status: "completed", completedAt: finishDate });
             } else {
-                updatePayload.blendingStatus = "completed";
-                await updateDoc(doc(db, "production_pipeline", item.id), updatePayload);
+                // 1. Save permanent archive to blending_production
+                await setDoc(doc(db, "blending_production", item.id), {
+                    ...item,
+                    blendingStatus: "completed",
+                    completedAt: finishDate
+                });
+                
+                // 2. Delete the active ticket from the Lab's private queue
+                await deleteDoc(doc(db, "blending_queue", item.id));
+
+                // 3. Notify the main Production Pipeline that blending is ready!
+                if (item.productionJobId) {
+                    const prodRef = doc(db, "production_pipeline", item.productionJobId);
+                    const prodSnap = await getDoc(prodRef);
+                    if (prodSnap.exists()) {
+                        await updateDoc(prodRef, { blendingStatus: "completed" });
+                    }
+                }
             }
 
             if (accounts.length > 0) {
@@ -115,12 +152,6 @@ export default function BlendingApp() {
             console.error("Error marking as finished:", error);
             alert("An error occurred while finishing the blend.");
         }
-    };
-
-    const handleBillItem = async (item) => {
-        const invoice = prompt("Enter Invoice Number for Billing:");
-        if (!invoice) return; 
-        await updateDoc(doc(db, "production_pipeline", item.id), { billed: true, invoiceNumber: invoice, billedAt: serverTimestamp() });
     };
 
     const emailFinishedBlend = async (item) => {
@@ -195,7 +226,7 @@ export default function BlendingApp() {
             {activeTab === 'samples_pending' && <SampleQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
             {activeTab === 'full_blends' && <ProductionQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
             {activeTab === 'finished_samples' && <FinishedSamples setViewingItem={setViewingItem} printTicket={printTicket} />}
-            {activeTab === 'finished_production' && <FinishedProduction setViewingItem={setViewingItem} printTicket={printTicket} emailFinishedBlend={emailFinishedBlend} handleBillItem={handleBillItem} />}
+            {activeTab === 'finished_production' && <FinishedProduction setViewingItem={setViewingItem} printTicket={printTicket} emailFinishedBlend={emailFinishedBlend} />}
 
             {processingItem && <ProcessingModal processingItem={processingItem} setProcessingItem={setProcessingItem} styles={styles} />}
             {viewingItem && <ViewingModal viewingItem={viewingItem} setViewingItem={setViewingItem} emailFinishedBlend={emailFinishedBlend} printTicket={printTicket} styles={styles} />}

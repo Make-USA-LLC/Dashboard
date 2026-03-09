@@ -1,33 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config'; 
-import { collection, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, onSnapshot, query, updateDoc, doc, serverTimestamp } from 'firebase/firestore';
 import { styles } from './utils';
 import Loader from '../components/Loader';
 
-export default function FinishedProduction({ setViewingItem, printTicket, emailFinishedBlend, handleBillItem }) {
+export default function FinishedProduction({ setViewingItem, printTicket, emailFinishedBlend }) {
     const [finishedProduction, setFinishedProduction] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [sortOption, setSortOption] = useState('dateDesc'); 
 
     useEffect(() => {
-        // SIMPLIFIED QUERY: Removes the need for a Firebase Composite Index 
-        // and catches older jobs that might be missing the requiresBlending flag.
-        const qProd = query(
-            collection(db, "production_pipeline"), 
-            where("blendingStatus", "==", "completed")
-        );
-        
+        const qProd = query(collection(db, "blending_production"));
         const unsub = onSnapshot(qProd, (snap) => {
             setFinishedProduction(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'production' })));
             setLoading(false);
-        }, (error) => {
-            console.error("Error fetching finished production:", error);
-            setLoading(false);
         });
-        
         return () => unsub();
     }, []);
+
+    const handleBillItem = async (item) => {
+        const invoice = prompt("Enter Invoice Number for Billing:");
+        if (!invoice) return; 
+        await updateDoc(doc(db, "blending_production", item.id), { billed: true, invoiceNumber: invoice, billedAt: serverTimestamp() });
+    };
 
     const processedItems = finishedProduction
         .filter(item => {
@@ -64,12 +60,7 @@ export default function FinishedProduction({ setViewingItem, printTicket, emailF
                 return (
                     <div key={item.id} style={{...styles.card, borderLeft: `5px solid ${isBilled ? '#10b981' : '#f59e0b'}`, display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                         <div>
-                            <h3 style={{margin:'0 0 5px 0'}}>
-                                {item.project || item.name}
-                                <span style={{fontSize:'12px', background:'#eee', padding:'3px 8px', borderRadius:'10px', marginLeft: '10px', textTransform: 'uppercase'}}>
-                                    Status: {item.status ? item.status.replace('_', ' ') : 'Unknown'}
-                                </span>
-                            </h3>
+                            <h3 style={{margin:'0 0 5px 0'}}>{item.project || item.name}</h3>
                             <p style={{margin:0, color:'#666'}}>{item.company !== 'TBD' ? item.company : 'Company TBD'} • Batch: {item.totalBatchGrams}g</p>
                             {isBilled && <p style={{margin: '5px 0 0 0', color: '#10b981', fontSize: '13px', fontWeight: 'bold'}}>✓ Billed (Inv: {item.invoiceNumber})</p>}
                         </div>

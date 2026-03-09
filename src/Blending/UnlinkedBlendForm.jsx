@@ -5,7 +5,7 @@ import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
 export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
     const [project, setProject] = useState('');
     const [company, setCompany] = useState('');
-    const [notes, setNotes] = useState(''); // Added notes state
+    const [notes, setNotes] = useState(''); 
     const [ingredients, setIngredients] = useState([
         { name: 'B40 190 Proof', percentage: '' },
         { name: 'DI Water', percentage: '' },
@@ -21,18 +21,18 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
 
         const validIngredients = ingredients.filter(ing => ing.percentage !== '');
 
-        await addDoc(collection(db, "production_pipeline"), {
+        // SAVES TO THE LAB'S PRIVATE QUEUE INSTEAD OF THE PIPELINE
+        await addDoc(collection(db, "blending_queue"), {
             company: company,
             project: project,
             quantity: "", 
-            notes: notes, // Save notes to database
+            notes: notes, 
             ingredients: validIngredients,
-            requiresBlending: true,
             blendingStatus: "pending",
-            status: "unlinked_blend", 
+            type: "production", // Explicitly marks this as a production blend in the queue
             createdAt: serverTimestamp()
         });
-        alert("Unlinked Production Blend added to the queue!");
+        alert("Production Blend added to the queue!");
         
         setCompany('');
         setProject('');
@@ -46,7 +46,9 @@ export default function UnlinkedBlendForm({ setShowUnlinkedForm, styles }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
                 <div>
                     <h3 style={{ margin: 0, color: '#166534' }}>+ New Production Blend</h3>
-                    <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#15803d' }}>Create a blend formula now. It cannot be finished until linked to a Production job.</p>
+                    <p style={{ margin: '5px 0 0 0', fontSize: '12px', color: '#15803d' }}>
+                        Create a production formula manually. This will be added directly to your Lab Queue.
+                    </p>
                 </div>
             </div>
 

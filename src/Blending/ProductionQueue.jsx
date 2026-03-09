@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config'; 
-import { collection, updateDoc, doc, onSnapshot, query, where } from 'firebase/firestore';
+import { collection, updateDoc, doc, onSnapshot, query } from 'firebase/firestore';
 import { styles } from './utils';
 import UnlinkedBlendForm from './UnlinkedBlendForm';
 import Loader from '../components/Loader';
@@ -14,7 +14,8 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
     const [formulaIngredients, setFormulaIngredients] = useState([]);
 
     useEffect(() => {
-        const qProd = query(collection(db, "production_pipeline"), where("requiresBlending", "==", true), where("blendingStatus", "==", "pending"));
+        // Read ONLY from the Lab's private queue
+        const qProd = query(collection(db, "blending_queue"));
         const unsub = onSnapshot(qProd, (snap) => {
             setFullBlends(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'production' })));
             setLoading(false);
@@ -30,7 +31,7 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
         const validIngredients = formulaIngredients.filter(ing => ing.percentage !== '');
 
         try {
-            await updateDoc(doc(db, "production_pipeline", jobId), { ingredients: validIngredients });
+            await updateDoc(doc(db, "blending_queue", jobId), { ingredients: validIngredients });
             alert("Formula added successfully!");
             setAddingFormulaItem(null);
         } catch (error) {

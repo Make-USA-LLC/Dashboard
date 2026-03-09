@@ -47,7 +47,8 @@ exports.sendManualEmail = onCall({ cors: true }, async (request) => {
     }
 
     try {
-        const collectionName = type === 'sample' ? 'blending_samples' : 'production_pipeline';
+        // FIX: Point production emails to the new permanent archive!
+        const collectionName = type === 'sample' ? 'blending_samples' : 'blending_production';
         const docRef = admin.firestore().collection(collectionName).doc(id);
         const docSnap = await docRef.get();
 
@@ -79,11 +80,11 @@ exports.onSampleCompleted = onDocumentUpdated("blending_samples/{sampleId}", asy
     }
 });
 
-exports.onProductionBlendCompleted = onDocumentUpdated("production_pipeline/{jobId}", async (event) => {
-    const before = event.data.before.data();
-    const after = event.data.after.data();
-    if (before.blendingStatus !== 'completed' && after.blendingStatus === 'completed') {
-        return sendEmail(after, 'Production');
+// FIX: Now triggers automatically when a document is added to the permanent archive
+exports.onProductionBlendCompleted = onDocumentCreated("blending_production/{jobId}", async (event) => {
+    const data = event.data.data();
+    if (data && data.blendingStatus === 'completed') {
+        return sendEmail(data, 'Production');
     }
 });
 
