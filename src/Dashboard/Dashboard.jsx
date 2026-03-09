@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './Dashboard.css';
 import Sortable from 'sortablejs';
 import { useNavigate } from 'react-router-dom'; 
+import Loader from '../components/loader';
 import { db, auth, loadUserData, newIpadDefaults } from './firebase_config'; 
 import { 
   doc, 
