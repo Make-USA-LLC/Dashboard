@@ -48,6 +48,11 @@ const ActiveProjects = () => {
         return hrs > 0 ? hrs.toFixed(1) + " hrs (est)" : "N/A";
     };
 
+    const showDbInfo = (job) => {
+        const collectionName = job.source === 'pipeline' ? 'production_pipeline' : 'project_queue';
+        alert(`Document ID: ${job.id}\nDatabase Collection: ${collectionName}`);
+    };
+
     return (
         <div>
             {allProjects.length === 0 ? <p>No active projects found.</p> : null}
@@ -55,11 +60,18 @@ const ActiveProjects = () => {
                 <div key={job.id} style={{...styles.card, borderLeft: '5px solid #3b82f6'}}>
                     <div style={{display:'flex', justifyContent:'space-between'}}>
                         <div>
-                            <h3 style={{margin:'0 0 5px 0'}}>
+                            <h3 style={{margin:'0 0 5px 0', display: 'flex', alignItems: 'center'}}>
                                 {job.project} 
                                 <span style={{fontSize: '11px', background: '#e2e8f0', padding: '3px 8px', borderRadius: '10px', marginLeft: '10px', textTransform: 'uppercase'}}>
                                     Status: {getDisplayStatus(job)}
                                 </span>
+                                <button 
+                                    onClick={() => showDbInfo(job)}
+                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '14px', marginLeft: '5px', opacity: '0.6' }}
+                                    title="View Database Info"
+                                >
+                                    ℹ️
+                                </button>
                             </h3>
                             <div style={{color:'#666'}}>{job.company} • {job.quantity || job.expectedUnits || 'N/A'} units</div>
                         </div>

@@ -14,6 +14,9 @@ const ProductionQueue = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
 
+    // Edit State
+    const [editingId, setEditingId] = useState(null);
+
     const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
     
     // Simplified Blending State
@@ -101,56 +104,103 @@ const ProductionQueue = () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         const finalPayload = { ...form };
         
+        let finalIngredients = [];
         if (requiresBlending) {
-            let finalIngredients = ingredients.filter(ing => ing.percentage !== '');
+            finalIngredients = ingredients.filter(ing => ing.percentage !== '');
             const totalRaw = finalIngredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
             const roundedTotal = Math.round(totalRaw * 10000) / 10000; 
             if (finalIngredients.length > 0 && roundedTotal !== 100 && roundedTotal !== 0) {
                  if(!confirm(`Warning: Percentages total ${roundedTotal}%. Ensure the Blending Lab completes the formula. Proceed?`)) return;
             }
+        }
 
-            // 1. Send box to factory floor
-            const prodRef = await addDoc(collection(db, "production_pipeline"), {
-                ...finalPayload,
-                status: "production",
-                requiresBlending: true,
-                blendingStatus: "pending",
-                techSheetUploaded: false,
-                techSheets: [],
-                componentsArrived: false,
-                createdAt: serverTimestamp()
-            });
+        try {
+            if (editingId) {
+                // Update existing job
+                await updateDoc(doc(db, "production_pipeline", editingId), {
+                    ...finalPayload,
+                    requiresBlending,
+                    ingredients: requiresBlending ? finalIngredients : []
+                });
+                alert("Job updated!");
+            } else {
+                // Create new job
+                if (requiresBlending) {
+                    const prodRef = await addDoc(collection(db, "production_pipeline"), {
+                        ...finalPayload,
+                        status: "production",
+                        requiresBlending: true,
+                        blendingStatus: "pending",
+                        techSheetUploaded: false,
+                        techSheets: [],
+                        componentsArrived: false,
+                        createdAt: serverTimestamp()
+                    });
 
-            // 2. Shoot ticket over to Lab's private queue
-            await addDoc(collection(db, "blending_queue"), {
-                ...finalPayload,
-                productionJobId: prodRef.id,
-                ingredients: finalIngredients,
-                blendingStatus: "pending",
-                createdAt: serverTimestamp(),
-                type: 'production'
-            });
-
-        } else {
-            // No lab required
-            await addDoc(collection(db, "production_pipeline"), {
-                ...finalPayload,
-                status: "production",
-                requiresBlending: false,
-                blendingStatus: "not_required",
-                ingredients: [],
-                notes: '',
-                techSheetUploaded: false,
-                techSheets: [],
-                componentsArrived: false,
-                createdAt: serverTimestamp()
-            });
+                    await addDoc(collection(db, "blending_queue"), {
+                        ...finalPayload,
+                        productionJobId: prodRef.id,
+                        ingredients: finalIngredients,
+                        blendingStatus: "pending",
+                        createdAt: serverTimestamp(),
+                        type: 'production'
+                    });
+                } else {
+                    await addDoc(collection(db, "production_pipeline"), {
+                        ...finalPayload,
+                        status: "production",
+                        requiresBlending: false,
+                        blendingStatus: "not_required",
+                        ingredients: [],
+                        notes: '',
+                        techSheetUploaded: false,
+                        techSheets: [],
+                        componentsArrived: false,
+                        createdAt: serverTimestamp()
+                    });
+                }
+            }
+        } catch (error) {
+            alert("Error saving job: " + error.message);
         }
         
+        handleCancel();
+    };
+
+    const handleEdit = (job) => {
+        setEditingId(job.id);
+        setForm({
+            company: job.company || '',
+            project: job.project || '',
+            category: job.category || '',
+            size: job.size || '',
+            quantity: job.quantity || '',
+            price: job.price || '',
+            notes: job.notes || ''
+        });
+        setRequiresBlending(job.requiresBlending || false);
+        setIngredients(job.ingredients?.length > 0 ? job.ingredients : [
+            { name: 'B40 190 Proof', percentage: '' },
+            { name: 'DI Water', percentage: '' },
+            { name: 'Fragrance Oil', percentage: '', isOil: true }
+        ]);
+        setIsFormOpen(true);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleCancel = () => {
+        setEditingId(null);
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
         setRequiresBlending(false);
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
+    };
+
+    const handleDelete = async (id) => {
+        if (confirm("Remove job from the pipeline?")) {
+            if (editingId === id) handleCancel();
+            await deleteDoc(doc(db, "production_pipeline", id));
+        }
     };
 
     const sendToQC = async (job) => {
@@ -166,14 +216,16 @@ const ProductionQueue = () => {
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px', gap: '10px' }}>
                 {accounts.length === 0 ? ( <button onClick={handleLogin} style={{...styles.btn, background:'#0078d4', color:'white'}}>Connect SharePoint</button> ) : ( <span style={{color: 'green', fontWeight:'bold', marginRight: '10px', fontSize: '12px', display: 'flex', alignItems: 'center'}}>✓ SharePoint Connected</span> )}
-                <button onClick={() => setIsFormOpen(!isFormOpen)} style={{...styles.btn, background: '#27ae60', color: 'white'}}>+ New Job</button>
+                <button onClick={() => { handleCancel(); setIsFormOpen(true); }} style={{...styles.btn, background: '#27ae60', color: 'white'}}>+ New Job</button>
             </div>
 
             {isFormOpen && (
-                <div style={{...styles.card, background:'#f9f9f9'}}>
-                    <h3 style={{marginTop:0}}>New Production Job</h3>
+                <div style={{...styles.card, background:'#f9f9f9', borderLeft: editingId ? '5px solid #f39c12' : 'none'}}>
+                    <h3 style={{marginTop:0, color: editingId ? '#d35400' : '#333'}}>
+                        {editingId ? "Edit Production Job" : "New Production Job"}
+                    </h3>
                     <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'15px', marginBottom: '15px'}}>
                         <div><label style={styles.label}>Company</label>
                             <select style={styles.input} value={form.company} onChange={e=>setForm({...form, company:e.target.value})}><option value="">Select...</option>{options.companies?.map(c=><option key={c} value={c}>{c}</option>)}</select>
@@ -222,14 +274,19 @@ const ProductionQueue = () => {
                         )}
                     </div>
 
-                    <div style={{marginTop:'20px', textAlign:'right'}}>
-                        <button onClick={handleCreate} style={{...styles.btn, background:'#2980b9', color:'white'}}>Save to Pipeline</button>
+                    <div style={{marginTop:'20px', textAlign:'right', display: 'flex', gap: '10px', justifyContent: 'flex-end'}}>
+                        {editingId && (
+                            <button onClick={handleCancel} style={{...styles.btn, background: '#7f8c8d', color: 'white'}}>Cancel</button>
+                        )}
+                        <button onClick={handleCreate} style={{...styles.btn, background: editingId ? '#e67e22' : '#2980b9', color:'white'}}>
+                            {editingId ? "Update Job" : "Save to Pipeline"}
+                        </button>
                     </div>
                 </div>
             )}
 
             {jobs.map(job => (
-                <div key={job.id} style={styles.card}>
+                <div key={job.id} style={{...styles.card, borderLeft: editingId === job.id ? '5px solid #f39c12' : 'none'}}>
                     <div style={{display:'flex', justifyContent:'space-between'}}>
                         <div style={{maxWidth: '50%'}}>
                             <h3 style={{margin:'0 0 5px 0'}}>{job.project}</h3>
@@ -262,7 +319,8 @@ const ProductionQueue = () => {
 
                             <button onClick={() => updateDoc(doc(db, "production_pipeline", job.id), { componentsArrived: !job.componentsArrived })} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>{job.componentsArrived ? "Mark Pending" : "Mark Arrived"}</button>
                             <button onClick={() => sendToQC(job)} disabled={!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')} style={{...styles.btn, background: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#eee' : '#8e44ad', color: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#999' : 'white'}}>Send to QC &rarr;</button>
-                            <button onClick={() => deleteDoc(doc(db, "production_pipeline", job.id))} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
+                            <button onClick={() => handleEdit(job)} style={{...styles.btn, background: '#f39c12', color: 'white'}}>Edit</button>
+                            <button onClick={() => handleDelete(job.id)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
                         </div>
                     </div>
                 </div>
