@@ -9,6 +9,7 @@ const PERMISSION_STRUCTURE = [
         id: 'hr_group', label: 'HR & Staffing', 
         children: [
             { id: 'employees', label: 'Employee Directory (Add/Edit Profiles)' },
+            { id: 'org_chart', label: 'Org Chart (View/Edit Structure)' }, // <-- ADDED HERE
             { id: 'pto', label: 'PTO & Time Logs' },
             { id: 'financials', label: 'Financial Data (Salaries/Rates)' },
             { id: 'reviews', label: 'Performance Reviews' },

@@ -17,7 +17,9 @@ export default function OrgChart() {
     const [tempManagerId, setTempManagerId] = useState("");
 
     const { checkAccess } = useRole();
-    const canEdit = checkAccess('employees', 'edit');
+    
+    // <-- UPDATED THIS LINE to check org_chart instead of employees -->
+    const canEdit = checkAccess('org_chart', 'edit'); 
 
     useEffect(() => {
         const unsubEmp = onSnapshot(collection(db, "employees"), (snapshot) => {
