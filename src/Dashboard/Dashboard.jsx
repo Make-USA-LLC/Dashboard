@@ -17,6 +17,14 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const BASE = "/dashboard";
 
+// Helper function to score the iPads for auto-sorting
+const getSortScore = (ipad) => {
+    const isActive = ipad.secondsRemaining !== 0;
+    if (isActive && !ipad.isPaused) return 3; // Running
+    if (isActive && ipad.isPaused) return 2;  // Paused
+    return 1; // Idle
+};
+
 const Dashboard = () => {
   const navigate = useNavigate(); 
   
@@ -28,6 +36,9 @@ const Dashboard = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newIpadId, setNewIpadId] = useState('');
   const [now, setNow] = useState(Date.now()); 
+  
+  // NEW: State to track if the user has manually dragged cards
+  const [hasCustomLayout, setHasCustomLayout] = useState(false);
 
   const gridRef = useRef(null);
   const sortableInstance = useRef(null);
@@ -37,6 +48,14 @@ const Dashboard = () => {
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       if (currentUser) {
         setUser(currentUser);
+        
+        // Check for existing custom layout on load
+        const storageKey = `makeusa_layout_${currentUser.email}`;
+        const savedOrder = JSON.parse(localStorage.getItem(storageKey));
+        if (savedOrder && Array.isArray(savedOrder) && savedOrder.length > 0) {
+            setHasCustomLayout(true);
+        }
+
         loadUserData(currentUser, async () => {
            await fetchPermissions(currentUser);
            setLoading(false);
@@ -107,6 +126,7 @@ const Dashboard = () => {
       const savedOrder = JSON.parse(localStorage.getItem(storageKey));
 
       if (savedOrder && Array.isArray(savedOrder) && savedOrder.length > 0) {
+        // Apply Custom Dragged Layout
         ipads.sort((a, b) => {
           const idxA = savedOrder.indexOf(a.id);
           const idxB = savedOrder.indexOf(b.id);
@@ -116,18 +136,11 @@ const Dashboard = () => {
           return idxA - idxB;
         });
       } else {
+        // Apply Auto-Sorting Logic
         ipads.sort((a, b) => {
-            const getScore = (ipad) => {
-                const lastHb = ipad.lastUpdateTime?.seconds * 1000 || 0;
-                const isLive = (Date.now() - lastHb) < 950000;
-                const hasProject = ipad.secondsRemaining !== 0; 
-                const isPaused = ipad.isPaused;
-                if (hasProject && !isPaused) return 4; 
-                if (hasProject && isPaused) return 3; 
-                if (isLive) return 2;
-                return 1;
-            };
-            return getScore(b) - getScore(a);
+            const scoreDiff = getSortScore(b) - getSortScore(a); // Sort by Priority
+            if (scoreDiff !== 0) return scoreDiff;
+            return a.id.localeCompare(b.id); // Secondary Sort: Alphabetical so cards don't jitter
         });
       }
       setLiveIpads(ipads);
@@ -158,6 +171,7 @@ const Dashboard = () => {
                 const order = Array.from(gridRef.current.children).map(card => card.getAttribute('data-id'));
                 const storageKey = `makeusa_layout_${user?.email}`;
                 localStorage.setItem(storageKey, JSON.stringify(order));
+                setHasCustomLayout(true); // Trigger UI to show Reset button
             }
         });
     }
@@ -168,7 +182,7 @@ const Dashboard = () => {
            sortableInstance.current = null;
        }
     };
-  }, [loading]);
+  }, [loading, user]);
 
   const handleCreateIpad = async () => {
     if (!newIpadId.trim()) return alert("Enter ID");
@@ -196,7 +210,14 @@ const Dashboard = () => {
   const handleResetLayout = () => {
     const storageKey = `makeusa_layout_${user?.email}`;
     localStorage.removeItem(storageKey);
-    window.location.reload(); 
+    setHasCustomLayout(false);
+    
+    // Instantly animates the cards back into auto-sort without a page reload
+    setLiveIpads(prev => [...prev].sort((a, b) => {
+        const scoreDiff = getSortScore(b) - getSortScore(a);
+        if (scoreDiff !== 0) return scoreDiff;
+        return a.id.localeCompare(b.id);
+    }));
   };
 
   const renderTimer = (ipad) => {
@@ -217,10 +238,10 @@ const Dashboard = () => {
     return `${isNeg ? '-' : ''}${h}:${fmt(m)}:${fmt(s)}`;
   };
 
-  if (loading) return <div className="loading">Loading...</div>;
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
 
   // INCLUDE prod_input inside canViewFinance so the category header renders
-const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view') || hasPerm('manual_ingest', 'view');
+  const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view') || hasPerm('manual_ingest', 'view');
   const canViewQueue = hasPerm('queue', 'view') || hasPerm('search', 'view') || hasPerm('summary', 'view');
   const canViewIpads = hasPerm('fleet', 'view') || hasPerm('timer', 'view');
 
@@ -263,11 +284,11 @@ const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report',
                     <div className="section-header">Finance & Reporting</div>
                     
                     {/* Manual Ingest */}
-{hasPerm('manual_ingest', 'view') && (
-     <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
-        <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
-    </li>
-)}
+                    {hasPerm('manual_ingest', 'view') && (
+                         <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
+                            <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
+                        </li>
+                    )}
 
                     {/* Production Input - STRICTLY checking the new prod_input perm */}
                     {hasPerm('prod_input', 'view') && (
@@ -288,10 +309,10 @@ const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report',
 
                     {/* Financial Report */}
                     {hasPerm('financial_report', 'view') && (
-    <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
-        <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
-    </li>
-)}
+                        <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
+                            <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
+                        </li>
+                    )}
 
                     {/* Bonuses */}
                     {hasPerm('bonuses', 'view') && (
@@ -307,15 +328,15 @@ const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report',
 
                     {/* Commissions */}
                     {hasPerm('commissions', 'view') && (
-    <>
-        <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
-            <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
-        </li>
-        <li className="nav-item" onClick={() => navigate(`${BASE}/agent-reports`)}>
-            <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>summarize</span> Agent Reports</div>
-        </li>
-    </>
-)}
+                        <>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
+                                <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
+                            </li>
+                            <li className="nav-item" onClick={() => navigate(`${BASE}/agent-reports`)}>
+                                <div className="nav-item-main"><span className="material-icons" style={{color:'#e91e63'}}>summarize</span> Agent Reports</div>
+                            </li>
+                        </>
+                    )}
 
                     {/* Finance Setup */}
                     {hasPerm('finance', 'edit') && (
@@ -408,7 +429,8 @@ const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report',
                 <span className="material-icons mobile-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>menu</span>
                 <h1 style={{margin:0, fontSize: '20px', color:'#2c3e50'}}>iPad Dashboard</h1>
             </div>
-            {hasPerm('timer', 'view') && (
+            {/* Conditionally render the Reset button based on drag layout state */}
+            {hasPerm('timer', 'view') && hasCustomLayout && (
                 <button className="btn-small" onClick={handleResetLayout}>Reset View</button>
             )}
         </div>

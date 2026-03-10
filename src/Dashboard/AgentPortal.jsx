@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './AgentPortal.css';
+import Loader from '../components/loader';
 import { db, auth } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { 
@@ -176,7 +177,7 @@ const AgentPortal = () => {
     const totalAmt = filteredReports.reduce((s, r) => s + r.commAmount, 0);
 
     // --- 5. RENDER: LOADING ---
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     // --- 6. RENDER: LOGIN SCREEN (If no user) ---
     if (!currentUser) {

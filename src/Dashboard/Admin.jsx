@@ -12,6 +12,7 @@ import {
   getDoc 
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
 
 const FEATURES = [
     { id: 'access', label: 'Dashboard Login' },
@@ -21,7 +22,7 @@ const FEATURES = [
     { id: 'fleet', label: 'Fleet Mgmt' },
     { id: 'queue_add', label: 'Project Queue (Add New)' }, 
     { id: 'queue', label: 'Project Queue (Edit/Remove)' }, 
-    { id: 'manual_ingest', label: 'Manual Ingest' },          // <-- NEW
+    { id: 'manual_ingest', label: 'Manual Ingest' },
     { id: 'prod_input', label: 'Production Input' },
     { id: 'finance', label: 'Finance Input / Setup' },
     { id: 'financial_report', label: 'Financial Report' }, 
@@ -34,6 +35,7 @@ const FEATURES = [
 
 const Admin = () => {
     const navigate = useNavigate(); 
+    const [loading, setLoading] = useState(true); // <-- LOADING STATE ADDED HERE
 
     const [activeTab, setActiveTab] = useState('users');
     const [users, setUsers] = useState([]);
@@ -83,8 +85,9 @@ const Admin = () => {
                     return;
                 }
                 
-                fetchUsers();
-                fetchGlobalSettings();
+                await fetchUsers();
+                await fetchGlobalSettings();
+                setLoading(false); // <-- TURN OFF LOADER WHEN DONE
             }
         }
     };
@@ -170,6 +173,9 @@ const Admin = () => {
         await setDoc(doc(db, "config", "roles"), rolesConfig);
         alert("Roles Configuration Saved!");
     };
+
+    // <-- LOADER DISPLAYED HERE
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Admin Panel..." /></div>;
 
     const sortedRoles = Object.keys(rolesConfig).sort((a, b) => 
         a === 'admin' ? -1 : b === 'admin' ? 1 : a.localeCompare(b)

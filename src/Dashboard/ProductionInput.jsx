@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ProductionInput.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, updateDoc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -297,7 +298,7 @@ const ProductionInput = () => {
 
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Projects...</div>;
+     if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     return (
         <div className="pi-wrapper">

@@ -111,70 +111,80 @@
 
 /* === FIXED PRINT RULES === */
 @media print {
+    /* 1. Hide the ENTIRE app (Dashboard sidebar, main headers, etc.) */
+    body * {
+        visibility: hidden;
+    }
+
+    /* 2. Only show the reports wrapper and the slips inside it */
+    .reports-page-wrapper, .reports-page-wrapper * {
+        visibility: visible;
+    }
+
+    /* 3. Pull the wrapper OUT of the scrollable dashboard and pin it to the top of the paper */
+    .reports-page-wrapper {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100vw;
+        height: auto !important;
+        overflow: visible !important;
+        background: white !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* 4. Hide the specific UI bars/buttons inside the reports page */
+    .reports-top-bar, 
+    .control-panel, 
+    .summary-card, 
+    .btn { 
+        display: none !important; 
+    }
+
+    /* 5. RESTORE YOUR ORIGINAL SLIP SIZING */
     @page { 
         size: auto; 
         margin: 0mm; 
     } 
-    
-    body { 
-        background: white; 
-        font-size: 12pt; 
-        color: black; 
-        margin: 0; 
-        padding: 0; 
-    }
 
-    /* Hide UI Elements */
-    .reports-top-bar, .control-panel, .summary-card, .btn { 
-        display: none !important; 
-    }
-
-    .reports-page-wrapper { 
-        overflow: visible; 
-        height: auto; 
-        display: block; 
-    }
-
-    /* 1. Remove Grid Gap */
-    .reports-container, .slip-container { 
-        max-width: 100%; 
-        margin: 0; 
-        padding: 0; 
-        display: block; /* Disables the grid gap */
+    .reports-container, .slip-container {
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        display: block !important;
     }
     
-    /* 2. Fix Slip Dimensions */
-    .pay-slip { 
-        border: none; 
-        box-shadow: none; 
-        border-radius: 0; 
-        margin: 0; 
-        width: 100%;
+    .pay-slip {
+        border: none !important;
+        box-shadow: none !important;
+        border-radius: 0 !important;
+        margin: 0 !important;
+        width: 100% !important;
         
-        /* Instead of fixed 100vh, we use min-height. 
-           This fills the page but allows it to shrink slightly to avoid overflow. */
-        min-height: 270mm; 
-        box-sizing: border-box;
-        padding: 40px;
+        /* Your original dimensions: */
+        min-height: 270mm !important; 
+        box-sizing: border-box !important;
+        padding: 40px !important;
 
-        /* Force Page Breaks */
-        page-break-after: always; 
-        break-after: page; 
-        position: relative;
+        page-break-after: always !important;
+        break-after: page !important;
+        position: relative !important;
     }
 
-    .pay-slip:last-child { 
-        page-break-after: auto; 
-        break-after: auto;
+    .pay-slip:last-child {
+        page-break-after: auto !important;
+        break-after: auto !important;
     }
 
-    .cut-line { 
-        display: block; 
-        position: absolute; 
-        bottom: 50px; 
-        width: calc(100% - 80px); /* Account for padding */
+    /* Your original cut-line logic */
+    .cut-line {
+        display: block !important;
+        position: absolute !important;
+        bottom: 50px !important;
+        width: calc(100% - 80px) !important;
     }
 
-    .role-badge { border: 1px solid #000; background: none; color: #000; }
-    .ineligible-badge { border: 1px solid #000; color: #000; background: none; }
+    .role-badge { border: 1px solid #000 !important; background: transparent !important; color: #000 !important; }
+    .ineligible-badge { border: 1px solid #000 !important; color: #000 !important; background: transparent !important; }
 }

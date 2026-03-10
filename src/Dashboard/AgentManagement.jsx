@@ -4,6 +4,7 @@ import './AgentManagement.css';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
 
 const AgentManagement = () => {
     const navigate = useNavigate();
@@ -78,11 +79,9 @@ const AgentManagement = () => {
         }
     };
 
-    // --- FIX IS HERE ---
     const handleImpersonate = () => {
         if (!impersonateTarget) return alert("Please select an agent.");
         
-        // Use the React Route path, not the .html file
         const url = `/dashboard/agent-portal?viewAs=${encodeURIComponent(impersonateTarget)}`;
         window.open(url, '_blank');
     };
@@ -91,7 +90,9 @@ const AgentManagement = () => {
         signOut(auth).then(() => window.location.href = '/');
     };
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading...</div>;
+    // --- FIX IS HERE: Swapped the hardcoded text for the smooth loader ---
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Agent Management..." /></div>;
+    
     const isAdmin = currentUserRole === 'admin';
 
     return (

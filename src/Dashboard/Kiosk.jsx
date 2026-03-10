@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Kiosk.css';
+import Loader from '../components/loader';
 import { db, auth } from './firebase_config.jsx';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
@@ -84,7 +85,7 @@ const Kiosk = () => {
     };
 
     if (error) return <div className="kiosk-loading" style={{color:'#e74c3c'}}>{error}</div>;
-    if (loading) return <div className="kiosk-loading">Initializing Kiosk...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     return (
         <div className="kiosk-wrapper">

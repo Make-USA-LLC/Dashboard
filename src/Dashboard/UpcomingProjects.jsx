@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './UpcomingProjects.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -184,7 +185,7 @@ const UpcomingProjects = () => {
         }
     };
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Queue...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     // Logic: Form shows if they have Add Access AND aren't editing anything OR if they specifically clicked Edit.
     const showForm = (canAdd && !editingId) || (editingId !== null);

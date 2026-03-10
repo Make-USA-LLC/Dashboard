@@ -5,6 +5,7 @@ import './FinancialReport.css';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
+import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
 
 const FinancialReport = () => {
     const navigate = useNavigate();
@@ -28,26 +29,26 @@ const FinancialReport = () => {
     }, []);
 
     const checkAccess = async (user) => {
-    const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-    if (!uSnap.exists()) return navigate('/');
-    const role = uSnap.data().role;
+        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
+        if (!uSnap.exists()) return navigate('/');
+        const role = uSnap.data().role;
 
-    const rolesSnap = await getDoc(doc(db, "config", "roles"));
-    let allowed = false;
-    if (role === 'admin') allowed = true;
-    else if (rolesSnap.exists()) {
-        const rc = rolesSnap.data()[role];
-        // Now exclusively looking for the new Financial Report permission
-        if (rc && (rc['financial_report_view'] || rc['admin_view'])) allowed = true;
-    }
+        const rolesSnap = await getDoc(doc(db, "config", "roles"));
+        let allowed = false;
+        if (role === 'admin') allowed = true;
+        else if (rolesSnap.exists()) {
+            const rc = rolesSnap.data()[role];
+            // Now exclusively looking for the new Financial Report permission
+            if (rc && (rc['financial_report_view'] || rc['admin_view'])) allowed = true;
+        }
 
-    if (allowed) {
-        setHasAccess(true);
-        await loadConfig();
-    } else {
-        setLoading(false);
-    }
-};
+        if (allowed) {
+            setHasAccess(true);
+            await loadConfig();
+        } else {
+            setLoading(false);
+        }
+    };
 
     const loadConfig = async () => {
         try {
@@ -205,7 +206,12 @@ const FinancialReport = () => {
             </div>
 
             <div className="fr-table-container">
-                {loading ? <div className="fr-loading">Loading Report Data...</div> : (
+                {/* <-- REPLACED THE TEXT HERE WITH YOUR NEW LOADER --> */}
+                {loading ? (
+                    <div style={{ padding: '80px 0', display: 'flex', justifyContent: 'center' }}>
+                        <Loader message="Loading Report Data..." />
+                    </div>
+                ) : (
                     <table className="fr-table">
                         <thead>
                             <tr>

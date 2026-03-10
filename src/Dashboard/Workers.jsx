@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Workers.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, onSnapshot, setDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -118,7 +119,7 @@ const Workers = () => {
 
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Database...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
     if (!hasAccess) return <div className="wm-denied">Access Denied: You do not have permission to view workers.</div>;
 
     return (

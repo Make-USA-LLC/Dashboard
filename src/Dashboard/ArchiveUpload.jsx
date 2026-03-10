@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ArchiveUpload.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, writeBatch, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -131,7 +132,7 @@ const ArchiveUpload = () => {
 
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     return (
         <div className="au-wrapper">

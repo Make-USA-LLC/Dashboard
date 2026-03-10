@@ -5,9 +5,11 @@ import { calculateBonuses, getPayDate, getWorkWeekFromPayDate, sanitize } from '
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
 
 const BonusReports = () => {
     const navigate = useNavigate();
+    const [loading, setLoading] = useState(true); // <-- LOADING STATE ADDED HERE
     const [reportsCache, setReportsCache] = useState([]);
     const [workersDir, setWorkersDir] = useState([]);
     const [processedData, setProcessedData] = useState([]);
@@ -63,6 +65,9 @@ const BonusReports = () => {
 
         // 4. Build Dropdowns
         buildPeriodDropdown(list);
+        
+        // <-- TURN OFF LOADER WHEN DONE FETCHING
+        setLoading(false); 
     };
 
     // Rebuild Employee Dropdown whenever Reports or Mode changes
@@ -171,6 +176,9 @@ const BonusReports = () => {
 
     const grandTotal = processedData.reduce((acc, curr) => acc + curr.total, 0);
 
+    // <-- LOADER RENDERED HERE BEFORE THE MAIN PAGE LOADS
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Bonus Reports..." /></div>;
+
     return (
         <div className="reports-page-wrapper">
             <div className="reports-top-bar">
@@ -235,7 +243,7 @@ const BonusReports = () => {
                         <div key={i} className="pay-slip">
                             <div className="slip-header-top">
                                 <div className="company-branding">
-                                    <img src="https://makeit.buzz/wp-content/uploads/2024/06/Make-Logo-Black-E.png" class="company-logo" alt="MAKE USA" />
+                                    <img src="https://makeit.buzz/wp-content/uploads/2024/06/Make-Logo-Black-E.png" className="company-logo" alt="MAKE USA" />
                                     <div className="company-details">
                                         <strong>Make USA LLC</strong><br/>
                                         340 13th Street<br/>

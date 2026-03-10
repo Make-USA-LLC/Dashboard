@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ProjectOptions.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { doc, getDoc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -139,7 +140,7 @@ const DropdownManager = () => {
 
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Options...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     return (
         <div className="dm-wrapper">

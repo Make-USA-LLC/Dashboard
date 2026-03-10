@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './StaffManagement.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -113,7 +114,7 @@ const StaffManagement = () => {
         }
     };
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Staff...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
     if (accessDenied) return <div className="sm-denied">Access Denied</div>;
 
     return (

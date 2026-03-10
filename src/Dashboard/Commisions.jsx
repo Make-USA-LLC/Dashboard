@@ -4,6 +4,7 @@ import './Commisions.css';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
 
 const Commissions = () => {
     const navigate = useNavigate();
@@ -172,6 +173,9 @@ const Commissions = () => {
     };
 
     const grandTotal = Object.values(agentTotals).reduce((a,b) => a+b, 0);
+
+    // <-- LOADER RENDERED HERE BEFORE THE MAIN PAGE LOADS
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Commissions..." /></div>;
 
     return (
         <div className="commissions-page-wrapper">

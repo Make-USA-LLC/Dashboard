@@ -83,7 +83,7 @@ function App() {
     setLoading(false);
   };
 
-  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading System..." /></div>;
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
 
   const DashboardGuard = ({ children }) => {
       if (!user) return <Login type="admin" />;

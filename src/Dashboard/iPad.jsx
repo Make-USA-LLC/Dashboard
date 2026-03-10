@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './iPad.css'; 
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { doc, getDoc, updateDoc, deleteDoc, addDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -329,7 +330,7 @@ const IPad = () => {
 
     const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Controller...</div>;
+     if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     const isActive = !!ipadData?.projectName && ipadData?.projectName !== "No Project Loaded";
     const activeWorkers = ipadData?.activeWorkers || [];

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './EmployeePortal.css';
+import Loader from '../components/loader';
 import { calculateBonuses, getPayDate } from './calculations/bonuses';
 import { db, auth } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
@@ -135,7 +136,7 @@ const EmployeePortal = () => {
     const handleLogout = () => signOut(auth);
 
     // --- 4. RENDER: LOADING ---
-    if (loading) return <div style={{padding:'50px', textAlign:'center', color:'#555'}}>Loading...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     // --- 5. RENDER: NOT LOGGED IN (AUTH UI) ---
     if (!currentUser) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './AgentReports.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData, checkPermission } from './firebase_config'; // Adjust path
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -176,7 +177,7 @@ const AgentReports = () => {
         return p ? p.label : selectedPeriod;
     };
 
-    if (loading) return <div className="ar-wrapper"><div className="ar-empty-state">Loading...</div></div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
     if (accessDenied) return <div className="ar-wrapper"><div className="ar-empty-state">⛔ Access Denied</div></div>;
 
     return (

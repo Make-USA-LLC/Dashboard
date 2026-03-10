@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ProjectSearch.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, limit, where, getDocs, doc, getDoc, updateDoc, setDoc, deleteDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -449,7 +450,7 @@ const ProjectSearch = () => {
     const currentData = filteredData.slice(startIdx, startIdx + rowsPerPage);
 
     if (!hasAccess && !loading) return <div className="ps-denied">⛔ ACCESS DENIED</div>;
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Archive...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
 
     return (
         <div className="ps-wrapper">

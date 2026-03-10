@@ -6,6 +6,7 @@ import {
 } from './firebase_config'; 
 import { checkPermission, loadUserData } from './firebase_config'; 
 import './FinanceInput.css';
+import Loader from '../components/loader';
 
 const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit }) => {
   // Parse Dates
@@ -403,7 +404,7 @@ const FinanceInput = () => {
     }
   };
 
-  if (loading) return <div className="container"><p style={{ textAlign: 'center', marginTop: '50px' }}>Loading pending projects...</p></div>;
+  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
   if (accessDenied) return <div className="container"><div className="denied-box">⛔ ACCESS DENIED<br />You do not have permission to view this page.</div></div>;
 
   return (

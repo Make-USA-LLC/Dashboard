@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Bonuses.css';
+import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
@@ -418,7 +419,7 @@ const Bonuses = () => {
         };
     };
 
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Bonuses...</div>;
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
     const grandTotal = processedData.reduce((acc, curr) => acc + curr.total, 0);
 
     return (
