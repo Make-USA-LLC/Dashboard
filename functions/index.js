@@ -423,7 +423,7 @@ exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", asy
             from: `"MakeUSA Production" <${process.env.SMTP_EMAIL}>`,
             to: `"MakeUSA QC" <${process.env.QC_READY_EMAIL}>`,
             subject: `Action Required: QC Ready for ${companyName} - ${projectName}`,
-            text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project has passed Production Management and requires a Quality Standard to be built and pictures uploaded.`,
+            text: `Project Name: ${projectName}\nCompany: ${companyName}\n\nThis project components arrived and requires a Quality Standard to be built and pictures uploaded.`,
             html: `
                 <div style="font-family: Arial, sans-serif; color: #333;">
                     <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">QC Action Required</h2>

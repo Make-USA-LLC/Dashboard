@@ -24,7 +24,6 @@ const IPad = () => {
     const [activeTab, setActiveTab] = useState('live');
     
     // Permissions
-    // timer = Edit Access, timerView = Read Access
     const [perms, setPerms] = useState({ timer: false, settings: false, fleet: false, timerView: false });
 
     // Timer Logic
@@ -73,14 +72,12 @@ const IPad = () => {
                 timer: rc['timer_edit'] || false,
                 settings: rc['settings_edit'] || false,
                 fleet: rc['fleet_edit'] || false,
-                // View is allowed if they have specific view perm OR edit perm
                 timerView: rc['timer_view'] || rc['timer_edit'] || false 
             });
         }
     };
 
     const initListeners = async () => {
-        // 1. Listen to iPad Data
         const unsubIpad = onSnapshot(doc(db, "ipads", id), (snap) => {
             if (snap.exists()) {
                 setIpadData(snap.data());
@@ -91,7 +88,6 @@ const IPad = () => {
             }
         });
 
-        // 2. Listen to Project Queue
         const qQueue = query(collection(db, "project_queue"), orderBy("createdAt", "asc"));
         const unsubQueue = onSnapshot(qQueue, (snap) => {
             const list = [];
@@ -99,18 +95,13 @@ const IPad = () => {
             setProjectQueue(list);
         });
 
-        // 3. Listen to Machines (Lines) - CHANGED TO SNAPSHOT FOR RELIABILITY
         const qLines = query(collection(db, "lines"), orderBy("name"));
         const unsubLines = onSnapshot(qLines, (snap) => {
             const mList = snap.docs.map(d => d.data().name);
-            // Client-side sort to be safe
             mList.sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
             setMachineOptions(mList);
-        }, (err) => {
-            console.error("Error listening to lines:", err);
         });
 
-        // 4. Fetch Dropdowns & Workers (Static)
         const cSnap = await getDoc(doc(db, "config", "project_options"));
         if (cSnap.exists()) setDropdowns(cSnap.data());
 
@@ -123,7 +114,6 @@ const IPad = () => {
         });
         setWorkersMap(wMap);
 
-        // Return cleanup function for all listeners
         return () => { 
             unsubIpad(); 
             unsubQueue(); 
@@ -160,62 +150,98 @@ const IPad = () => {
 
     // --- WORKER TIME LOGIC ---
     const getWorkerTimeData = (wid) => {
-        if (!ipadData || !ipadData.scanHistory) return { totalMinutes: 0, currentMinutes: 0, bankedMinutes: 0 };
-        
-        let bankedSeconds = 0;
+        if (!ipadData) return { totalMinutes: 0, currentMinutes: 0, bankedMinutes: 0 };
+
+        // 🚨 BULLETPROOF TIMESTAMP EXTRACTOR
+        // Handles both Firebase Timestamps AND Local Javascript Dates safely
+        const getSeconds = (ts) => {
+            if (!ts) return 0;
+            if (ts.seconds !== undefined) return ts.seconds; 
+            if (typeof ts.getTime === 'function') return Math.floor(ts.getTime() / 1000);
+            return 0;
+        };
+
+        // 1. Get exact banked minutes directly from iPad's memory (Avoids log recounting!)
+        const baseBankedMinutes = (ipadData.workerBankedMinutes && ipadData.workerBankedMinutes[wid]) || 0;
+
+        // 2. Find ONLY the last clock in time to calculate the active running seconds
         let lastClockIn = null;
         
-        const history = [...ipadData.scanHistory].sort((a,b) => (a.timestamp?.seconds||0) - (b.timestamp?.seconds||0));
+        if (ipadData.scanHistory) {
+            // Safe sort using our new bulletproof extractor
+            const history = [...ipadData.scanHistory].sort((a,b) => getSeconds(a.timestamp) - getSeconds(b.timestamp));
+            
+            history.forEach(scan => {
+                if (scan.cardID === wid) {
+                    const action = scan.action?.toLowerCase() || "";
+                    if (action.includes("in")) {
+                        lastClockIn = getSeconds(scan.timestamp);
+                    } else if (action.includes("out")) {
+                        lastClockIn = null; // They clocked out, active session ends
+                    }
+                }
+            });
+        }
 
-        history.forEach(scan => {
-            if (scan.cardID !== wid) return;
-            if (scan.action.includes("In")) {
-                lastClockIn = scan.timestamp?.seconds;
-            } else if (scan.action.includes("Out") && lastClockIn) {
-                bankedSeconds += (scan.timestamp.seconds - lastClockIn);
-                lastClockIn = null;
-            }
-        });
-
+        // 3. Add active running seconds if they are currently working
         let currentSeconds = 0;
         if (lastClockIn && ipadData.activeWorkers && ipadData.activeWorkers.includes(wid)) {
             currentSeconds = Math.max(0, (now.getTime()/1000) - lastClockIn);
         }
 
-        const totalMinutes = (bankedSeconds + currentSeconds) / 60;
+        const totalMinutes = baseBankedMinutes + (currentSeconds / 60);
+
         return {
             totalMinutes: totalMinutes,
             currentMinutes: currentSeconds / 60,
-            bankedMinutes: bankedSeconds / 60
+            bankedMinutes: baseBankedMinutes
         };
     };
 
     const formatWorkerTime = (minutes) => {
+        if (isNaN(minutes) || minutes < 0) return "0h 00m";
         const h = Math.floor(minutes / 60);
         const m = Math.floor(minutes % 60);
         return `${h}h ${String(m).padStart(2, '0')}m`;
     };
 
     const startEditingWorker = (wid) => {
-        const data = getWorkerTimeData(wid);
-        const h = Math.floor(data.totalMinutes / 60);
-        const m = Math.floor(data.totalMinutes % 60);
-        setEditingWorker({ id: wid, h, m });
+        // Start at 0 for Add/Subtract functionality
+        setEditingWorker({ id: wid, h: 0, m: 0 });
     };
 
     const saveWorkerTime = async () => {
         if (!perms.timer) return alert("Permission Denied");
         if (!editingWorker) return;
         const wid = editingWorker.id;
-        const targetTotalMinutes = (parseInt(editingWorker.h)||0) * 60 + (parseInt(editingWorker.m)||0);
-        const data = getWorkerTimeData(wid);
-        const newBankedMinutes = targetTotalMinutes - data.currentMinutes;
+        
+        const hVal = parseInt(editingWorker.h) || 0;
+        const mVal = parseInt(editingWorker.m) || 0;
+        const adjustmentMinutes = (hVal * 60) + mVal;
 
-        if (window.confirm(`Update hours to ${editingWorker.h}h ${editingWorker.m}m? \n\n⚠️ This will disqualify the project bonus.`)) {
+        if (adjustmentMinutes === 0) {
+            setEditingWorker(null);
+            return;
+        }
+
+        const actionWord = adjustmentMinutes >= 0 ? 'Add' : 'Subtract';
+        const absH = Math.abs(hVal);
+        const absM = Math.abs(mVal);
+
+        if (window.confirm(`${actionWord} ${absH}h ${absM}m to this worker's time? \n\n⚠️ This will disqualify the project bonus.`)) {
+            
+            // Calculate absolute total to send to iPad
+            const data = getWorkerTimeData(wid);
+            const targetTotalMinutes = data.totalMinutes + adjustmentMinutes;
+            const newBankedMinutes = targetTotalMinutes - data.currentMinutes;
+
+            // Save the command AND instantly inject the new banked time into the Dashboard
             await updateDoc(doc(db, "ipads", id), {
                 remoteCommand: `EDIT_WORKER|${wid}|${newBankedMinutes}`,
-                commandTimestamp: serverTimestamp()
+                commandTimestamp: serverTimestamp(),
+                [`workerBankedMinutes.${wid}`]: newBankedMinutes
             });
+            
             setEditingWorker(null);
         }
     };
@@ -281,6 +307,14 @@ const IPad = () => {
         const timeBudget = job.originalSeconds || job.seconds || 0;
         const timeRemaining = job.seconds || timeBudget;
 
+        // Safely map dates for initialization
+        const fixTimestamp = (ts) => {
+            if (!ts) return null;
+            if (typeof ts.toDate === 'function') return ts.toDate();
+            if (ts.seconds) return new Date(ts.seconds * 1000);
+            return ts;
+        };
+
         const payload = {
             companyName: job.company || "Unknown",
             projectName: job.project || "Untitled",
@@ -290,8 +324,9 @@ const IPad = () => {
             originalSeconds: timeBudget, 
             remoteCommand: `PRELOAD|0:0:${timeRemaining}`,
             commandTimestamp: serverTimestamp(),
-            scanHistory: job.scanHistory || [],
-            projectEvents: job.projectEvents || [],
+            scanHistory: (job.scanHistory || []).map(s => ({ ...s, timestamp: fixTimestamp(s.timestamp) })),
+            projectEvents: (job.projectEvents || []).map(e => ({ ...e, timestamp: fixTimestamp(e.timestamp) })),
+            workerBankedMinutes: job.workerBankedMinutes || {}, // 🚨 Pass explicit edits securely to iPad
             pricePerUnit: job.pricePerUnit || 0,
             expectedUnits: job.expectedUnits || 0
         };
@@ -471,8 +506,21 @@ const IPad = () => {
                                                     <td style={{fontWeight:'bold', color:'#2c3e50'}}>
                                                         {isEditing ? (
                                                             <div style={{display:'flex', alignItems:'center', gap:'5px'}}>
-                                                                <input type="number" value={editingWorker.h} onChange={e=>setEditingWorker({...editingWorker, h:e.target.value})} style={{width:'40px', padding:'4px', borderRadius:'4px', border:'1px solid #ccc'}} /> h
-                                                                <input type="number" value={editingWorker.m} onChange={e=>setEditingWorker({...editingWorker, m:e.target.value})} style={{width:'40px', padding:'4px', borderRadius:'4px', border:'1px solid #ccc'}} /> m
+                                                                <span style={{fontSize: '11px', color: '#e67e22', fontWeight: 'bold'}}>Adjust by:</span>
+                                                                <input 
+                                                                    type="number" 
+                                                                    value={editingWorker.h} 
+                                                                    onChange={e=>setEditingWorker({...editingWorker, h:e.target.value})} 
+                                                                    style={{width:'45px', padding:'4px', borderRadius:'4px', border:'1px solid #ccc'}} 
+                                                                    placeholder="0" 
+                                                                /> h
+                                                                <input 
+                                                                    type="number" 
+                                                                    value={editingWorker.m} 
+                                                                    onChange={e=>setEditingWorker({...editingWorker, m:e.target.value})} 
+                                                                    style={{width:'45px', padding:'4px', borderRadius:'4px', border:'1px solid #ccc'}} 
+                                                                    placeholder="0" 
+                                                                /> m
                                                             </div>
                                                         ) : (
                                                             formatWorkerTime(timeData.totalMinutes)
