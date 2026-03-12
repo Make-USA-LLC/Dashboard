@@ -4,7 +4,7 @@ import {
   doc, getDoc, updateDoc, collection, getDocs, onSnapshot, query, where, setDoc, deleteDoc 
 } from 'firebase/firestore'; 
 import { db } from '../../firebase_config';
-import { logAudit } from '../utils/logger'; 
+import { logAudit, getChangesDiff } from '../utils/logger'; // <-- IMPORTED DIFF
 import { useMsal } from "@azure/msal-react"; 
 import { useRole } from '../hooks/useRole';
 
@@ -132,7 +132,6 @@ export default function EmployeeDetail() {
   const [departmentOptions, setDepartmentOptions] = useState([]); 
   const [timeOffConfig, setTimeOffConfig] = useState({ pto: 15, sick: 5 });
   
-  // Added: List of employees for the manager dropdown
   const [employeesList, setEmployeesList] = useState([]);
 
   const [heldKeys, setHeldKeys] = useState([]);
@@ -145,6 +144,7 @@ export default function EmployeeDetail() {
   const [assignKeyModal, setAssignKeyModal] = useState(false);
   
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [initialEditFormData, setInitialEditFormData] = useState({}); // <--- ADDED FOR DIFFING
   const [editFormData, setEditFormData] = useState({});
   
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
@@ -184,7 +184,6 @@ export default function EmployeeDetail() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false);
 
   useEffect(() => {
-    // Fetch all active employees for the manager dropdown and display
     const unsubEmployees = onSnapshot(collection(db, "employees"), (snapshot) => {
         const list = snapshot.docs
             .map(doc => ({ id: doc.id, ...doc.data() }))
@@ -299,7 +298,9 @@ export default function EmployeeDetail() {
           const filePath = `/sites/${SITE_ID}/drive/root:/Documents/HR/Personnel Folders/${safeName}/${fileName}:/content?@microsoft.graph.conflictBehavior=rename`;
           const uploadResponse = await fetch(`https://graph.microsoft.com/v1.0${filePath}`, { method: "PUT", headers: { "Authorization": `Bearer ${token}`, "Content-Type": file.type }, body: file });
           if (!uploadResponse.ok) throw new Error("SharePoint Error: " + uploadResponse.statusText);
-          logAudit("Document Upload", employee.name, `Uploaded ${file.name}`);
+          
+          logAudit("Document Upload", employee.name, `Uploaded ${file.name}`, { document: { action: "Uploaded", name: file.name, size: file.size }});
+          
           alert("File uploaded successfully!"); fetchSharePointFiles(); 
       } catch (error) { console.error(error); alert("Upload failed: " + error.message); } finally { setIsUploading(false); e.target.value = null; }
   };
@@ -312,14 +313,14 @@ export default function EmployeeDetail() {
       const asset = availableAssets.find(a => a.id === assetId); 
       const empName = employee.firstName ? `${employee.firstName} ${employee.lastName}` : employee.name; 
       await updateDoc(doc(db, "assets", assetId), { assignedToId: id, assignedToName: empName, status: "Assigned" }); 
-      logAudit("Assign Asset", asset.name, `Assigned to ${empName} (via Profile)`); 
+      logAudit("Assign Asset", asset.name, `Assigned to ${empName}`, { asset: { action: "Assigned", id: asset.id, name: asset.name, to: empName }}); 
       setAssignAssetModal(false); 
   };
   
   const returnAsset = async (asset) => { 
       if(!confirm(`Return ${asset.name}?`)) return; 
       await updateDoc(doc(db, "assets", asset.id), { assignedToId: null, assignedToName: "", status: "Available" }); 
-      logAudit("Return Asset", asset.name, `Returned from ${employee.name} (via Profile)`); 
+      logAudit("Return Asset", asset.name, `Returned from ${employee.name}`, { asset: { action: "Returned", id: asset.id, name: asset.name, from: employee.name }}); 
   };
   
   const assignKeyToEmployee = async (keyName) => { 
@@ -327,14 +328,14 @@ export default function EmployeeDetail() {
       if (!keyToAssign) return; 
       const empName = employee.firstName ? `${employee.firstName} ${employee.lastName}` : employee.name; 
       await updateDoc(doc(db, "keys", keyToAssign.id), { holderId: id, holderName: empName }); 
-      logAudit("Assign Key", keyName, `Assigned to ${empName} (via Profile)`); 
+      logAudit("Assign Key", keyName, `Assigned to ${empName}`, { key: { action: "Assigned", id: keyToAssign.id, name: keyName, to: empName }}); 
       setAssignKeyModal(false); 
   };
   
   const returnKey = async (key) => { 
       if(!confirm(`Return key "${key.name}"?`)) return; 
       await updateDoc(doc(db, "keys", key.id), { holderId: null, holderName: "" }); 
-      logAudit("Return Key", key.name, `Returned from ${employee.name} (via Profile)`); 
+      logAudit("Return Key", key.name, `Returned from ${employee.name}`, { key: { action: "Returned", id: key.id, name: key.name, from: employee.name }}); 
   };
   
   const addLocker = async (newLockerId) => { 
@@ -346,7 +347,7 @@ export default function EmployeeDetail() {
           const updatedLockers = [...currentLockers, newLockerId]; 
           await updateDoc(doc(db, "employees", id), { assignedLockerIds: updatedLockers }); 
           setEmployee({ ...employee, assignedLockerIds: updatedLockers }); 
-          logAudit("Assign Locker", newLockerId, `Assigned to ${empName} (via Profile)`); 
+          logAudit("Assign Locker", newLockerId, `Assigned to ${empName}`, { locker: { action: "Assigned", id: newLockerId, to: empName }}); 
       } 
   };
   
@@ -357,12 +358,13 @@ export default function EmployeeDetail() {
       const updatedLockers = currentLockers.filter(l => l !== lockerId); 
       await updateDoc(doc(db, "employees", id), { assignedLockerIds: updatedLockers }); 
       setEmployee({ ...employee, assignedLockerIds: updatedLockers }); 
-      logAudit("Unassign Locker", lockerId, `Removed from ${employee.name} (via Profile)`); 
+      logAudit("Unassign Locker", lockerId, `Removed from ${employee.name}`, { locker: { action: "Unassigned", id: lockerId, from: employee.name }}); 
   };
   
   const openEditModal = () => {
       const formatDate = (ts) => { if (!ts) return ""; try { const d = ts.seconds ? new Date(ts.seconds * 1000) : new Date(ts); return !isNaN(d) ? d.toISOString().split('T')[0] : ""; } catch (e) { return ""; } };
-      setEditFormData({
+      
+      const formDataObj = {
           firstName: employee.firstName || "", lastName: employee.lastName || "", email: employee.email || "", phone: employee.phone || "",
           addressStreet: employee.addressStreet || "", addressCity: employee.addressCity || "", addressState: employee.addressState || "", addressZip: employee.addressZip || "",
           compensation: employee.compensation || "", type: employee.type || "Salary",
@@ -371,16 +373,29 @@ export default function EmployeeDetail() {
           birthday: formatDate(employee.birthday), lastReviewDate: formatDate(employee.lastReviewDate),
           terminationDate: formatDate(employee.terminationDate),
           cardId: employee.cardId || "",
-          managerId: employee.managerId || "" // Added managerId
-      });
+          managerId: employee.managerId || ""
+      };
+      
+      setInitialEditFormData(formDataObj);
+      setEditFormData(formDataObj);
       setIsEditModalOpen(true);
   };
 
   const handleEditSubmit = async (e) => {
       e.preventDefault();
+      
+      // Calculate exact changes using our helper
+      const changes = getChangesDiff(initialEditFormData, editFormData);
+      const changedFields = Object.keys(changes);
+      
+      if (changedFields.length === 0) {
+          setIsEditModalOpen(false); // Nothing to save or log
+          return;
+      }
+
       const updates = { 
           firstName: editFormData.firstName, lastName: editFormData.lastName, name: `${editFormData.firstName} ${editFormData.lastName}`, email: editFormData.email, phone: editFormData.phone, addressStreet: editFormData.addressStreet, addressCity: editFormData.addressCity, addressState: editFormData.addressState, addressZip: editFormData.addressZip, type: editFormData.type, department: editFormData.department,
-          managerId: editFormData.managerId || null // Added managerId
+          managerId: editFormData.managerId || null
       };
       
       if (canEditMoney) { updates.compensation = editFormData.compensation; }
@@ -405,7 +420,8 @@ export default function EmployeeDetail() {
              });
           }
 
-          logAudit("Profile Edit", employee.name, "Updated profile details.");
+          logAudit("Profile Edit", employee.name, `Updated fields: ${changedFields.join(", ")}`, changes);
+          
           const newLocal = { ...employee, ...updates };
           if(updates.hireDate) newLocal.hireDate = { seconds: updates.hireDate.getTime()/1000 };
           if(updates.salaryStartDate) newLocal.salaryStartDate = { seconds: updates.salaryStartDate.getTime()/1000 };
@@ -414,7 +430,7 @@ export default function EmployeeDetail() {
           if(updates.terminationDate) newLocal.terminationDate = { seconds: updates.terminationDate.getTime()/1000 };
           else newLocal.terminationDate = null;
           
-          newLocal.managerId = updates.managerId; // Sync local state
+          newLocal.managerId = updates.managerId; 
 
           setEmployee(newLocal);
           setIsEditModalOpen(false);
@@ -453,7 +469,13 @@ export default function EmployeeDetail() {
           alert("Employee terminated, but failed to automatically remove iPad access. Please check manually.");
       }
 
-      logAudit("Employee Terminated", employee.name, `Terminated. Reason: ${terminationReason}. Removed from iPad System.`);
+      const changes = {
+          status: { from: "Active", to: "Inactive" },
+          terminationDate: { from: null, to: terminationDateInput },
+          terminationReason: { from: null, to: terminationReason },
+          terminationNotes: { from: null, to: terminationNotes }
+      };
+      logAudit("Employee Terminated", employee.name, `Terminated. Reason: ${terminationReason}. Removed from iPad System.`, changes);
       
       const newLocal = {...employee, ...updates}; 
       newLocal.terminationDate = { seconds: updates.terminationDate.getTime()/1000 }; 
@@ -469,33 +491,169 @@ export default function EmployeeDetail() {
       const masterOffboard = employee.type === "Salary" ? (templates.salaryOffboarding || []) : (templates.hourlyOffboarding || []);
       const newOnboard = {}; const newOffboard = {};
       masterOnboard.forEach(item => newOnboard[item] = false); masterOffboard.forEach(item => newOffboard[item] = false);
+      
       const updates = { status: "Active", terminationDate: null, ptoLog: [], hourlyLog: [], sickCarryover: 0, onboarding: newOnboard, offboarding: newOffboard };
       await updateDoc(doc(db, "employees", id), updates);
-      logAudit("Employee Rehired", employee.name, "Reactivated and reset logs.");
+      
+      const changes = {
+          status: { from: "Inactive", to: "Active" },
+          terminationDate: { from: employee.terminationDate, to: null }
+      };
+      logAudit("Employee Rehired", employee.name, "Reactivated and reset logs.", changes);
+      
       const newLocal = {...employee, ...updates}; setEmployee(newLocal);
   };
-  const saveSickCarryover = async (val) => { let num = parseFloat(val); if(isNaN(num)) num=0; if(num>timeOffConfig.sick) num=timeOffConfig.sick; if(num<0) num=0; setSickCarryover(num); await updateDoc(doc(db, "employees", id), { sickCarryover: num }); setEmployee({ ...employee, sickCarryover: num }); };
+
+  const saveSickCarryover = async (val) => { 
+      let num = parseFloat(val); if(isNaN(num)) num=0; if(num>timeOffConfig.sick) num=timeOffConfig.sick; if(num<0) num=0; 
+      const changes = { sickCarryover: { from: employee.sickCarryover || 0, to: num } };
+      setSickCarryover(num); 
+      await updateDoc(doc(db, "employees", id), { sickCarryover: num }); 
+      setEmployee({ ...employee, sickCarryover: num }); 
+      logAudit("Sick Carryover Update", employee.name, `Adjusted sick carryover to ${num}`, changes);
+  };
+
   const toggleChecklist = async (type, item) => { 
       const currentList = employee[type] || {}; 
       const newVal = !currentList[item];
       const updatedList = { ...currentList, [item]: newVal }; 
       await updateDoc(doc(db, "employees", id), { [type]: updatedList }); 
       setEmployee({ ...employee, [type]: updatedList }); 
-      logAudit("Checklist Update", employee.name, `${newVal ? 'Checked' : 'Unchecked'} ${item} in ${type}`); 
+      
+      const changes = { [type]: { [item]: { from: currentList[item], to: newVal } } };
+      logAudit("Checklist Update", employee.name, `${newVal ? 'Checked' : 'Unchecked'} ${item} in ${type}`, changes); 
   };
-  const addHourlyLog = async (e) => { e.preventDefault(); if(!logReason) return; const newEntry = { date: logDate, reason: logReason, paid: logPaidInitial, isDeleted: false, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.hourlyLog || [])]; await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); setEmployee({ ...employee, hourlyLog: updatedLog }); logAudit("Attendance Log", employee.name, `Added Call-In: ${logReason}`); setLogReason(""); }; 
-  const addPtoLog = async (e) => { e.preventDefault(); const newEntry = { date: ptoDate, type: ptoType, amount: parseFloat(ptoAmount), note: ptoNote, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.ptoLog || [])]; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Log", employee.name, `Added ${ptoAmount} days ${ptoType}`); setPtoNote(""); }; 
-  const togglePaidStatus = async (index) => { const updatedLog = [...employee.hourlyLog]; updatedLog[index].paid = !updatedLog[index].paid; await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); setEmployee({ ...employee, hourlyLog: updatedLog }); };
-  const toggleSoftDelete = async (index) => { const updatedLog = [...employee.hourlyLog]; updatedLog[index].isDeleted = !updatedLog[index].isDeleted; await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); setEmployee({ ...employee, hourlyLog: updatedLog }); };
-  const deletePtoLog = async (index) => { if(!confirm("Remove entry?")) return; const updatedLog = [...employee.ptoLog]; updatedLog.splice(index, 1); await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Log", employee.name, "Deleted time off entry"); }; 
+
+  const addHourlyLog = async (e) => { 
+      e.preventDefault(); if(!logReason) return; 
+      const newEntry = { date: logDate, reason: logReason, paid: logPaidInitial, isDeleted: false, timestamp: Date.now() }; 
+      const updatedLog = [newEntry, ...(employee.hourlyLog || [])]; 
+      await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); 
+      setEmployee({ ...employee, hourlyLog: updatedLog }); 
+      
+      const changes = { hourlyLog: { action: "Added", entry: newEntry } };
+      logAudit("Attendance Log", employee.name, `Added Call-In: ${logReason}`, changes); 
+      setLogReason(""); 
+  }; 
+
+  const addPtoLog = async (e) => { 
+      e.preventDefault(); 
+      const newEntry = { date: ptoDate, type: ptoType, amount: parseFloat(ptoAmount), note: ptoNote, timestamp: Date.now() }; 
+      const updatedLog = [newEntry, ...(employee.ptoLog || [])]; 
+      await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); 
+      setEmployee({ ...employee, ptoLog: updatedLog }); 
+      
+      const changes = { ptoLog: { action: "Added", entry: newEntry } };
+      logAudit("PTO Log", employee.name, `Added ${ptoAmount} days ${ptoType}`, changes); 
+      setPtoNote(""); 
+  }; 
+
+  const togglePaidStatus = async (index) => { 
+      const log = employee.hourlyLog[index];
+      const updatedLog = [...employee.hourlyLog]; 
+      updatedLog[index].paid = !updatedLog[index].paid; 
+      await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); 
+      setEmployee({ ...employee, hourlyLog: updatedLog }); 
+      
+      const changes = { hourlyLog: { action: "Toggled Paid Status", date: log.date, reason: log.reason, from: log.paid, to: !log.paid } };
+      logAudit("Attendance Log", employee.name, `Toggled Paid Status for ${log.date}`, changes);
+  };
+
+  const toggleSoftDelete = async (index) => { 
+      const log = employee.hourlyLog[index];
+      const updatedLog = [...employee.hourlyLog]; 
+      updatedLog[index].isDeleted = !updatedLog[index].isDeleted; 
+      await updateDoc(doc(db, "employees", id), { hourlyLog: updatedLog }); 
+      setEmployee({ ...employee, hourlyLog: updatedLog }); 
+      
+      const changes = { hourlyLog: { action: "Toggled Deleted Status", date: log.date, reason: log.reason, from: log.isDeleted, to: !log.isDeleted } };
+      logAudit("Attendance Log", employee.name, `Toggled Deleted Status for ${log.date}`, changes);
+  };
+
+  const deletePtoLog = async (index) => { 
+      if(!confirm("Remove entry?")) return; 
+      const deletedEntry = employee.ptoLog[index];
+      const updatedLog = [...employee.ptoLog]; 
+      updatedLog.splice(index, 1); 
+      await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); 
+      setEmployee({ ...employee, ptoLog: updatedLog }); 
+      
+      const changes = { ptoLog: { action: "Deleted", entry: deletedEntry } };
+      logAudit("PTO Log", employee.name, `Deleted time off entry for ${deletedEntry.date}`, changes); 
+  }; 
+
   const openCompModal = () => { setCompDate(new Date().toISOString().split('T')[0]); setCompReason(""); setCompAmount(1); setIsCompModalOpen(true); };
-  const handleCompSubmit = async (e) => { e.preventDefault(); const newEntry = { date: compDate, type: "Comp", amount: parseFloat(compAmount), note: "Comp: "+compReason, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.ptoLog || [])]; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("Comp Time", employee.name, `Added ${compAmount} days comp time`); setIsCompModalOpen(false); }; 
+  
+  const handleCompSubmit = async (e) => { 
+      e.preventDefault(); 
+      const newEntry = { date: compDate, type: "Comp", amount: parseFloat(compAmount), note: "Comp: "+compReason, timestamp: Date.now() }; 
+      const updatedLog = [newEntry, ...(employee.ptoLog || [])]; 
+      await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); 
+      setEmployee({ ...employee, ptoLog: updatedLog }); 
+      
+      const changes = { ptoLog: { action: "Added Comp Time", entry: newEntry } };
+      logAudit("Comp Time", employee.name, `Added ${compAmount} days comp time`, changes); 
+      setIsCompModalOpen(false); 
+  }; 
+
   const openAdjustModal = (target) => { setAdjustTarget(target); setAdjustAmount(0); setAdjustNote(""); setIsAdjustModalOpen(true); };
-  const handleAdjustSubmit = async (e) => { e.preventDefault(); let entryDate = new Date().toISOString().split('T')[0]; const currentYearStr = new Date().getFullYear().toString(); if (String(viewYear) !== currentYearStr) entryDate = `${viewYear}-01-01`; const typeStr = adjustTarget === "Sick" ? "Sick Adjustment" : "PTO Adjustment"; const newEntry = { date: entryDate, type: typeStr, amount: parseFloat(adjustAmount), note: `Manual ${adjustTarget} Adjustment: ` + adjustNote, timestamp: Date.now() }; const updatedLog = [newEntry, ...(employee.ptoLog || [])]; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Adjustment", employee.name, `Adjusted ${adjustTarget} by ${adjustAmount}`); setIsAdjustModalOpen(false); }; 
+  
+  const handleAdjustSubmit = async (e) => { 
+      e.preventDefault(); 
+      let entryDate = new Date().toISOString().split('T')[0]; 
+      const currentYearStr = new Date().getFullYear().toString(); 
+      if (String(viewYear) !== currentYearStr) entryDate = `${viewYear}-01-01`; 
+      const typeStr = adjustTarget === "Sick" ? "Sick Adjustment" : "PTO Adjustment"; 
+      const newEntry = { date: entryDate, type: typeStr, amount: parseFloat(adjustAmount), note: `Manual ${adjustTarget} Adjustment: ` + adjustNote, timestamp: Date.now() }; 
+      const updatedLog = [newEntry, ...(employee.ptoLog || [])]; 
+      await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); 
+      setEmployee({ ...employee, ptoLog: updatedLog }); 
+      
+      const changes = { ptoLog: { action: "Manual Adjustment", entry: newEntry } };
+      logAudit("PTO Adjustment", employee.name, `Adjusted ${adjustTarget} by ${adjustAmount}`, changes); 
+      setIsAdjustModalOpen(false); 
+  }; 
+
   const openLogEdit = (index, log) => { const realIndex = employee.ptoLog.findIndex(l => l.timestamp === log.timestamp && l.note === log.note); if(realIndex === -1) return; setEditingLogIndex(realIndex); setEditingLogData({ date: log.date, type: log.type, amount: log.amount, note: log.note || "" }); setIsLogEditModalOpen(true); };
-  const saveLogEdit = async (e) => { e.preventDefault(); if (editingLogIndex === null) return; const updatedLog = [...employee.ptoLog]; updatedLog[editingLogIndex] = { ...updatedLog[editingLogIndex], date: editingLogData.date, type: editingLogData.type, amount: parseFloat(editingLogData.amount), note: editingLogData.note }; await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); setEmployee({ ...employee, ptoLog: updatedLog }); logAudit("PTO Log", employee.name, "Edited existing time off entry"); setIsLogEditModalOpen(false); setEditingLogIndex(null); }; 
-  const handleAddCert = async (e) => { e.preventDefault(); const newCert = { ...certData, id: Date.now() }; const updatedCerts = [...(employee.certifications || []), newCert]; await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); setEmployee({ ...employee, certifications: updatedCerts }); logAudit("Add Cert", employee.name, `Added ${certData.name}`); setIsCertModalOpen(false); setCertData({ name: "", issueDate: "", expireDate: "", notes: "" }); };
-  const deleteCert = async (certId) => { if(!confirm("Remove this certification?")) return; const updatedCerts = (employee.certifications || []).filter(c => c.id !== certId); await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); setEmployee({ ...employee, certifications: updatedCerts }); logAudit("Remove Cert", employee.name, "Removed certification"); };
+  
+  const saveLogEdit = async (e) => { 
+      e.preventDefault(); 
+      if (editingLogIndex === null) return; 
+      const oldEntry = employee.ptoLog[editingLogIndex];
+      const updatedLog = [...employee.ptoLog]; 
+      updatedLog[editingLogIndex] = { ...updatedLog[editingLogIndex], date: editingLogData.date, type: editingLogData.type, amount: parseFloat(editingLogData.amount), note: editingLogData.note }; 
+      await updateDoc(doc(db, "employees", id), { ptoLog: updatedLog }); 
+      setEmployee({ ...employee, ptoLog: updatedLog }); 
+      
+      const changes = { ptoLog: { action: "Edited", from: oldEntry, to: updatedLog[editingLogIndex] } };
+      logAudit("PTO Log", employee.name, `Edited time off entry for ${oldEntry.date}`, changes); 
+      setIsLogEditModalOpen(false); setEditingLogIndex(null); 
+  }; 
+
+  const handleAddCert = async (e) => { 
+      e.preventDefault(); 
+      const newCert = { ...certData, id: Date.now() }; 
+      const updatedCerts = [...(employee.certifications || []), newCert]; 
+      await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); 
+      setEmployee({ ...employee, certifications: updatedCerts }); 
+      
+      const changes = { certifications: { action: "Added", entry: newCert } };
+      logAudit("Add Cert", employee.name, `Added ${certData.name}`, changes); 
+      setIsCertModalOpen(false); setCertData({ name: "", issueDate: "", expireDate: "", notes: "" }); 
+  };
+
+  const deleteCert = async (certId) => { 
+      if(!confirm("Remove this certification?")) return; 
+      const removedCert = (employee.certifications || []).find(c => c.id === certId);
+      const updatedCerts = (employee.certifications || []).filter(c => c.id !== certId); 
+      await updateDoc(doc(db, "employees", id), { certifications: updatedCerts }); 
+      setEmployee({ ...employee, certifications: updatedCerts }); 
+      
+      const changes = { certifications: { action: "Removed", entry: removedCert } };
+      logAudit("Remove Cert", employee.name, `Removed certification ${removedCert?.name}`, changes); 
+  };
+
+  const applyAutoCarryover = () => { if(confirm(`Apply calculated carryover of ${autoCarryover} days?`)) { saveSickCarryover(autoCarryover); } };
 
   if (!employee) return <div style={{padding: 20, fontWeight:'bold', color:'#64748b'}}>Loading Employee Profile...</div>;
 
@@ -537,7 +695,7 @@ export default function EmployeeDetail() {
   const ptoBalance = (yearlyAllowance.pto + addedComp + ptoAdjustments - usedPTO).toFixed(2);
   const isPtoNegative = parseFloat(ptoBalance) < 0;
   const sickBalance = ((yearlyAllowance.sick + autoCarryover + sickAdjustments) - usedSick).toFixed(2);
-  const applyAutoCarryover = () => { if(confirm(`Apply calculated carryover of ${autoCarryover} days?`)) { saveSickCarryover(autoCarryover); } };
+  
 
   const TabButton = ({ name, label, icon }) => (
       <div 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { collection, query, orderBy, limit, getDocs } from 'firebase/firestore';
 import { db } from '../firebase';
-import { useRole } from '../hooks/useRole'; // <--- IMPORT
+import { useRole } from '../hooks/useRole';
 
 export default function Logs() {
   const { checkAccess } = useRole();
@@ -71,7 +71,99 @@ export default function Logs() {
                 <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '14px'}}>
                     <thead><tr style={{background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#475569'}}><th style={{padding: '15px'}}>Date & Time</th><th style={{padding: '15px'}}>Action</th><th style={{padding: '15px'}}>Target User</th><th style={{padding: '15px'}}>Performed By</th><th style={{padding: '15px'}}>Details</th></tr></thead>
                     <tbody>
-                        {currentLogs.length === 0 ? (<tr><td colSpan="5" style={{padding: '30px', textAlign: 'center', color: '#94a3b8'}}>No logs found matching your filters.</td></tr>) : (currentLogs.map((log) => (<tr key={log.id} style={{borderBottom: '1px solid #f1f5f9'}}><td style={{padding: '15px', whiteSpace: 'nowrap', color: '#64748b'}}>{parseDate(log.timestamp).toLocaleString()}</td><td style={{padding: '15px'}}><span style={{fontWeight: 'bold', color: (log.action && log.action.includes("Delete")) ? '#ef4444' : '#2563eb', background: (log.action && log.action.includes("Delete")) ? '#fee2e2' : '#dbeafe', padding: '4px 8px', borderRadius: '4px', fontSize: '11px'}}>{log.action || "Unknown"}</span></td><td style={{padding: '15px', fontWeight: 'bold', color: '#2563eb'}}>{log.target || "-"}</td><td style={{padding: '15px', color: '#334155'}}>{log.performedBy || log.actor || "System"}</td><td style={{padding: '15px', color: '#475569'}}>{log.details}</td></tr>)))}
+                        {currentLogs.length === 0 ? (<tr><td colSpan="5" style={{padding: '30px', textAlign: 'center', color: '#94a3b8'}}>No logs found matching your filters.</td></tr>) : (currentLogs.map((log) => (
+                          <tr key={log.id} style={{borderBottom: '1px solid #f1f5f9'}}>
+                            <td style={{padding: '15px', whiteSpace: 'nowrap', color: '#64748b'}}>{parseDate(log.timestamp).toLocaleString()}</td>
+                            <td style={{padding: '15px'}}><span style={{fontWeight: 'bold', color: (log.action && log.action.includes("Delete")) ? '#ef4444' : '#2563eb', background: (log.action && log.action.includes("Delete")) ? '#fee2e2' : '#dbeafe', padding: '4px 8px', borderRadius: '4px', fontSize: '11px'}}>{log.action || "Unknown"}</span></td>
+                            <td style={{padding: '15px', fontWeight: 'bold', color: '#2563eb'}}>{log.target || "-"}</td>
+                            <td style={{padding: '15px', color: '#334155'}}>{log.performedBy || log.actor || "System"}</td>
+                            <td style={{padding: '15px', color: '#475569'}}>
+                              <div style={{ fontWeight: '500' }}>{log.details}</div>
+                              {log.changes && Object.keys(log.changes).length > 0 && (
+  <div style={{ marginTop: '8px', padding: '12px', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+    <div style={{ fontWeight: 'bold', marginBottom: '8px', color: '#64748b', fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+      Change Details:
+    </div>
+    <ul style={{ margin: 0, paddingLeft: '0', color: '#475569', listStyleType: 'none' }}>
+      {Object.entries(log.changes).map(([field, data]) => {
+        
+        // Clean up the field name (e.g., ptoLog -> Pto Log)
+        const formattedField = field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase());
+
+        // Helper to beautifully render nested objects (like PTO entries or Asset assignments)
+        const renderObject = (obj) => {
+           if (!obj) return <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Empty</span>;
+           if (typeof obj !== 'object') return <span style={{ fontWeight: '600', color: '#0f172a' }}>{String(obj)}</span>;
+           
+           return (
+             <div style={{ background: 'white', padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', marginTop: '4px' }}>
+               {Object.entries(obj).filter(([k]) => k !== 'timestamp').map(([k, v]) => (
+                 <div key={k} style={{ fontSize: '13px', marginBottom: '3px', lineHeight: '1.4' }}>
+                   <span style={{ color: '#64748b', fontWeight: 'bold', textTransform: 'capitalize' }}>{k}:</span>{' '}
+                   <span style={{ color: '#0f172a', fontWeight: '500' }}>
+                     {typeof v === 'boolean' ? (v ? 'Yes' : 'No') : String(v)}
+                   </span>
+                 </div>
+               ))}
+             </div>
+           );
+        };
+
+        // 1. COMPLEX ACTIONS: Handle manual arrays (PTO additions, checklist toggles, assets)
+        if (data && data.action) {
+           return (
+             <li key={field} style={{ marginBottom: '10px' }}>
+               <div style={{ fontWeight: 'bold', color: '#334155', marginBottom: '4px', fontSize: '13px' }}>
+                 {formattedField} 
+                 <span style={{ background: '#dbeafe', color: '#1d4ed8', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', marginLeft: '8px', textTransform: 'uppercase' }}>
+                   {data.action}
+                 </span>
+               </div>
+               
+               {/* Renders the details like Date, Amount, Note cleanly */}
+               {data.entry && renderObject(data.entry)}
+               
+               {/* If it was an edit from one state to another */}
+               {data.from && data.to && (
+                  <div style={{ display: 'flex', gap: '15px', alignItems: 'center', marginTop: '4px' }}>
+                     <div style={{ flex: 1, opacity: 0.8 }}>{renderObject(data.from)}</div>
+                     <div style={{ color: '#94a3b8', fontSize: '16px', fontWeight: 'bold' }}>➔</div>
+                     <div style={{ flex: 1 }}>{renderObject(data.to)}</div>
+                  </div>
+               )}
+             </li>
+           );
+        }
+
+        // 2. STANDARD FIELD EDITS: Handle simple profile updates (e.g. Address, Phone)
+        const getSimpleValue = (val) => {
+            if (val === null || val === undefined || val === "") return "Empty";
+            if (typeof val === 'object') return "(Data Object)"; // Fallback to prevent crashes
+            return String(val);
+        };
+
+        return (
+          <li key={field} style={{ marginBottom: '6px', display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+            <span style={{ fontWeight: '600', color: '#334155', minWidth: '100px', fontSize: '13px' }}>{formattedField}:</span>
+            
+            <span style={{ background: '#fee2e2', color: '#991b1b', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', textDecoration: 'line-through' }}>
+              {getSimpleValue(data?.from)}
+            </span>
+            
+            <span style={{ color: '#cbd5e1', fontWeight: 'bold' }}>➔</span>
+            
+            <span style={{ background: '#dcfce7', color: '#166534', padding: '3px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold' }}>
+              {getSimpleValue(data?.to)}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+)}
+                            </td>
+                          </tr>
+                        )))}
                     </tbody>
                 </table>
                 {filteredLogs.length > 0 && (

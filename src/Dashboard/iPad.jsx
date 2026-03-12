@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import './iPad.css'; 
 import Loader from '../components/loader';
 import { db, auth, loadUserData } from './firebase_config.jsx';
-import { doc, getDoc, updateDoc, deleteDoc, addDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs, Timestamp } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
 
 const IPad = () => {
@@ -230,16 +230,16 @@ const IPad = () => {
 
         if (window.confirm(`${actionWord} ${absH}h ${absM}m to this worker's time? \n\n⚠️ This will disqualify the project bonus.`)) {
             
-            // Calculate absolute total to send to iPad
             const data = getWorkerTimeData(wid);
             const targetTotalMinutes = data.totalMinutes + adjustmentMinutes;
             const newBankedMinutes = targetTotalMinutes - data.currentMinutes;
 
-            // Save the command AND instantly inject the new banked time into the Dashboard
+            // 🚨 THE FIX: ONLY send the command. 
+            // Do NOT overwrite workerBankedMinutes here. Let the iPad do the math,
+            // adjust the timer, and push the new workerBankedMinutes back to Firebase!
             await updateDoc(doc(db, "ipads", id), {
                 remoteCommand: `EDIT_WORKER|${wid}|${newBankedMinutes}`,
-                commandTimestamp: serverTimestamp(),
-                [`workerBankedMinutes.${wid}`]: newBankedMinutes
+                commandTimestamp: serverTimestamp()
             });
             
             setEditingWorker(null);
@@ -307,11 +307,12 @@ const IPad = () => {
         const timeBudget = job.originalSeconds || job.seconds || 0;
         const timeRemaining = job.seconds || timeBudget;
 
-        // Safely map dates for initialization
-        const fixTimestamp = (ts) => {
+        // 🚨 STRICT TIMESTAMP ENFORCER: Prevents the Swift app from crashing!
+        const safeTimestamp = (ts) => {
             if (!ts) return null;
-            if (typeof ts.toDate === 'function') return ts.toDate();
-            if (ts.seconds) return new Date(ts.seconds * 1000);
+            if (typeof ts.toDate === 'function') return ts; 
+            if (ts.seconds !== undefined) return new Timestamp(ts.seconds, ts.nanoseconds || 0);
+            if (ts instanceof Date) return Timestamp.fromDate(ts);
             return ts;
         };
 
@@ -324,9 +325,9 @@ const IPad = () => {
             originalSeconds: timeBudget, 
             remoteCommand: `PRELOAD|0:0:${timeRemaining}`,
             commandTimestamp: serverTimestamp(),
-            scanHistory: (job.scanHistory || []).map(s => ({ ...s, timestamp: fixTimestamp(s.timestamp) })),
-            projectEvents: (job.projectEvents || []).map(e => ({ ...e, timestamp: fixTimestamp(e.timestamp) })),
-            workerBankedMinutes: job.workerBankedMinutes || {}, // 🚨 Pass explicit edits securely to iPad
+            scanHistory: (job.scanHistory || []).map(s => ({ ...s, timestamp: safeTimestamp(s.timestamp) })),
+            projectEvents: (job.projectEvents || []).map(e => ({ ...e, timestamp: safeTimestamp(e.timestamp) })),
+            workerBankedMinutes: job.workerBankedMinutes || {}, // 🚨 Sends edits back to the iPad
             pricePerUnit: job.pricePerUnit || 0,
             expectedUnits: job.expectedUnits || 0
         };
