@@ -5,16 +5,18 @@ import { styles } from './utils';
 import UnlinkedBlendForm from './UnlinkedBlendForm';
 import Loader from '../components/Loader';
 
-export default function ProductionQueue({ setProcessingItem, setViewingItem, printTicket, markAsFinishedInline }) {
+export default function ProductionQueue({ setProcessingItem, setViewingItem, printTicket, markAsFinishedInline, deleteBlend }) {
     const [fullBlends, setFullBlends] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showUnlinkedForm, setShowUnlinkedForm] = useState(false);
     
+    // States for Inline Editing
     const [addingFormulaItem, setAddingFormulaItem] = useState(null);
     const [formulaIngredients, setFormulaIngredients] = useState([]);
+    const [editingInfoItem, setEditingInfoItem] = useState(null);
+    const [editInfoData, setEditInfoData] = useState({ company: '', project: '' });
 
     useEffect(() => {
-        // Read ONLY from the Lab's private queue
         const qProd = query(collection(db, "blending_queue"));
         const unsub = onSnapshot(qProd, (snap) => {
             setFullBlends(snap.docs.map(d => ({ id: d.id, ...d.data(), type: 'production' })));
@@ -22,6 +24,41 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
         });
         return () => unsub();
     }, []);
+
+    const handleToggleEditInfo = (job) => {
+        if (editingInfoItem && editingInfoItem.id === job.id) {
+            if (window.confirm("You have unsaved changes. Are you sure you want to close without saving?")) setEditingInfoItem(null);
+            return;
+        }
+        if ((editingInfoItem || addingFormulaItem) && !window.confirm("You have another editor open. Close without saving?")) return;
+        
+        setAddingFormulaItem(null);
+        setEditingInfoItem(job);
+        setEditInfoData({ company: job.company || '', project: job.project || job.name || '' });
+    };
+
+    const handleToggleEditFormula = (job) => {
+        if (addingFormulaItem && addingFormulaItem.id === job.id) {
+            if (window.confirm("You have unsaved changes. Are you sure you want to close without saving?")) setAddingFormulaItem(null);
+            return;
+        }
+        if ((editingInfoItem || addingFormulaItem) && !window.confirm("You have another editor open. Close without saving?")) return;
+        
+        setEditingInfoItem(null);
+        setAddingFormulaItem(job);
+        setFormulaIngredients(job.ingredients?.length > 0 ? job.ingredients : [
+            { name: 'B40 190 Proof', percentage: '' }, 
+            { name: 'DI Water', percentage: '' }, 
+            { name: 'Fragrance Oil', percentage: '', isOil: true }
+        ]);
+    };
+
+    const handleCancelEditor = () => {
+        if (window.confirm("You have unsaved changes. Are you sure you want to close without saving?")) {
+            setAddingFormulaItem(null);
+            setEditingInfoItem(null);
+        }
+    };
 
     const handleSaveFormula = async (jobId) => {
         const totalRaw = formulaIngredients.reduce((sum, ing) => sum + Number(ing.percentage || 0), 0);
@@ -32,11 +69,26 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
 
         try {
             await updateDoc(doc(db, "blending_queue", jobId), { ingredients: validIngredients });
-            alert("Formula added successfully!");
+            alert("Formula saved successfully!");
             setAddingFormulaItem(null);
         } catch (error) {
             console.error("Error saving formula:", error);
             alert("Failed to save formula.");
+        }
+    };
+
+    const handleSaveInfo = async (jobId) => {
+        if (!editInfoData.company || !editInfoData.project) return alert("Company and Project names cannot be empty.");
+        try {
+            await updateDoc(doc(db, "blending_queue", jobId), { 
+                company: editInfoData.company, 
+                project: editInfoData.project 
+            });
+            alert("Blend info updated successfully!");
+            setEditingInfoItem(null);
+        } catch (error) {
+            console.error("Error updating info:", error);
+            alert("Failed to update info.");
         }
     };
 
@@ -69,23 +121,51 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
                     </div>
                     
                     <div style={{display: 'flex', gap: '10px', flexWrap: 'wrap'}}>
+                        {/* Primary Action Button */}
                         {missingFormula ? (
-                            <button onClick={() => {
-                                setAddingFormulaItem(job);
-                                setFormulaIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
-                            }} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Percentages to blend</button>
+                            <button onClick={() => handleToggleEditFormula(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Percentages</button>
                         ) : !job.calculatedIngredients ? (
-                            <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Add Calculation Info</button>
+                            <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white'}}>➕ Enter Blend Info</button>
                         ) : (
+                            <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Blend Info</button>
+                        )}
+
+                        {/* Universal Edit Buttons */}
+                        <button onClick={() => handleToggleEditInfo(job)} style={{...styles.btn, background: '#64748b', color: 'white', padding: '8px 12px'}}>✏️ Edit Info</button>
+                        
+                        {!missingFormula && (
+                            <button onClick={() => handleToggleEditFormula(job)} style={{...styles.btn, background: '#8b5cf6', color: 'white', padding: '8px 12px'}}>✏️ Edit Formula</button>
+                        )}
+
+                        {/* Completion Actions */}
+                        {job.calculatedIngredients && (
                             <>
-                                <button onClick={() => setProcessingItem(job)} style={{...styles.btn, background: '#f59e0b', padding: '8px 12px'}}>✏️ Edit Info</button>
                                 <button onClick={() => setViewingItem(job)} style={{...styles.btn, background: '#3b82f6', color: 'white', padding: '8px 12px'}}>👀 View Excel</button>
                                 <button onClick={() => printTicket(job)} style={{...styles.btn, background: '#475569', color: 'white', padding: '8px 12px'}}>🖨️ Print</button>
                                 <button onClick={() => markAsFinishedInline(job)} style={{...styles.btn, background: '#10b981', color: 'white', padding: '8px 12px'}}>✅ Finish</button>
                             </>
                         )}
+
+                        {/* Delete Action */}
+                        <button onClick={() => deleteBlend(job)} style={{...styles.btn, background: '#ef4444', color: 'white', padding: '8px 12px'}}>🗑️ Delete</button>
                     </div>
 
+                    {/* Inline Editor for Info (Company & Project) */}
+                    {editingInfoItem && editingInfoItem.id === job.id && (
+                        <div style={{background: '#f8fafc', padding: '15px', marginTop: '15px', borderRadius: '5px', border: '1px solid #cbd5e1'}}>
+                            <h4 style={{ margin: '0 0 10px 0', color: '#334155' }}>Edit Details</h4>
+                            <div style={{display: 'flex', gap: '10px', marginBottom: '10px'}}>
+                                <input style={styles.input} value={editInfoData.company} onChange={e => setEditInfoData({...editInfoData, company: e.target.value})} placeholder="Company Name" />
+                                <input style={styles.input} value={editInfoData.project} onChange={e => setEditInfoData({...editInfoData, project: e.target.value})} placeholder="Project Name" />
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <button onClick={handleCancelEditor} style={{...styles.btn, background: '#e2e8f0', color: '#333'}}>Cancel</button>
+                                <button onClick={() => handleSaveInfo(job.id)} style={{...styles.btn, background: '#10b981', color: 'white'}}>💾 Save Info</button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Inline Editor for Formula */}
                     {addingFormulaItem && addingFormulaItem.id === job.id && (
                         <div style={{background: '#f8fafc', padding: '15px', marginTop: '15px', borderRadius: '5px', border: '1px solid #cbd5e1'}}>
                             <h4 style={{ margin: '0 0 10px 0', color: '#334155' }}>Enter Formula for {job.project}</h4>
@@ -107,7 +187,7 @@ export default function ProductionQueue({ setProcessingItem, setViewingItem, pri
                             <button onClick={() => setFormulaIngredients([...formulaIngredients, {name:'', percentage:''}])} style={{background:'none', border:'none', color:'#2563eb', cursor:'pointer', marginBottom: '15px', fontWeight: 'bold'}}>+ Add Ingredient</button>
                             
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <button onClick={() => setAddingFormulaItem(null)} style={{...styles.btn, background: '#e2e8f0', color: '#333'}}>Cancel</button>
+                                <button onClick={handleCancelEditor} style={{...styles.btn, background: '#e2e8f0', color: '#333'}}>Cancel</button>
                                 <button onClick={() => handleSaveFormula(job.id)} style={{...styles.btn, background: '#10b981', color: 'white'}}>💾 Save Formula</button>
                             </div>
                         </div>

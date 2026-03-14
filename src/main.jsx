@@ -3,8 +3,15 @@ import ReactDOM from 'react-dom/client';
 import HubApp from './App.jsx';
 import { PublicClientApplication, EventType } from "@azure/msal-browser";
 import { MsalProvider } from "@azure/msal-react";
-import { msalConfig } from "./authConfig"; 
+import { msalConfig } from "./authConfig";
 import './index.css';
+import posthog from 'posthog-js';
+import { PostHogProvider } from '@posthog/react';
+
+posthog.init(import.meta.env.VITE_PUBLIC_POSTHOG_TOKEN, {
+    api_host: import.meta.env.VITE_PUBLIC_POSTHOG_HOST,
+    defaults: '2026-01-30',
+});
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -20,9 +27,11 @@ msalInstance.initialize().then(() => {
     msalInstance.handleRedirectPromise().then(() => {
         ReactDOM.createRoot(document.getElementById('root')).render(
             <React.StrictMode>
-                <MsalProvider instance={msalInstance}>
-                    <HubApp />
-                </MsalProvider>
+                <PostHogProvider client={posthog}>
+                    <MsalProvider instance={msalInstance}>
+                        <HubApp />
+                    </MsalProvider>
+                </PostHogProvider>
             </React.StrictMode>,
         );
     }).catch(error => console.error("MSAL Error:", error));

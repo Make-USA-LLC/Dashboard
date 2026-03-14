@@ -15,7 +15,7 @@ export default function Admin() {
     
     const [rolePerms, setRolePerms] = useState({
         view_clients: true, edit_client_details: false, 
-        manage_client_status: false, // <-- NEW PERMISSION
+        manage_client_status: false, 
         view_w9: false, upload_w9: false, 
         view_legal: false, upload_legal: false, 
         view_samples: false, manage_samples: false, 
@@ -49,6 +49,14 @@ export default function Admin() {
         setNewEmail('');
     };
 
+    const getPermEmoji = (key) => {
+        if (key.includes('manage')) return '⚒️';
+        if (key.includes('view')) return '👁️';
+        if (key.includes('upload')) return '⬆️';
+        if (key.includes('edit')) return '✏️';
+        return '✨';
+    };
+
     return (
         <div className="p-8 max-w-6xl mx-auto text-slate-800">
             <Link to="/clients" className="flex items-center gap-2 text-blue-600 font-bold mb-8 no-underline" style={{textDecoration:'none'}}>
@@ -73,19 +81,27 @@ export default function Admin() {
                     <div className="bg-white p-8 rounded-3xl border border-slate-200 shadow-sm">
                         <h3 className="text-xl font-bold mb-6 flex items-center gap-2 text-slate-700"><UserPlus size={22}/> Add User to Module</h3>
                         <form onSubmit={handleAddUser} className="flex flex-col md:flex-row gap-4 items-center">
-                            <div className="relative flex-1 w-full">
-                                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={20} />
-                                <input required type="email" placeholder="email@makeit.buzz" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all font-medium" />
+                            
+                            {/* FIX: Switched to items-stretch, fixed height to h-13 (52px), and inputs to h-full for perfect vertical text centering */}
+                            <div className="flex items-stretch bg-white border border-slate-200 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-blue-500 transition-all flex-1 w-full overflow-hidden h-[52px]">
+                                <div className="pl-4 pr-3 flex items-center justify-center bg-slate-50 text-slate-400 border-r border-slate-100">
+                                    <Mail size={20} />
+                                </div>
+                                <input required type="email" placeholder="email@makeit.buzz" value={newEmail} onChange={e => setNewEmail(e.target.value)} className="w-full h-full pl-3 pr-4 outline-none font-medium bg-transparent" />
                             </div>
-                            <div className="relative md:w-72 w-full">
-                                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={20} />
-                                <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="w-full pl-11 pr-10 py-3 bg-white border border-slate-200 rounded-xl shadow-sm outline-none focus:ring-2 focus:ring-blue-500 appearance-none cursor-pointer font-bold text-slate-700">
+
+                            <div className="flex items-stretch bg-white border border-slate-200 rounded-xl shadow-sm focus-within:ring-2 focus-within:ring-blue-500 transition-all md:w-72 w-full relative overflow-hidden h-[52px]">
+                                <div className="pl-4 pr-3 flex items-center justify-center bg-slate-50 text-slate-400 border-r border-slate-100">
+                                    <User size={20} />
+                                </div>
+                                <select value={selectedRole} onChange={e => setSelectedRole(e.target.value)} className="w-full h-full pl-3 pr-10 outline-none appearance-none cursor-pointer font-bold text-slate-700 bg-transparent">
                                     {roles.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
                                     {roles.length === 0 && <option disabled>Create a role first...</option>}
                                 </select>
                                 <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
                             </div>
-                            <button type="submit" className="bg-blue-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all active:scale-95 whitespace-nowrap w-full md:w-auto">Grant Access</button>
+
+                            <button type="submit" className="bg-blue-600 text-white px-8 h-[52px] rounded-xl font-bold hover:bg-blue-700 shadow-lg shadow-blue-100 transition-all active:scale-95 whitespace-nowrap w-full md:w-auto">Grant Access</button>
                         </form>
                     </div>
 
@@ -103,11 +119,11 @@ export default function Admin() {
                                     <tr key={u.email} className="hover:bg-slate-50/30 transition-colors">
                                         <td className="px-8 py-5 font-bold text-slate-700">{u.email}</td>
                                         <td className="px-8 py-5">
-                                            <div className="relative inline-block min-w-[140px]">
-                                                <select value={u.role} onChange={e => updateDoc(doc(db, "client_access", u.email), { role: e.target.value })} className="bg-blue-50 text-blue-700 text-xs font-black uppercase pl-3 pr-8 py-2 rounded-lg border-none cursor-pointer hover:bg-blue-100 transition-colors appearance-none">
+                                            <div className="relative inline-flex items-center bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors cursor-pointer group">
+                                                <select value={u.role} onChange={e => updateDoc(doc(db, "client_access", u.email), { role: e.target.value })} className="bg-transparent text-blue-700 text-xs font-black uppercase pl-4 pr-10 py-2.5 border-none appearance-none cursor-pointer outline-none w-full">
                                                     {roles.map(r => <option key={r.name} value={r.name}>{r.name}</option>)}
                                                 </select>
-                                                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-400 pointer-events-none" size={14} />
+                                                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-400 group-hover:text-blue-500 pointer-events-none transition-colors" size={14} />
                                             </div>
                                         </td>
                                         <td className="px-8 py-5 text-right">
@@ -143,8 +159,9 @@ export default function Admin() {
                                 <h4 className="font-black text-xl text-slate-900 mb-4">{role.name}</h4>
                                 <div className="flex flex-wrap gap-2">
                                     {Object.keys(role).filter(k => role[k] === true && k !== 'name').map(k => (
-                                        <span key={k} className="bg-slate-100 text-slate-500 text-[10px] font-black uppercase px-2 py-1.5 rounded-lg tracking-tighter">
-                                            {k.replace('manage_', '⚒️ ').replace('view_', '👁️ ').replace('upload_', '⬆️ ').replace('edit_', '✏️ ')}
+                                        <span key={k} className="flex items-center gap-1.5 bg-slate-100 text-slate-500 text-[10px] font-black uppercase px-2.5 py-1.5 rounded-lg tracking-tighter">
+                                            <span>{getPermEmoji(k)}</span>
+                                            <span>{k.replace(/manage_|view_|upload_|edit_/, '').replace(/_/g, ' ')}</span>
                                         </span>
                                     ))}
                                 </div>

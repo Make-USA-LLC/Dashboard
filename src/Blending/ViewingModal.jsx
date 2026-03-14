@@ -1,7 +1,7 @@
 import React from 'react';
 import { getGallons } from './utils';
 
-export default function ViewingModal({ viewingItem, setViewingItem, emailFinishedBlend, printTicket, styles }) {
+export default function ViewingModal({ viewingItem, setViewingItem, emailFinishedBlend, printTicket, deleteBlend, styles }) {
     if (!viewingItem) return null;
 
     return (
@@ -44,9 +44,14 @@ export default function ViewingModal({ viewingItem, setViewingItem, emailFinishe
                     </tbody>
                 </table>
 
-                <div style={{display:'flex', gap:'10px', justifyContent:'flex-end', marginTop: '25px'}}>
-                    <button onClick={() => emailFinishedBlend(viewingItem)} style={{...styles.btn, background: '#8b5cf6'}}>✉️ Email</button>
-                    <button onClick={() => printTicket(viewingItem)} style={{...styles.btn, background: '#475569'}}>🖨️ Print Ticket</button>
+                <div style={{display:'flex', gap:'10px', justifyContent:'space-between', marginTop: '25px'}}>
+                    {deleteBlend ? (
+                        <button onClick={() => deleteBlend(viewingItem)} style={{...styles.btn, background: '#ef4444'}}>🗑️ Delete Blend</button>
+                    ) : <div></div>}
+                    <div style={{display:'flex', gap:'10px'}}>
+                        {emailFinishedBlend && <button onClick={() => emailFinishedBlend(viewingItem)} style={{...styles.btn, background: '#8b5cf6'}}>✉️ Email</button>}
+                        <button onClick={() => printTicket(viewingItem)} style={{...styles.btn, background: '#475569'}}>🖨️ Print Ticket</button>
+                    </div>
                 </div>
             </div>
         </div>

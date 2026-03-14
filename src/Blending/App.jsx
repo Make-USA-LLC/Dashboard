@@ -64,7 +64,6 @@ export default function BlendingApp() {
             const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
             const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
-            // Sanitize standard names
             const rawCompany = (item.company && item.company !== 'TBD' ? item.company : 'Unknown_Company').trim();
             const rawProject = (item.project || item.name || 'Unknown_Project').trim();
             
@@ -78,7 +77,6 @@ export default function BlendingApp() {
             if (item.type === 'sample') {
                 storagePath = `/Documents/Production/Files/${safeCompany}/Samples/${String(new Date().getMonth() + 1).padStart(2, '0')}-${new Date().getFullYear()}/${fileName}`;
             } else {
-                // CRITICAL FIX 1: Strip out # from the existing sharepoint folder string if it exists!
                 if (item.sharepointFolder) {
                     const cleanFolder = item.sharepointFolder.replace(/#/g, ''); 
                     storagePath = `${cleanFolder}/${fileName}`;
@@ -87,7 +85,6 @@ export default function BlendingApp() {
                 }
             }
 
-            // CRITICAL FIX 2: Encode the URL to safely handle spaces
             const encodedPath = storagePath.split('/').map(segment => encodeURIComponent(segment)).join('/');
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
@@ -121,17 +118,14 @@ export default function BlendingApp() {
             if (item.type === 'sample') {
                 await updateDoc(doc(db, "blending_samples", item.id), { status: "completed", completedAt: finishDate });
             } else {
-                // 1. Save permanent archive to blending_production
                 await setDoc(doc(db, "blending_production", item.id), {
                     ...item,
                     blendingStatus: "completed",
                     completedAt: finishDate
                 });
                 
-                // 2. Delete the active ticket from the Lab's private queue
                 await deleteDoc(doc(db, "blending_queue", item.id));
 
-                // 3. Notify the main Production Pipeline that blending is ready!
                 if (item.productionJobId) {
                     const prodRef = doc(db, "production_pipeline", item.productionJobId);
                     const prodSnap = await getDoc(prodRef);
@@ -151,6 +145,29 @@ export default function BlendingApp() {
         } catch (error) {
             console.error("Error marking as finished:", error);
             alert("An error occurred while finishing the blend.");
+        }
+    };
+
+    const deleteBlend = async (item) => {
+        if (!window.confirm(`Are you sure you want to delete ${item.project || item.name}? This action cannot be undone.`)) return;
+
+        try {
+            if (item.type === 'sample') {
+                await deleteDoc(doc(db, "blending_samples", item.id));
+            } else {
+                // If the item has been marked completed it lives in blending_production, otherwise blending_queue
+                if (item.blendingStatus === 'completed' || item.completedAt) {
+                    await deleteDoc(doc(db, "blending_production", item.id));
+                } else {
+                    await deleteDoc(doc(db, "blending_queue", item.id));
+                }
+            }
+            if (viewingItem?.id === item.id) setViewingItem(null);
+            if (processingItem?.id === item.id) setProcessingItem(null);
+            alert("Blend deleted successfully.");
+        } catch (error) {
+            console.error("Error deleting blend:", error);
+            alert("An error occurred while trying to delete the blend.");
         }
     };
 
@@ -223,10 +240,10 @@ export default function BlendingApp() {
                 <button style={styles.tab(activeTab === 'finished_production')} onClick={() => setActiveTab('finished_production')}>Finished Production</button>
             </div>
 
-            {activeTab === 'samples_pending' && <SampleQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
-            {activeTab === 'full_blends' && <ProductionQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} />}
-            {activeTab === 'finished_samples' && <FinishedSamples setViewingItem={setViewingItem} printTicket={printTicket} />}
-            {activeTab === 'finished_production' && <FinishedProduction setViewingItem={setViewingItem} printTicket={printTicket} emailFinishedBlend={emailFinishedBlend} />}
+            {activeTab === 'samples_pending' && <SampleQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} deleteBlend={deleteBlend} />}
+            {activeTab === 'full_blends' && <ProductionQueue setProcessingItem={setProcessingItem} setViewingItem={setViewingItem} printTicket={printTicket} markAsFinishedInline={markAsFinishedInline} deleteBlend={deleteBlend} />}
+            {activeTab === 'finished_samples' && <FinishedSamples setViewingItem={setViewingItem} printTicket={printTicket} deleteBlend={deleteBlend} />}
+            {activeTab === 'finished_production' && <FinishedProduction setViewingItem={setViewingItem} printTicket={printTicket} emailFinishedBlend={emailFinishedBlend} deleteBlend={deleteBlend} />}
 
             {processingItem && <ProcessingModal processingItem={processingItem} setProcessingItem={setProcessingItem} styles={styles} />}
             {viewingItem && <ViewingModal viewingItem={viewingItem} setViewingItem={setViewingItem} emailFinishedBlend={emailFinishedBlend} printTicket={printTicket} styles={styles} />}
