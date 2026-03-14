@@ -10,19 +10,17 @@ const MasterAdmin = () => {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     
-    // User Lists
     const [lists, setLists] = useState({ 
         ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
-        production: [], qc: [], blending: [], wifi: [], admin: [] 
+        production: [], qc: [], blending: [], wifi: [], admin: [], 
+        client: [], clientRoles: [] // <-- Dynamic Roles
     });
     
-    // Inputs for Users
     const [inputs, setInputs] = useState({ 
         ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
-        production: '', qc: '', blending: '', wifi: '', admin: '' 
+        production: '', qc: '', blending: '', wifi: '', admin: '', client: '' 
     });
     
-    // Roles State (For dropdowns)
     const [roles, setRoles] = useState({ ipad: [], hr: [], wifi: [] });
 
     useEffect(() => {
@@ -43,7 +41,7 @@ const MasterAdmin = () => {
             }
         });
         return () => unsubscribe();
-    }, []);
+    }, [navigate]);
 
     const setupListeners = () => {
         const listen = (coll, key, mapFn) => {
@@ -64,32 +62,29 @@ const MasterAdmin = () => {
         listen("machine_access", "machine", d => ({email: d.id, ...d.data()})); 
         listen("wifi_access", "wifi", d => ({email: d.id, ...d.data()})); 
         listen("master_admin_access", "admin", d => ({email: d.id}));
+        listen("client_access", "client", d => ({email: d.id, ...d.data()})); 
+        
+        // Listen for custom Client Roles
+        onSnapshot(collection(db, "client_roles"), (s) => {
+            setLists(prev => ({ ...prev, clientRoles: s.docs.map(d => d.id) }));
+        });
         
         fetchRoles();
         setLoading(false);
     };
 
     const fetchRoles = async () => {
-        // Fetch iPad Roles
         const ipadSnap = await getDoc(doc(db, "config", "roles"));
-        if (ipadSnap.exists()) {
-            setRoles(p => ({...p, ipad: Object.keys(ipadSnap.data())}));
-        }
+        if (ipadSnap.exists()) setRoles(p => ({...p, ipad: Object.keys(ipadSnap.data())}));
         
-        // Fetch HR Roles
         const hrSnap = await getDocs(collection(db, "roles"));
         setRoles(p => ({...p, hr: hrSnap.docs.map(d => d.id)}));
 
-        // Fetch Wi-Fi Roles
         const wifiSnap = await getDoc(doc(db, "config", "wifi_roles"));
-        if (wifiSnap.exists()) {
-            setRoles(p => ({...p, wifi: Object.keys(wifiSnap.data())}));
-        } else {
-            setRoles(p => ({...p, wifi: ['Create Only', 'Create + Logs']})); // Fallback
-        }
+        if (wifiSnap.exists()) setRoles(p => ({...p, wifi: Object.keys(wifiSnap.data())}));
+        else setRoles(p => ({...p, wifi: ['Create Only', 'Create + Logs']})); 
     };
 
-    // --- USER MANAGEMENT ---
     const handleAddUser = async (key, coll, data = {}) => {
         const email = inputs[key].toLowerCase().trim();
         if (!email) return;
@@ -113,7 +108,6 @@ const MasterAdmin = () => {
 
     if (loading) return <div style={{padding:'50px', textAlign:'center', color:'#666'}}>Loading Console...</div>;
 
-    // --- RENDER MAIN USER ACCESS UI ---
     return (
         <div className="master-admin-container">
             <div className="admin-header-row">
@@ -126,13 +120,12 @@ const MasterAdmin = () => {
                 <button onClick={() => navigate('/')} className="btn-exit">Exit</button>
             </div>
 
-            {/* ROW 1: General Employees */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header">iPad Command Center</h3>
                     <div className="admin-add-row">
                         <input value={inputs.ipad} onChange={e => setInputs({...inputs, ipad: e.target.value})} placeholder="Email" className="admin-input" />
-                        <button onClick={() => handleAddUser("ipad", "users", { role: 'viewer' })} className="btn-add">Add</button>
+                        <button onClick={() => handleAddUser("ipad", "users", { role: roles.ipad[0] })} className="btn-add">Add</button>
                     </div>
                     <div className="admin-scroll-box">
                         {lists.ipad.map(u => (
@@ -152,7 +145,7 @@ const MasterAdmin = () => {
                     <h3 className="admin-card-header">HR Platform</h3>
                     <div className="admin-add-row">
                         <input value={inputs.hr} onChange={e => setInputs({...inputs, hr: e.target.value})} placeholder="Email" className="admin-input" />
-                        <button onClick={() => handleAddUser("hr", "authorized_users", { role: 'Employee' })} className="btn-add">Add</button>
+                        <button onClick={() => handleAddUser("hr", "authorized_users", { role: roles.hr[0] })} className="btn-add">Add</button>
                     </div>
                     <div className="admin-scroll-box">
                         {lists.hr.map(u => (
@@ -169,7 +162,6 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* ROW 2: Production & QC */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header" style={{borderLeft: '5px solid #16a34a'}}>Production Mgmt</h3>
@@ -204,7 +196,6 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* ROW 3: Blending & Techs */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header" style={{borderLeft: '5px solid #8b5cf6'}}>Blending Lab</h3>
@@ -239,7 +230,6 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* ROW 4: Shed & Shipment */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header">Shed Inventory Access</h3>
@@ -279,12 +269,9 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* ROW 5: Wi-Fi & Reports (Side-by-Side) */}
             <div className="admin-grid-row">
-                
-                {/* WI-FI ADMIN */}
                 <div className="admin-card" style={{ borderLeft: '5px solid #059669' }}>
-                    <h3 className="admin-card-header">Wi-Fi Management Access</h3>
+                    <h3 className="admin-card-header">Wi-Fi Management</h3>
                     <div className="admin-add-row">
                         <input value={inputs.wifi} onChange={e => setInputs({...inputs, wifi: e.target.value})} placeholder="Email" className="admin-input" />
                         <button onClick={() => handleAddUser("wifi", "wifi_access", { role: roles.wifi[0] || 'Create Only' })} className="btn-add">Add</button>
@@ -303,9 +290,30 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
-                {/* MACHINE & QC REPORTS */}
+                <div className="admin-card" style={{ borderLeft: '5px solid #ca8a04' }}>
+                    <h3 className="admin-card-header">Client Management</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.client} onChange={e => setInputs({...inputs, client: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAddUser("client", "client_access", { role: lists.clientRoles[0] })} className="btn-add">Add</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.client.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <select value={u.role || ''} onChange={e => updateRole("client_access", u.email, e.target.value)} className="admin-role-select">
+                                    <option value="" disabled>Select Role...</option>
+                                    {lists.clientRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                                <button onClick={() => handleRemoveUser("client_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #ef4444' }}>
-                    <h3 className="admin-card-header">Machine & QC Reports Access</h3>
+                    <h3 className="admin-card-header">Machine & QC Reports</h3>
                     <div className="admin-add-row">
                         <input value={inputs.machine} onChange={e => setInputs({...inputs, machine: e.target.value})} placeholder="Email" className="admin-input" />
                         <button onClick={() => handleAddUser("machine", "machine_access", { role: 'Both' })} className="btn-add">Add</button>
@@ -328,10 +336,6 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
-            </div>
-
-            {/* ROW 6: Master Admin (Full Width) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginTop: '20px' }}>
                 <div className="admin-card master-card">
                     <h3 className="admin-card-header">Master Admin</h3>
                     <div className="admin-add-row">

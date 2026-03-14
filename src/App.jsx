@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { auth } from './firebase_config';
+import { doc, getDoc } from 'firebase/firestore'; // <-- Added for manual check
+import { db, auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
-  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi
+  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -26,6 +27,7 @@ import ShipmentApp from './Shipment/App';
 import ProductionApp from './Production/App'; 
 import QCApp from './QC/App';                 
 import BlendingApp from './Blending/App';
+import ClientApp from './Client/App'; 
 
 import GuestAccess from './wifi/GuestAccess';
 import WifiApp from './wifi/App'; 
@@ -34,6 +36,28 @@ import Login from './Login';
 
 function SelectionGrid({ user }) {
   const { checkAccess, loading } = useRole();
+  const [hasClientAccess, setHasClientAccess] = useState(false);
+
+  // MANUALLY CHECK CLIENT ACCESS
+  useEffect(() => {
+    if (user?.email) {
+      const email = user.email.toLowerCase();
+      // Master Admins get automatic access
+      if (email === 'daniel.s@makeit.buzz') {
+          setHasClientAccess(true);
+      } else {
+          // Check standard client_access whitelist and master list
+          Promise.all([
+              getDoc(doc(db, "client_access", email)),
+              getDoc(doc(db, "master_admin_access", email))
+          ]).then(([clientSnap, masterSnap]) => {
+              if (clientSnap.exists() || masterSnap.exists()) {
+                  setHasClientAccess(true);
+              }
+          });
+      }
+    }
+  }, [user]);
 
   if (loading) return <Loader message="Syncing Permissions..." />;
 
@@ -43,13 +67,21 @@ function SelectionGrid({ user }) {
         <h1 style={{ color: '#0f172a', marginBottom: 5, fontSize: '28px' }}>Welcome, {user?.displayName?.split(" ")[0] || "User"}</h1>
         <p style={{ color: '#64748b' }}>Select an application to launch</p>
       </div>
-       
+        
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 25 }}>
         
         {checkAccess('hr', 'dashboard', 'view') && (
           <Link to="/hr" style={cardStyle}>
             <div style={{...iconBox, background: '#dbeafe', color: '#2563eb'}}><Users size={32} /></div>
             <div><div style={titleStyle}>HR Platform</div></div>
+          </Link>
+        )}
+
+        {/* --- Using Direct State for Client Management --- */}
+        {hasClientAccess && (
+          <Link to="/clients" style={cardStyle}>
+            <div style={{...iconBox, background: '#fef08a', color: '#ca8a04'}}><Briefcase size={32} /></div>
+            <div><div style={titleStyle}>Client Management</div></div>
           </Link>
         )}
         
@@ -131,23 +163,42 @@ function SelectionGrid({ user }) {
 function ProtectedMainApp() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  
+  // Notice we pull 'loading' from useRole, but we don't strictly block rendering 
+  // on hasAnyAccess right away because our manual Client check happens asynchronously inside SelectionGrid
   const { loading: roleLoading, hasAnyAccess } = useRole();
+  const [clientAccessReady, setClientAccessReady] = useState(false);
+  const [hasClientModAccess, setHasClientModAccess] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
       setUser(currentUser);
+      if (currentUser?.email) {
+          const email = currentUser.email.toLowerCase();
+          if (email === 'daniel.s@makeit.buzz') {
+             setHasClientModAccess(true);
+          } else {
+             const [clientSnap, masterSnap] = await Promise.all([
+                 getDoc(doc(db, "client_access", email)),
+                 getDoc(doc(db, "master_admin_access", email))
+             ]);
+             if (clientSnap.exists() || masterSnap.exists()) setHasClientModAccess(true);
+          }
+      }
+      setClientAccessReady(true);
       setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-if (authLoading || (user && roleLoading)) {
+  if (authLoading || (user && roleLoading) || !clientAccessReady) {
     return <div style={{height: '100vh', display: 'flex', alignItems: 'center'}}><Loader message="Syncing Secure Profile..." /></div>;
   }  
 
   if (!user) return <Login />;
 
-  if (!hasAnyAccess) {
+  // User is blocked ONLY if they have NO role in useRole AND no Client Access
+  if (!hasAnyAccess && !hasClientModAccess) {
     return (
       <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
         <div style={{background:'white', padding:'40px', borderRadius:'16px', textAlign:'center', boxShadow:'0 4px 20px rgba(0,0,0,0.08)', maxWidth:'400px'}}>
@@ -192,9 +243,10 @@ if (authLoading || (user && roleLoading)) {
         <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> 
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
         <Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
-        
-        {/* WI-FI PROPERLY SECURED WITH ROLEROUTE AGAIN */}
         <Route path="/wifi/*" element={<RoleRoute system="wifi" feature="portal"><WifiApp /></RoleRoute>} />
+        
+        {/* --- Using a standard Route here because the Client Dashboard acts as its own gatekeeper --- */}
+        <Route path="/clients/*" element={<ClientApp />} />
       </Routes>
     </div>
   );
@@ -212,9 +264,7 @@ export default function App() {
           <Route path="/employee-portal" element={<EmployeePortal />} />
           <Route path="/dashboard/agent-portal" element={<AgentPortal />} />
           <Route path="/agent-portal" element={<AgentPortal />} />
-
           <Route path="/guest-wifi" element={<GuestAccess />} />
-
           <Route path="/*" element={<ProtectedMainApp />} />
         </Routes>
       </BrowserRouter>
