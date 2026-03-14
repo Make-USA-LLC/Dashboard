@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import { deleteField, deleteDoc } from 'firebase/firestore'; // <-- NEW IMPORTS
 import Dashboard from './Dashboard';
 import Login from './Login';
 import Admin from './Admin';
@@ -63,11 +64,49 @@ function App() {
     }
 
     try {
-      const userDoc = await getDoc(doc(db, "users", emailKey));
-      if (!userDoc.exists()) {
+      const masterDoc = await getDoc(doc(db, "master_admin_access", emailKey));
+      const userDocRef = doc(db, "users", emailKey);
+      const userDoc = await getDoc(userDocRef);
+      
+      let data = userDoc.exists() ? userDoc.data() : null;
+
+      // --- MASTER ADMIN INTERCEPT & AUTO-UPGRADE ---
+      if (masterDoc.exists()) {
+         if (!data || data.role !== "admin") {
+             await setDoc(userDocRef, { 
+                 role: "admin", 
+                 // Explicitly track if they had zero access before upgrading
+                 previous_role: data?.role || "NO_ACCESS", 
+                 email: emailKey 
+             }, { merge: true });
+         }
+
+         setUser(currentUser); 
+         setLoading(false);
+         return;
+      } 
+      
+      // --- AUTO-REVERT DOWNGRADE ---
+      if (data && data.previous_role) {
+         if (data.previous_role === "NO_ACCESS") {
+             // They had no access before, so completely remove them from the system
+             await deleteDoc(userDocRef);
+             data = null; // Clear local data so the legacy check below blocks them
+         } else {
+             // Revert them to their original legitimate role
+             await setDoc(userDocRef, {
+                 role: data.previous_role,
+                 previous_role: deleteField() // Properly wipes the backup field
+             }, { merge: true });
+             
+             data.role = data.previous_role; 
+         }
+      }
+
+      // --- LEGACY CHECK ---
+      if (!data) {
          setUser(null);
       } else {
-        const data = userDoc.data();
         const isGoogle = currentUser.providerData.some(p => p.providerId === 'google.com');
         if (!isGoogle && data.allowPassword !== true && data.role !== 'admin') {
             await signOut(auth);

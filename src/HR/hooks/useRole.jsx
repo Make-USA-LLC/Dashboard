@@ -1,3 +1,4 @@
+// src/HR/hooks/useRole.jsx
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { doc, getDoc } from 'firebase/firestore';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -8,16 +9,13 @@ const RoleContext = createContext();
 export function RoleProvider({ children }) {
   const [roleName, setRoleName] = useState(null);
   const [permissions, setPermissions] = useState({});
-  const [loading, setLoading] = useState(true); // Start true to prevent premature redirects
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // We listen strictly to Auth State changes
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      // 1. If Auth State changes, we go back to loading state immediately
       setLoading(true);
       
       if (!currentUser) {
-        // Case: Logged Out
         setRoleName(null);
         setPermissions({});
         setLoading(false);
@@ -25,20 +23,24 @@ export function RoleProvider({ children }) {
       }
 
       try {
-        // 2. Fetch Authorized User Doc
+        // --- NEW: Check for Master Admin globally first ---
+        const masterRef = doc(db, 'master_admin_access', currentUser.email);
+        const masterSnap = await getDoc(masterRef);
+        const isMasterAdmin = masterSnap.exists();
+
+        // Fetch Authorized User Doc
         const userRef = doc(db, 'authorized_users', currentUser.email);
         const userSnap = await getDoc(userRef);
 
-        if (userSnap.exists()) {
-          const rName = userSnap.data().role;
+        if (isMasterAdmin || userSnap.exists()) {
+          // --- NEW: Default to 'Admin' if they possess Master access ---
+          const rName = isMasterAdmin ? 'Admin' : userSnap.data().role;
           setRoleName(rName);
 
           // 3. Determine Permissions
           if (rName === 'Admin') {
-            // Admin gets "Master Key" (checked in checkAccess)
             setPermissions({ __admin: true });
           } else {
-            // Fetch Specific Role Permissions
             const roleRef = doc(db, 'roles', rName);
             const roleSnap = await getDoc(roleRef);
             
@@ -50,7 +52,6 @@ export function RoleProvider({ children }) {
             }
           }
         } else {
-          // User logged in via Google, but not in 'authorized_users' collection
           setRoleName(null);
           setPermissions({});
         }
@@ -60,19 +61,14 @@ export function RoleProvider({ children }) {
         setPermissions({});
       }
 
-      // 4. ONLY NOW do we release the loading state
       setLoading(false);
     });
 
     return () => unsubscribe();
   }, []);
 
-  // --- CHECK ACCESS HELPER ---
   const checkAccess = (resource, action = 'view') => {
-      // If still loading, technically no access yet
       if (loading) return false;
-
-      // Admin Bypass
       if (roleName === 'Admin' || permissions.__admin) return true;
 
       const level = permissions[resource] || 0;
@@ -83,8 +79,6 @@ export function RoleProvider({ children }) {
       return false;
   };
 
-  // --- BACKWARDS COMPATIBILITY ---
-  // (Maintained so your other components don't break)
   const isAdmin = roleName === 'Admin';
   const isHR = checkAccess('employees', 'edit'); 
   const isIT = checkAccess('assets', 'edit');

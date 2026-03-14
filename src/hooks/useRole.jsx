@@ -1,3 +1,4 @@
+// src/hooks/useRole.jsx
 import { useState, useEffect, createContext, useContext } from 'react';
 import { db, auth } from '../firebase_config';
 import { doc, onSnapshot } from 'firebase/firestore';
@@ -8,7 +9,7 @@ export function RoleProvider({ children }) {
   const [access, setAccess] = useState({ 
       ipad: null, hr: null, tech: false, shed: false, 
       master: false, shipment: null, production: false, qc: false,
-      blending: false, reports: null, wifi: null // <-- Added wifi
+      blending: false, reports: null, wifi: null
   });
   const [loading, setLoading] = useState(true);
 
@@ -22,7 +23,7 @@ export function RoleProvider({ children }) {
           setAccess({ 
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
               master: true, shipment: 'Admin', production: true, qc: true,
-              blending: true, reports: 'Both_Finance', wifi: 'Master Admin' // <-- Added wifi
+              blending: true, reports: 'Both_Finance', wifi: 'Master Admin'
           });
           setLoading(false);
           return;
@@ -32,7 +33,7 @@ export function RoleProvider({ children }) {
         const loadedTracker = { 
             ipad: false, hr: false, tech: false, shed: false, 
             shipment: false, prod: false, qc: false, 
-            blending: false, reports: false, master: false, wifi: false // <-- Added wifi
+            blending: false, reports: false, master: false, wifi: false
         };
 
         const markLoaded = (key) => {
@@ -53,7 +54,6 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "blending_access", email), (s) => { setAccess(v => ({ ...v, blending: s.exists() })); markLoaded('blending'); }, () => markLoaded('blending')),
           onSnapshot(doc(db, "machine_access", email), (s) => { setAccess(v => ({ ...v, reports: s.data()?.role })); markLoaded('reports'); }, () => markLoaded('reports')),
           onSnapshot(doc(db, "master_admin_access", email), (s) => { setAccess(v => ({ ...v, master: s.exists() })); markLoaded('master'); }, () => markLoaded('master')),
-          // --- NEW WI-FI LISTENER ---
           onSnapshot(doc(db, "wifi_access", email), (s) => { setAccess(v => ({ ...v, wifi: s.data()?.role })); markLoaded('wifi'); }, () => markLoaded('wifi'))
         ];
         return () => unsubs.forEach(un => un());
@@ -65,7 +65,6 @@ export function RoleProvider({ children }) {
     return () => unsubscribeAuth();
   }, []);
 
-  // Check if the user has ANY valid permissions (Now includes Wi-Fi)
   const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi;
 
   const checkAccess = (system, feature) => {
@@ -89,14 +88,21 @@ export function RoleProvider({ children }) {
     if (system === 'ipad') return !!access.ipad;
     if (system === 'hr') return !!access.hr;
     if (system === 'shipment') return !!access.shipment;
-    if (system === 'wifi') return !!access.wifi; // <-- Intercepts Wi-Fi requests
+    if (system === 'wifi') return !!access.wifi;
     if (system === 'admin') return access.master;
     
     return false;
   };
 
+  // --- NEW: Map master access to explicit strings for legacy systems ---
+  const derivedAccess = {
+    ...access,
+    ipad: access.master ? 'admin' : access.ipad,
+    hr: access.master ? 'Admin' : access.hr,
+  };
+
   return (
-    <RoleContext.Provider value={{ checkAccess, loading, roleData: access, hasAnyAccess }}>
+    <RoleContext.Provider value={{ checkAccess, loading, roleData: derivedAccess, hasAnyAccess }}>
       {children}
     </RoleContext.Provider>
   );

@@ -12,7 +12,7 @@ import {
   getDoc 
 } from 'firebase/firestore';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
+import Loader from '../components/loader';
 
 const FEATURES = [
     { id: 'access', label: 'Dashboard Login' },
@@ -35,7 +35,7 @@ const FEATURES = [
 
 const Admin = () => {
     const navigate = useNavigate(); 
-    const [loading, setLoading] = useState(true); // <-- LOADING STATE ADDED HERE
+    const [loading, setLoading] = useState(true);
 
     const [activeTab, setActiveTab] = useState('users');
     const [users, setUsers] = useState([]);
@@ -65,30 +65,51 @@ const Admin = () => {
     }, []);
 
     const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (uSnap.exists()) {
-            const r = uSnap.data().role;
-            setCurrentUserRole(r);
-            await fetchRolesConfig(); 
-            const configSnap = await getDoc(doc(db, "config", "roles"));
-            if(configSnap.exists()) {
-                const config = configSnap.data();
-                setRolesConfig(config);
-                
-                let hasAccess = false;
-                if(r === 'admin') hasAccess = true;
-                else if (config[r] && (config[r]['admin_view'] || config[r]['admin_edit'])) hasAccess = true;
+        const emailKey = user.email.toLowerCase();
 
-                if (!hasAccess) {
-                    alert("Access Denied.");
-                    navigate('/dashboard'); 
-                    return;
-                }
-                
+        try {
+            // Master Admin Intercept
+            const masterDoc = await getDoc(doc(db, "master_admin_access", emailKey));
+            if (masterDoc.exists()) {
+                setCurrentUserRole('admin'); 
+                await fetchRolesConfig(); 
                 await fetchUsers();
                 await fetchGlobalSettings();
-                setLoading(false); // <-- TURN OFF LOADER WHEN DONE
+                setLoading(false);
+                return;
             }
+
+            const uSnap = await getDoc(doc(db, "users", emailKey));
+            if (uSnap.exists()) {
+                const r = uSnap.data().role;
+                setCurrentUserRole(r);
+                await fetchRolesConfig(); 
+                const configSnap = await getDoc(doc(db, "config", "roles"));
+                if(configSnap.exists()) {
+                    const config = configSnap.data();
+                    setRolesConfig(config);
+                    
+                    let hasAccess = false;
+                    if(r === 'admin') hasAccess = true;
+                    else if (config[r] && (config[r]['admin_view'] || config[r]['admin_edit'])) hasAccess = true;
+
+                    if (!hasAccess) {
+                        alert("Access Denied.");
+                        navigate('/dashboard'); 
+                        return;
+                    }
+                    
+                    await fetchUsers();
+                    await fetchGlobalSettings();
+                    setLoading(false);
+                }
+            } else {
+                alert("Access Denied.");
+                navigate('/dashboard'); 
+            }
+        } catch (error) {
+            console.error("Access Check Error:", error);
+            navigate('/dashboard');
         }
     };
 
@@ -98,9 +119,35 @@ const Admin = () => {
     };
 
     const fetchUsers = async () => {
-        const snap = await getDocs(collection(db, "users"));
+        const usersSnap = await getDocs(collection(db, "users"));
+        const masterSnap = await getDocs(collection(db, "master_admin_access"));
+        
+        const masterEmails = new Set();
+        masterSnap.forEach(d => masterEmails.add(d.id.toLowerCase()));
+
         const list = [];
-        snap.forEach(d => list.push(d.data()));
+        usersSnap.forEach(d => {
+            const u = d.data();
+            const email = u.email ? u.email.toLowerCase() : d.id.toLowerCase();
+
+            // 1. Filter out "Ghost" Records (Removed from Master, but hasn't logged in to auto-delete)
+            if (u.previous_role === "NO_ACCESS" && !masterEmails.has(email)) {
+                return; 
+            }
+
+            // 2. Visual Revert for Pending Downgrades (Removed from Master, but hasn't logged in to auto-revert)
+            if (u.previous_role && u.previous_role !== "NO_ACCESS" && !masterEmails.has(email)) {
+                u.role = u.previous_role; 
+            }
+
+            // 3. Identify active Master Admins to lock their controls
+            if (masterEmails.has(email)) {
+                u.isMasterAdmin = true;
+                u.role = 'admin'; // Ensure they show as admin in the table
+            }
+
+            list.push(u);
+        });
         setUsers(list);
     };
 
@@ -174,7 +221,6 @@ const Admin = () => {
         alert("Roles Configuration Saved!");
     };
 
-    // <-- LOADER DISPLAYED HERE
     if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Admin Panel..." /></div>;
 
     const sortedRoles = Object.keys(rolesConfig).sort((a, b) => 
@@ -259,14 +305,17 @@ const Admin = () => {
                                 <tbody>
                                     {users.map(u => (
                                         <tr key={u.email}>
-                                            <td>{u.email} {u.email === currentUserEmail ? '(You)' : ''}</td>
+                                            <td>
+                                                {u.email} {u.email === currentUserEmail ? '(You)' : ''}
+                                                {u.isMasterAdmin && <span style={{fontSize: '11px', background: '#f1c40f', color: '#000', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px', fontWeight: 'bold'}}>MASTER</span>}
+                                            </td>
                                             <td>
                                                 <select 
                                                     value={u.role} 
                                                     onChange={(e) => handleUpdateUser(u.email, 'role', e.target.value)}
                                                     className="admin-input"
                                                     style={{ padding: '5px' }}
-                                                    disabled={u.email === currentUserEmail}
+                                                    disabled={u.email === currentUserEmail || u.isMasterAdmin}
                                                 >
                                                     {sortedRoles.map(r => (
                                                         <option key={r} value={r}>{r.toUpperCase()}</option>
@@ -279,13 +328,13 @@ const Admin = () => {
                                                         type="checkbox" 
                                                         checked={u.allowPassword || false} 
                                                         onChange={(e) => handleUpdateUser(u.email, 'allowPassword', e.target.checked)}
-                                                        disabled={u.email === currentUserEmail}
+                                                        disabled={u.email === currentUserEmail || u.isMasterAdmin}
                                                     />
                                                     <span className="slider"></span>
                                                 </label>
                                             </td>
                                             <td style={{textAlign:'right'}}>
-                                                {u.email !== currentUserEmail && (
+                                                {u.email !== currentUserEmail && !u.isMasterAdmin && (
                                                     <button className="btn-red-outline" onClick={() => handleDeleteUser(u.email)}>Remove</button>
                                                 )}
                                             </td>
