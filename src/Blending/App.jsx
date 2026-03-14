@@ -42,25 +42,39 @@ export default function BlendingApp() {
             const token = await getMsToken();
             if (!token) return false; 
 
-            const title = item.company && item.company !== 'TBD' ? `${item.company} - ${item.project || item.name}` : (item.project || item.name);
+            // Standardize labels and casing to match the Email version
+            const companyName = String(item.company || '').toUpperCase(); 
+            const projectName = String(item.project || item.name || 'Unknown Project').toUpperCase();
             const finishDate = new Date().toLocaleString(); 
 
             const worksheetData = [
-                ["MakeUSA Blending Ticket"],
-                [`${item.type === 'sample' ? 'Sample:' : 'Production:'} ${title}`],
-                [`Total Batch Size: ${item.totalBatchGrams} g`],
-                [`Finished On: ${finishDate}`],
+                ["MAKEUSA BLENDING TICKET"],
+                [companyName],
+                [projectName],
+                [`TOTAL BATCH SIZE: ${item.totalBatchGrams} G`],
+                [`FINISHED ON: ${finishDate}`],
                 [], 
-                ["Formula (Ingredient)", "%", "gr", "Gallons"]
+                ["FORMULA"],
+                ["Ingredient", "%", "gr", "Gallons"]
             ];
 
             item.calculatedIngredients.forEach(ing => {
-                worksheetData.push([ing.name, ing.percentage, ing.calculatedGrams, getGallons(ing.name, ing.calculatedGrams)]);
+                const galValue = getGallons(ing.name, ing.calculatedGrams);
+                worksheetData.push([
+                    ing.name, 
+                    `${Number(ing.percentage).toFixed(2)}%`, 
+                    Number(ing.calculatedGrams).toFixed(2), 
+                    galValue === '-' ? '-' : Number(galValue).toFixed(4)
+                ]);
             });
+
+            // Add the missing "Total" row to match Email summary
+            worksheetData.push(["Total", "100.00%", Number(item.totalBatchGrams).toFixed(2), ""]);
 
             const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
             const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Blending Ticket");
+            XLSX.utils.book_append_sheet(workbook, worksheet, "Formula");
+            
             const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
             const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 
