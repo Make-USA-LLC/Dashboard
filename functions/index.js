@@ -36,7 +36,7 @@ const transporter = nodemailer.createTransport({
 });
 
 // ------------------------------------------------------------------
-// 1. BLENDING DASHBOARD RESEND
+// 1. BLENDING DASHBOARD RESEND (UPDATED WITH FALLBACK)
 // ------------------------------------------------------------------
 exports.sendManualEmail = onCall({ cors: true }, async (request) => {
     const { id, type } = request.data;
@@ -47,13 +47,19 @@ exports.sendManualEmail = onCall({ cors: true }, async (request) => {
     }
 
     try {
-        // FIX: Point production emails to the new permanent archive!
         const collectionName = type === 'sample' ? 'blending_samples' : 'blending_production';
-        const docRef = admin.firestore().collection(collectionName).doc(id);
-        const docSnap = await docRef.get();
+        let docRef = admin.firestore().collection(collectionName).doc(id);
+        let docSnap = await docRef.get();
+
+        // --- NEW PATCH: Check the active queue if the document isn't in the archive yet ---
+        if (!docSnap.exists) {
+            console.log(`Document not found in ${collectionName}, checking blending_queue...`);
+            docRef = admin.firestore().collection("blending_queue").doc(id);
+            docSnap = await docRef.get();
+        }
 
         if (!docSnap.exists) {
-            console.error(`Document ${id} not found in ${collectionName}`);
+            console.error(`Document ${id} not found in ${collectionName} or blending_queue`);
             throw new HttpsError('not-found', 'Document not found.');
         }
 
@@ -80,7 +86,6 @@ exports.onSampleCompleted = onDocumentUpdated("blending_samples/{sampleId}", asy
     }
 });
 
-// FIX: Now triggers automatically when a document is added to the permanent archive
 exports.onProductionBlendCompleted = onDocumentCreated("blending_production/{jobId}", async (event) => {
     const data = event.data.data();
     if (data && data.blendingStatus === 'completed') {
@@ -326,7 +331,6 @@ exports.resendAuditAlertsTrigger = onDocumentUpdated('five_s_audits/{auditId}', 
     const before = event.data.before.data();
     const after = event.data.after.data();
 
-    // Only trigger if a new resend request was just stamped into the database
     if (after.resendTimestamp && before.resendTimestamp?.seconds !== after.resendTimestamp?.seconds) {
         console.log(`Manual resend triggered for Audit ID: ${event.params.auditId}`);
         
@@ -412,7 +416,6 @@ exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", asy
     const before = event.data.before.data();
     const after = event.data.after.data();
 
-    // Only trigger if the status JUST changed to "qc_pending"
     if (before.status !== 'qc_pending' && after.status === 'qc_pending') {
         const projectName = after.project || after.name || 'Unknown Project';
         const companyName = after.company || 'Unknown Company';
@@ -453,8 +456,6 @@ exports.onProjectSentToQC = onDocumentUpdated("production_pipeline/{jobId}", asy
 // ------------------------------------------------------------------
 // 7. HR BIRTHDAY AUTOMATIONS
 // ------------------------------------------------------------------
-
-// Helper function to fetch active employees with a valid birthday
 async function getActiveEmployeesWithBirthdays() {
     const snapshot = await admin.firestore().collection('employees').where('status', '==', 'Active').get();
     const employees = [];
@@ -462,10 +463,7 @@ async function getActiveEmployeesWithBirthdays() {
     snapshot.forEach(doc => {
         const data = doc.data();
         if (data.birthday) {
-            // Handle Firestore Timestamp
             const bdayDate = data.birthday.toDate ? data.birthday.toDate() : new Date(data.birthday);
-            
-            // Ensure the date is valid before adding to the list
             if (!isNaN(bdayDate)) {
                 employees.push({
                     name: data.name || `${data.firstName} ${data.lastName}`,
@@ -478,26 +476,19 @@ async function getActiveEmployeesWithBirthdays() {
     return employees;
 }
 
-// A. MONTHLY DIGEST (Runs 1st of every month at 8:00 AM)
 exports.monthlyBirthdayDigest = onSchedule({
     schedule: "0 8 1 * *", 
     timeZone: "America/New_York" 
 }, async (event) => {
     const today = new Date();
-    const currentMonth = today.getMonth(); // 0-11
+    const currentMonth = today.getMonth(); 
     const monthName = today.toLocaleString('default', { month: 'long' });
 
     const employees = await getActiveEmployeesWithBirthdays();
-    
-    // Find everyone born in the current month
     const monthBirthdays = employees.filter(emp => emp.birthday.getMonth() === currentMonth);
 
-    if (monthBirthdays.length === 0) {
-        console.log(`No birthdays in ${monthName}. Skipping email.`);
-        return;
-    }
+    if (monthBirthdays.length === 0) return;
 
-    // Sort chronologically by the day of the month
     monthBirthdays.sort((a, b) => a.birthday.getDate() - b.birthday.getDate());
 
     let htmlList = '<ul style="font-size: 16px;">';
@@ -520,10 +511,8 @@ exports.monthlyBirthdayDigest = onSchedule({
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`Sent monthly birthday digest for ${monthName}.`);
 });
 
-// B. DAILY ALERT (Runs every day at 8:00 AM)
 exports.dailyBirthdayAlert = onSchedule({
     schedule: "0 8 * * *", 
     timeZone: "America/New_York"
@@ -533,17 +522,12 @@ exports.dailyBirthdayAlert = onSchedule({
     const currentDay = today.getDate();
 
     const employees = await getActiveEmployeesWithBirthdays();
-    
-    // Find everyone born on exactly this month and day
     const todaysBirthdays = employees.filter(emp => 
         emp.birthday.getMonth() === currentMonth && 
         emp.birthday.getDate() === currentDay
     );
 
-    if (todaysBirthdays.length === 0) {
-        console.log("No birthdays today. Skipping email.");
-        return;
-    }
+    if (todaysBirthdays.length === 0) return;
 
     const names = todaysBirthdays.map(e => e.name).join(' and ');
     
@@ -568,21 +552,17 @@ exports.dailyBirthdayAlert = onSchedule({
     };
 
     await transporter.sendMail(mailOptions);
-    console.log(`Sent daily birthday alert for ${names}.`);
 });
 
 // ==================================================================
 // 8. LOGISTICS & SHIPPING BILLING
 // ==================================================================
-
 exports.onShipmentReadyToBill = onDocumentWritten("shipments/{shipmentId}", async (event) => {
-    // If the document was deleted, do nothing
     if (!event.data.after.exists) return null;
 
     const before = event.data.before.exists ? event.data.before.data() : null;
     const after = event.data.after.data();
 
-    // Define what it means to be "Ready to Bill"
     const isReady = (data) => {
         if (!data) return false;
         const hasVendor = data.vendor && data.vendor.trim() !== "";
@@ -591,12 +571,7 @@ exports.onShipmentReadyToBill = onDocumentWritten("shipments/{shipmentId}", asyn
         return hasVendor && isUnbilled && hasCharges;
     };
 
-    const wasReadyBefore = isReady(before);
-    const isReadyNow = isReady(after);
-
-    // ONLY send the email if it JUST transitioned to "Ready to Bill"
-    // (This prevents spamming if someone edits the description later)
-    if (!wasReadyBefore && isReadyNow) {
+    if (!isReady(before) && isReady(after)) {
         const vendor = after.vendor;
         const tracking = after.trackingNumber || 'N/A';
         const carrier = after.carrier || 'N/A';
@@ -612,48 +587,19 @@ exports.onShipmentReadyToBill = onDocumentWritten("shipments/{shipmentId}", asyn
             html: `
                 <div style="font-family: Arial, sans-serif; color: #333;">
                     <h2 style="color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 5px;">Shipping / Tariff Bill Ready</h2>
-                    <p style="font-size: 16px;">
-                        A new shipment entry requires billing attention.
-                    </p>
+                    <p style="font-size: 16px;">A new shipment entry requires billing attention.</p>
                     <table style="width: 100%; max-width: 500px; border-collapse: collapse; margin-top: 20px;">
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc; width: 35%;">Vendor</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${vendor}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Carrier & Tracking</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${carrier} - ${tracking}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Description</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1;">${description}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #fffbeb; color: #b45309;">Duties / Taxes</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #d97706;">$${duties.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f0fdf4; color: #047857;">Shipping Cost</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #059669;">$${shipping.toFixed(2)}</td>
-                        </tr>
-                        <tr>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #eff6ff; color: #1d4ed8;">Total Due</td>
-                            <td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #2563eb; font-size: 16px;">$${total}</td>
-                        </tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc; width: 35%;">Vendor</td><td style="padding: 10px; border: 1px solid #cbd5e1;">${vendor}</td></tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Carrier & Tracking</td><td style="padding: 10px; border: 1px solid #cbd5e1;">${carrier} - ${tracking}</td></tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f8fafc;">Description</td><td style="padding: 10px; border: 1px solid #cbd5e1;">${description}</td></tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #fffbeb; color: #b45309;">Duties / Taxes</td><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #d97706;">$${duties.toFixed(2)}</td></tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #f0fdf4; color: #047857;">Shipping Cost</td><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #059669;">$${shipping.toFixed(2)}</td></tr>
+                        <tr><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; background-color: #eff6ff; color: #1d4ed8;">Total Due</td><td style="padding: 10px; border: 1px solid #cbd5e1; font-weight: bold; color: #2563eb; font-size: 16px;">$${total}</td></tr>
                     </table>
-                    <p style="margin-top: 20px; font-size: 14px; color: #64748b;">
-                        Log in to the MakeUSA Dashboard (Shipment > Finance Billing) to process and mark this as billed.
-                    </p>
                 </div>
             `
         };
-
-        try {
-            await transporter.sendMail(mailOptions);
-            console.log(`Sent Billing Notification for shipment: ${event.params.shipmentId} (Vendor: ${vendor})`);
-        } catch (error) {
-            console.error("Error sending billing notification:", error);
-        }
+        await transporter.sendMail(mailOptions);
     }
     return null;
 });
