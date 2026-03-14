@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs'; // <-- SWITCHED TO EXCELJS FOR STYLING
 import { db, functions } from '../firebase_config'; 
 import { updateDoc, doc, serverTimestamp, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
@@ -42,49 +42,77 @@ export default function BlendingApp() {
             const token = await getMsToken();
             if (!token) return false; 
 
-            // Standardize labels and casing to match the Email version
-            const companyName = String(item.company || '').toUpperCase(); 
+            const companyName = String(item.company && item.company !== 'TBD' ? item.company : 'Unknown Company').toUpperCase();
             const projectName = String(item.project || item.name || 'Unknown Project').toUpperCase();
-            const finishDate = new Date().toLocaleString(); 
+            const totalGrams = item.totalBatchGrams || 0;
 
-            const worksheetData = [
-                ["MAKEUSA BLENDING TICKET"],
-                [companyName],
-                [projectName],
-                [`TOTAL BATCH SIZE: ${item.totalBatchGrams} G`],
-                [`FINISHED ON: ${finishDate}`],
-                [], 
-                ["FORMULA"],
-                ["Ingredient", "%", "gr", "Gallons"]
+            // --- 1. BUILD EXCEL WORKBOOK (WITH STYLES) ---
+            const workbook = new ExcelJS.Workbook();
+            const sheet = workbook.addWorksheet("Formula");
+
+            // Set Column Widths
+            sheet.columns = [
+                { key: 'formula', width: 35 },
+                { key: 'percent', width: 12 },
+                { key: 'grams', width: 12 },
+                { key: 'gallons', width: 12 }
             ];
 
-            item.calculatedIngredients.forEach(ing => {
-                const galValue = getGallons(ing.name, ing.calculatedGrams);
-                worksheetData.push([
-                    ing.name, 
-                    `${Number(ing.percentage).toFixed(2)}%`, 
-                    Number(ing.calculatedGrams).toFixed(2), 
-                    galValue === '-' ? '-' : Number(galValue).toFixed(4)
-                ]);
+            // Add Header Info
+            sheet.addRow(["MAKEUSA BLENDING TICKET"]).font = { bold: true, size: 14 };
+            sheet.addRow([companyName]).font = { bold: true, size: 12 };
+            sheet.addRow([projectName]).font = { bold: true, size: 12 };
+            sheet.addRow([]); 
+
+            // Add "FORMULA" Yellow Banner
+            sheet.mergeCells('A5:D5');
+            const mainHeader = sheet.getCell('A5');
+            mainHeader.value = 'FORMULA';
+            mainHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } }; 
+            mainHeader.font = { bold: true };
+            mainHeader.alignment = { horizontal: 'center' };
+
+            // Add Sub-Headers with Yellow Background
+            const subHeaderRow = sheet.addRow(['Ingredient', '%', 'gr', 'Gallons']);
+            subHeaderRow.font = { bold: true };
+            subHeaderRow.eachCell(cell => {
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
             });
 
-            // Add the missing "Total" row to match Email summary
-            worksheetData.push(["Total", "100.00%", Number(item.totalBatchGrams).toFixed(2), ""]);
+            // Add Ingredients
+            item.calculatedIngredients.forEach(ing => {
+                const rawGal = String(getGallons(ing.name, ing.calculatedGrams)).replace(/[^0-9.-]/g, '');
+                const galValue = rawGal === '-' || rawGal === '' ? '-' : Number(rawGal);
+                
+                const row = sheet.addRow([
+                    ing.name, 
+                    Number(ing.percentage) / 100, 
+                    Number(ing.calculatedGrams), 
+                    galValue
+                ]);
+                
+                row.getCell(2).numFmt = '0.00%';
+                row.getCell(3).numFmt = '0.00';
+                if (galValue !== '-') row.getCell(4).numFmt = '0.0000';
+            });
 
-            const worksheet = XLSX.utils.aoa_to_sheet(worksheetData);
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Formula");
+            // Add Total Row
+            const totalRow = sheet.addRow(["Total", 1, Number(totalGrams), ""]);
+            totalRow.font = { bold: true };
+            totalRow.getCell(2).numFmt = '0.00%';
+
+            // Generate Blob for Upload
+            const buffer = await workbook.xlsx.writeBuffer();
+            const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+
+            // --- 2. SHAREPOINT UPLOAD LOGIC ---
+            const cleanFileName = projectName.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const fileName = `${cleanFileName}_formula.xlsx`;
             
-            const excelBuffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
-            const blob = new Blob([excelBuffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-
             const rawCompany = (item.company && item.company !== 'TBD' ? item.company : 'Unknown_Company').trim();
             const rawProject = (item.project || item.name || 'Unknown_Project').trim();
-            
             const safeCompany = rawCompany.replace(/[^a-zA-Z0-9 -_]/g, "").trim() || "Unknown_Company";
             const safeProject = rawProject.replace(/[^a-zA-Z0-9 -_]/g, "").trim() || "Unknown_Project";
-            
-            const fileName = `${safeProject}_Blend.xlsx`;
             
             let storagePath = '';
             
@@ -169,7 +197,6 @@ export default function BlendingApp() {
             if (item.type === 'sample') {
                 await deleteDoc(doc(db, "blending_samples", item.id));
             } else {
-                // If the item has been marked completed it lives in blending_production, otherwise blending_queue
                 if (item.blendingStatus === 'completed' || item.completedAt) {
                     await deleteDoc(doc(db, "blending_production", item.id));
                 } else {
