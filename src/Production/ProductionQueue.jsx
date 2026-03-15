@@ -8,6 +8,7 @@ import { styles } from './styles';
 
 const ProductionQueue = () => {
     const { instance, accounts, inProgress } = useMsal();
+    const isDemo = import.meta.env.VITE_IS_DEMO === 'true';
     const [user, setUser] = useState(null);
     const [jobs, setJobs] = useState([]);
     const [options, setOptions] = useState({ companies: [], categories: [], sizes: [] });
@@ -47,6 +48,10 @@ const ProductionQueue = () => {
     }, []);
 
     const handleLogin = async () => {
+        if (isDemo) {
+            alert("🔒 SharePoint connections are disabled in the interactive demo.");
+            return;
+        }
         if (inProgress !== InteractionStatus.None) return;
         try { await instance.loginRedirect({ scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], prompt: "select_account" }); } 
         catch (error) { console.error("Login failed:", error); }
@@ -61,6 +66,12 @@ const ProductionQueue = () => {
     }, [accounts, instance]);
 
     const handleSharePointUpload = async (e, job) => {
+        if (isDemo) {
+            alert("🔒 File uploads to SharePoint are disabled in the interactive demo.");
+            e.target.value = null;
+            return;
+        }
+
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
@@ -217,7 +228,7 @@ const ProductionQueue = () => {
     return (
         <div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '20px', gap: '10px' }}>
-                {accounts.length === 0 ? ( <button onClick={handleLogin} style={{...styles.btn, background:'#0078d4', color:'white'}}>Connect SharePoint</button> ) : ( <span style={{color: 'green', fontWeight:'bold', marginRight: '10px', fontSize: '12px', display: 'flex', alignItems: 'center'}}>✓ SharePoint Connected</span> )}
+                {accounts.length === 0 ? ( <button onClick={handleLogin} style={{...styles.btn, background: isDemo ? '#9ca3af' : '#0078d4', color:'white', cursor: isDemo ? 'not-allowed' : 'pointer'}}>Connect SharePoint</button> ) : ( <span style={{color: 'green', fontWeight:'bold', marginRight: '10px', fontSize: '12px', display: 'flex', alignItems: 'center'}}>✓ SharePoint Connected</span> )}
                 <button onClick={() => { handleCancel(); setIsFormOpen(true); }} style={{...styles.btn, background: '#27ae60', color: 'white'}}>+ New Job</button>
             </div>
 
@@ -313,8 +324,8 @@ const ProductionQueue = () => {
 
                         <div style={{display:'flex', gap:'10px', alignItems:'center'}}>
                             <div style={{textAlign:'center'}}>
-                                <input type="file" multiple id={`file-${job.id}`} style={{display:'none'}} onChange={(e) => handleSharePointUpload(e, job)} disabled={uploadingId === job.id} />
-                                <label htmlFor={`file-${job.id}`} style={{fontSize:'12px', color:'#2563eb', cursor:'pointer', textDecoration:'underline', display: 'block', marginBottom: '5px'}}>{uploadingId === job.id ? "Uploading..." : "+ Add Tech Sheet(s)"}</label>
+                                <input type="file" multiple id={`file-${job.id}`} style={{display:'none'}} onChange={(e) => handleSharePointUpload(e, job)} disabled={uploadingId === job.id || isDemo} />
+                                <label htmlFor={`file-${job.id}`} style={{fontSize:'12px', color: isDemo ? '#9ca3af' : '#2563eb', cursor: isDemo ? 'not-allowed' : 'pointer', textDecoration: isDemo ? 'none' : 'underline', display: 'block', marginBottom: '5px'}}>{uploadingId === job.id ? "Uploading..." : (isDemo ? "Uploads Disabled (Demo)" : "+ Add Tech Sheet(s)")}</label>
                             </div>
 
                             <button onClick={() => updateDoc(doc(db, "production_pipeline", job.id), { componentsArrived: !job.componentsArrived })} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>{job.componentsArrived ? "Mark Pending" : "Mark Arrived"}</button>

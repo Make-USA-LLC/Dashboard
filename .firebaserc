@@ -1,5 +1,8 @@
 {
   "projects": {
-    "default": "makeusallc-dashboard"
-  }
+    "default": "makeusallc-dashboard",
+    "demo": "makeusa-dashboard-demo"
+  },
+  "targets": {},
+  "etags": {}
 }

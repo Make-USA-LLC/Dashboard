@@ -16,12 +16,13 @@ const styles = {
 
 const JobApproval = () => {
     const { instance, accounts, inProgress } = useMsal();
+    const isDemo = import.meta.env.VITE_IS_DEMO === 'true';
     const [jobs, setJobs] = useState([]);
     const [uploadingId, setUploadingId] = useState(null);
     const [syncingId, setSyncingId] = useState(null);
     const [financeConfig, setFinanceConfig] = useState({ costPerHour: 60 });
     
-    // NEW: Tracks which jobs have already been auto-synced this session
+    // Tracks which jobs have already been auto-synced this session
     const autoSyncedJobs = useRef(new Set());
 
     useEffect(() => {
@@ -38,6 +39,7 @@ const JobApproval = () => {
     }, []);
 
     const handleLogin = async () => {
+        if (isDemo) return alert("🔒 SharePoint connections are disabled in the interactive demo.");
         if (inProgress !== InteractionStatus.None) return;
         try {
             await instance.loginRedirect({
@@ -65,10 +67,10 @@ const JobApproval = () => {
         }
     }, [accounts, instance]);
 
-    // --- NEW: SILENT BACKGROUND AUTO-SYNC ---
+    // SILENT BACKGROUND AUTO-SYNC
     useEffect(() => {
         const runBackgroundSync = async () => {
-            if (jobs.length === 0 || accounts.length === 0) return;
+            if (isDemo || jobs.length === 0 || accounts.length === 0) return;
             const token = await getMsToken();
             if (!token) return;
 
@@ -119,10 +121,10 @@ const JobApproval = () => {
         };
 
         runBackgroundSync();
-    }, [jobs, accounts, getMsToken]);
-    // ----------------------------------------
+    }, [jobs, accounts, getMsToken, isDemo]);
 
     const syncSharePointFiles = async (job) => {
+        if (isDemo) return alert("🔒 SharePoint sync is disabled in the interactive demo.");
         if (!job.sharepointFolder) return alert("This job has no SharePoint folder connected.");
         setSyncingId(job.id);
         try {
@@ -167,6 +169,12 @@ const JobApproval = () => {
     };
 
     const handlePhotoUpload = async (e, job) => {
+        if (isDemo) {
+            alert("🔒 File uploads to SharePoint are disabled in the interactive demo.");
+            e.target.value = null;
+            return;
+        }
+
         const files = Array.from(e.target.files);
         if (files.length === 0) return;
 
@@ -245,7 +253,7 @@ const JobApproval = () => {
                 </div>
                 <div>
                     {accounts.length === 0 ? (
-                        <button onClick={handleLogin} style={{...styles.btn, background:'#0078d4', color:'white', fontSize:'13px'}}>Connect SharePoint</button>
+                        <button onClick={handleLogin} style={{...styles.btn, background: isDemo ? '#9ca3af' : '#0078d4', color:'white', fontSize:'13px'}}>Connect SharePoint</button>
                     ) : (
                         <span style={{color: 'green', fontWeight:'bold', fontSize:'13px'}}>✓ SharePoint Connected</span>
                     )}
@@ -262,7 +270,7 @@ const JobApproval = () => {
                                 <h3 style={{margin: 0}}>{job.project}</h3>
                                 <button 
                                     onClick={() => syncSharePointFiles(job)} 
-                                    disabled={syncingId === job.id || accounts.length === 0}
+                                    disabled={syncingId === job.id || accounts.length === 0 || isDemo}
                                     style={styles.syncBtn}
                                 >
                                     {syncingId === job.id ? "Syncing..." : "↻ Manual Sync"}
@@ -300,8 +308,8 @@ const JobApproval = () => {
 
                         <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
                             <div style={{textAlign:'center'}}>
-                                <input type="file" multiple id={`qc-${job.id}`} style={{display:'none'}} onChange={(e) => handlePhotoUpload(e, job)} disabled={uploadingId === job.id} />
-                                <label htmlFor={`qc-${job.id}`} style={{...styles.btn, background: job.qcPhotosUploaded ? '#dcfce7' : '#fff', border:'1px solid #ccc', color: job.qcPhotosUploaded ? '#166534' : '#333', display: 'block', marginBottom: '5px'}}>
+                                <input type="file" multiple id={`qc-${job.id}`} style={{display:'none'}} onChange={(e) => handlePhotoUpload(e, job)} disabled={uploadingId === job.id || isDemo} />
+                                <label htmlFor={`qc-${job.id}`} style={{...styles.btn, background: job.qcPhotosUploaded ? '#dcfce7' : '#fff', border:'1px solid #ccc', color: job.qcPhotosUploaded ? '#166534' : '#333', display: 'block', marginBottom: '5px', opacity: isDemo ? 0.6 : 1, cursor: isDemo ? 'not-allowed' : 'pointer'}}>
                                     {uploadingId === job.id ? "Uploading..." : "+ Add QC Photo(s)"}
                                 </label>
                             </div>

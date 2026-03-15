@@ -4,7 +4,7 @@ import {
   doc, getDoc, updateDoc, collection, getDocs, onSnapshot, query, where, setDoc, deleteDoc 
 } from 'firebase/firestore'; 
 import { db } from '../../firebase_config';
-import { logAudit, getChangesDiff } from '../utils/logger'; // <-- IMPORTED DIFF
+import { logAudit, getChangesDiff } from '../utils/logger'; 
 import { useMsal } from "@azure/msal-react"; 
 import { useRole } from '../hooks/useRole';
 
@@ -65,6 +65,7 @@ export default function EmployeeDetail() {
   const navigate = useNavigate(); 
   const location = useLocation(); 
   const { instance, accounts, inProgress } = useMsal();
+  const isDemo = import.meta.env.VITE_IS_DEMO === 'true';
   
   // --- STATE ---
   const [activeTab, setActiveTab] = useState("timeoff"); 
@@ -81,6 +82,7 @@ export default function EmployeeDetail() {
 
   // --- MICROSOFT AUTH ---
   const handleMicrosoftLogin = async () => { 
+      if (isDemo) return alert("🔒 SharePoint connections are disabled in the interactive demo.");
       try { 
           sessionStorage.setItem('msal_return_tab', 'documents');
           await instance.loginRedirect({ 
@@ -144,7 +146,7 @@ export default function EmployeeDetail() {
   const [assignKeyModal, setAssignKeyModal] = useState(false);
   
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [initialEditFormData, setInitialEditFormData] = useState({}); // <--- ADDED FOR DIFFING
+  const [initialEditFormData, setInitialEditFormData] = useState({}); 
   const [editFormData, setEditFormData] = useState({});
   
   const [isCompModalOpen, setIsCompModalOpen] = useState(false);
@@ -272,7 +274,7 @@ export default function EmployeeDetail() {
   }, [id, showAssets, showKeysLockers]);
 
   const fetchSharePointFiles = useCallback(async () => {
-      if (!employee || accounts.length === 0 || !showDocuments) return;
+      if (isDemo || !employee || accounts.length === 0 || !showDocuments) return;
       setIsLoadingFiles(true);
       try {
           const token = await getMsToken();
@@ -283,11 +285,16 @@ export default function EmployeeDetail() {
           const response = await fetch(`https://graph.microsoft.com/v1.0${folderPath}`, { headers: { "Authorization": `Bearer ${token}` } });
           if (response.ok) { const data = await response.json(); setSpFiles(data.value || []); } else { if(response.status === 404) setSpFiles([]); }
       } catch (e) { console.error(e); } finally { setIsLoadingFiles(false); }
-  }, [employee, accounts, getMsToken, showDocuments]);
+  }, [employee, accounts, getMsToken, showDocuments, isDemo]);
 
   useEffect(() => { if (activeTab === 'documents') fetchSharePointFiles(); }, [activeTab, fetchSharePointFiles]);
 
   const handleSharePointUpload = async (e) => {
+      if (isDemo) {
+          alert("🔒 File uploads to SharePoint are disabled in the interactive demo.");
+          e.target.value = null;
+          return;
+      }
       const file = e.target.files[0]; if (!file) return; if (!confirm(`Upload "${file.name}" to SharePoint?`)) return; setIsUploading(true);
       try {
           const token = await getMsToken();
@@ -384,12 +391,11 @@ export default function EmployeeDetail() {
   const handleEditSubmit = async (e) => {
       e.preventDefault();
       
-      // Calculate exact changes using our helper
       const changes = getChangesDiff(initialEditFormData, editFormData);
       const changedFields = Object.keys(changes);
       
       if (changedFields.length === 0) {
-          setIsEditModalOpen(false); // Nothing to save or log
+          setIsEditModalOpen(false); 
           return;
       }
 
@@ -973,11 +979,11 @@ export default function EmployeeDetail() {
                     <div>
                         {accounts.length > 0 ? (
                             <>
-                                <input type="file" id="sp-upload" style={{display:'none'}} onChange={handleSharePointUpload} disabled={isUploading} />
-                                <label htmlFor="sp-upload" style={{background: isUploading ? '#cbd5e1' : '#0f172a', color:'white', padding:'10px 20px', borderRadius:6, cursor: isUploading ? 'not-allowed' : 'pointer', fontWeight: 'bold', display: 'inline-block'}}>{isUploading ? "Uploading..." : "📤 Upload to SharePoint"}</label>
+                                <input type="file" id="sp-upload" style={{display:'none'}} onChange={handleSharePointUpload} disabled={isUploading || isDemo} />
+                                <label htmlFor="sp-upload" style={{background: (isUploading || isDemo) ? '#cbd5e1' : '#0f172a', color:'white', padding:'10px 20px', borderRadius:6, cursor: (isUploading || isDemo) ? 'not-allowed' : 'pointer', fontWeight: 'bold', display: 'inline-block'}}>{isUploading ? "Uploading..." : "📤 Upload to SharePoint"}</label>
                             </>
                         ) : (
-                            <button onClick={handleMicrosoftLogin} style={{background: '#0078d4', color:'white', padding:'10px 20px', borderRadius:6, cursor:'pointer', fontWeight: 'bold', border: 'none', display: 'flex', alignItems: 'center', gap: 10}}>Connect to SharePoint</button>
+                            <button onClick={handleMicrosoftLogin} style={{background: isDemo ? '#9ca3af' : '#0078d4', color:'white', padding:'10px 20px', borderRadius:6, cursor: isDemo ? 'not-allowed' : 'pointer', fontWeight: 'bold', border: 'none', display: 'flex', alignItems: 'center', gap: 10}}>Connect to SharePoint</button>
                         )}
                     </div>
                 </div>
@@ -1074,7 +1080,6 @@ export default function EmployeeDetail() {
                 <label style={{marginTop: 10, display: 'block', fontWeight: 'bold'}}>Department</label>
                 <select value={editFormData.department} onChange={e => setEditFormData({...editFormData, department: e.target.value})} style={{width: '100%', marginBottom: 10}} disabled={!canEditGeneralInfo}><option value="">-- None --</option>{departmentOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}</select>
                 
-                {/* MANAGER ASSIGNMENT ADDED HERE */}
                 <label style={{marginTop: 10, display: 'block', fontWeight: 'bold'}}>Reports To (Manager)</label>
                 <select 
                     value={editFormData.managerId || ""} 
@@ -1084,7 +1089,7 @@ export default function EmployeeDetail() {
                 >
                     <option value="">-- No Manager (Top Level) --</option>
                     {employeesList.map(emp => (
-                        emp.id !== id && ( // Prevent assigning an employee as their own manager
+                        emp.id !== id && ( 
                             <option key={emp.id} value={emp.id}>
                                 {emp.firstName} {emp.lastName}
                             </option>

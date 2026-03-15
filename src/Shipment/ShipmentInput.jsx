@@ -167,13 +167,13 @@ const ShipmentInput = () => {
 
         <form onSubmit={handleSubmit} style={{ padding: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
           <div style={{ gridColumn: '1 / -1' }}>
-            <label style={labelStyle}>Vendor / Supplier <span style={{fontWeight:'400', color:'#94a3b8'}}>(Optional - leave blank to add below)</span></label>
+            <label style={labelStyle}>Client / Who to Bill <span style={{fontWeight:'400', color:'#94a3b8'}}>(Optional - leave blank to add below)</span></label>
             <input 
               style={inputStyle}
               name="vendor"
               value={formData.vendor}
               onChange={handleChange}
-              placeholder="e.g. Uline"
+              placeholder="e.g. Make USA"
             />
           </div>
 

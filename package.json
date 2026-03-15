@@ -3,11 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "scripts": {
+"scripts": {
     "dev": "vite",
+    "demo": "vite --mode demo",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "deploy:prod": "vite build && firebase deploy -P default --only hosting",
+  "deploy:demo": "vite build --mode demo && firebase deploy -P demo --only hosting",
+  "deploy:all": "npm run deploy:prod && npm run deploy:demo"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.0.2",

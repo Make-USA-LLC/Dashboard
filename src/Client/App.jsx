@@ -3,7 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '../firebase_config'; 
 import { useMsal } from "@azure/msal-react";
-import { ShieldAlert, Lock } from 'lucide-react';
+import { Lock } from 'lucide-react';
 
 import Dashboard from './Dashboard';
 import ClientDetail from './ClientDetail';
@@ -11,6 +11,7 @@ import Admin from './Admin';
 import SampleManagement from './SampleManagement'; 
 import Settings from './Settings';                 
 
+// Exporting the context so Dashboard.jsx and ClientDetail.jsx can use it
 export const ClientPermsContext = createContext(null);
 
 export default function ClientApp() {
@@ -21,20 +22,13 @@ export default function ClientApp() {
 
     useEffect(() => {
         const fbUser = auth.currentUser;
-        if (!fbUser || !fbUser.email) {
-            setLoading(false);
-            return;
-        }
 
-        const email = fbUser.email.toLowerCase();
-
-        // 1. MASTER ADMIN OVERRIDE
-        if (email === 'daniel.s@makeit.buzz') {
+        // --- 1. DEMO BYPASS ---
+        if (import.meta.env.VITE_IS_DEMO === 'true') {
             setUserRole('Master Admin');
             setPerms({
                 view_clients: true, edit_client_details: true,
-                manage_client_status: true, // <-- NEW PERMISSION
-                view_w9: true, upload_w9: true,
+                manage_client_status: true, view_w9: true, upload_w9: true,
                 view_legal: true, upload_legal: true,
                 view_samples: true, manage_samples: true,
                 manage_settings: true, manage_permissions: true
@@ -43,7 +37,28 @@ export default function ClientApp() {
             return;
         }
 
-        // 2. LIVE REAL-TIME LISTENERS
+        if (!fbUser || !fbUser.email) {
+            setLoading(false);
+            return;
+        }
+
+        const email = fbUser.email.toLowerCase();
+
+        // 2. MASTER ADMIN OVERRIDE (Hardcoded)
+        if (email === 'daniel.s@makeit.buzz') {
+            setUserRole('Master Admin');
+            setPerms({
+                view_clients: true, edit_client_details: true,
+                manage_client_status: true, view_w9: true, upload_w9: true,
+                view_legal: true, upload_legal: true,
+                view_samples: true, manage_samples: true,
+                manage_settings: true, manage_permissions: true
+            });
+            setLoading(false);
+            return;
+        }
+
+        // 3. LIVE REAL-TIME LISTENERS
         let unsubAccess = () => {};
         let unsubRole = () => {};
 
@@ -52,8 +67,7 @@ export default function ClientApp() {
                 setUserRole('Master Admin');
                 setPerms({
                     view_clients: true, edit_client_details: true,
-                    manage_client_status: true,
-                    view_w9: true, upload_w9: true,
+                    manage_client_status: true, view_w9: true, upload_w9: true,
                     view_legal: true, upload_legal: true,
                     view_samples: true, manage_samples: true,
                     manage_settings: true, manage_permissions: true
@@ -90,6 +104,7 @@ export default function ClientApp() {
 
     if (loading) return <div className="flex items-center justify-center min-h-screen font-bold text-slate-400 animate-pulse">Verifying Secure Module...</div>;
 
+    // Unauthorized screen (Only shows if NOT in demo and NOT in DB)
     if (!perms) {
         return (
             <div className="flex items-center justify-center min-h-screen bg-slate-50">
@@ -97,24 +112,14 @@ export default function ClientApp() {
                     <Lock size={60} className="text-red-500 mx-auto mb-6" />
                     <h2 className="text-2xl font-black mb-2 text-slate-900">Access Restricted</h2>
                     <p className="text-slate-500 mb-2 font-medium">{auth.currentUser?.email}</p>
-                    <p className="text-slate-400 text-sm">Your Google account is not authorized to access Client Management.</p>
+                    <p className="text-slate-400 text-sm">Your account is not authorized to access Client Management.</p>
                 </div>
             </div>
         );
     }
 
-    if (accounts.length === 0) {
-        return (
-            <div className="flex items-center justify-center min-h-screen bg-slate-50">
-                <div className="bg-white p-12 rounded-3xl shadow-xl max-w-md w-full text-center border border-slate-200">
-                    <ShieldAlert size={60} className="text-blue-600 mx-auto mb-6" />
-                    <h2 className="text-2xl font-black mb-4">Connect SharePoint</h2>
-                    <p className="text-slate-500 mb-8">You are authorized! Please sign in with your company Microsoft account to enable file uploads.</p>
-                    <button onClick={() => instance.loginRedirect({ scopes: ["Sites.ReadWrite.All", "Files.ReadWrite.All"], prompt: "select_account" })} className="w-full bg-[#0078d4] text-white font-bold py-4 rounded-2xl hover:bg-[#005a9e] transition-all shadow-lg shadow-blue-100">Connect Microsoft Account</button>
-                </div>
-            </div>
-        );
-    }
+    // We no longer block the whole app if (accounts.length === 0)
+    // The login will be handled "on-demand" in ClientDetail.jsx
 
     return (
         <ClientPermsContext.Provider value={{ perms, userRole, accounts, instance }}>
@@ -124,9 +129,9 @@ export default function ClientApp() {
                     <Route path="/samples" element={perms.view_samples ? <SampleManagement /> : <Navigate to="/clients" />} />
                     <Route path="/settings" element={perms.manage_settings ? <Settings /> : <Navigate to="/clients" />} />
                     <Route path="/admin" element={perms.manage_permissions ? <Admin /> : <Navigate to="/clients" />} />
-                    <Route path="/:id" element={<ClientDetail />} />
+                    <Route path="/:clientId" element={<ClientDetail />} />
                 </Routes>
             </div>
         </ClientPermsContext.Provider>
     );
-} 
+}
