@@ -143,7 +143,7 @@ const ShipmentInput = () => {
             </div>
             <div style={{ marginTop: '5px', display: 'flex', gap: '5px' }}>
                 <input 
-                    placeholder="Assign Vendor..." 
+                    placeholder="Assign Client..." 
                     value={editData.vendor}
                     onChange={(e) => setEditData({...editData, vendor: e.target.value})}
                     style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize:'13px' }}
@@ -230,7 +230,7 @@ const ShipmentInput = () => {
         <div style={{ marginTop: '30px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '15px' }}>
                 <AlertCircle size={20} color="#f59e0b" />
-                <h3 style={{ margin: 0, color: '#475569' }}>Pending Vendor Assignment ({missingVendorItems.length})</h3>
+                <h3 style={{ margin: 0, color: '#475569' }}>Pending Client Assignment ({missingVendorItems.length})</h3>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '15px' }}>
                 {missingVendorItems.map(item => (

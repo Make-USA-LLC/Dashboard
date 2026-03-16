@@ -99,6 +99,7 @@ export function RoleProvider({ children }) {
     ...access,
     ipad: access.master ? 'admin' : access.ipad,
     hr: access.master ? 'Admin' : access.hr,
+shipment: access.master ? 'Admin' : access.shipment,
   };
 
   return (
