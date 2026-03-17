@@ -2,14 +2,27 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import './iPad.css'; 
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { doc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs, Timestamp } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const IPad = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('fleet', 'view') || hasPerm('timer', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    
+    // Map specific permissions directly from the hook
+    const perms = {
+        timer: (hasPerm('timer', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly,
+        settings: (hasPerm('settings', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly,
+        fleet: (hasPerm('fleet', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly,
+        timerView: hasPerm('timer', 'view') || hasPerm('admin', 'view') || isReadOnly 
+    };
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [ipadData, setIpadData] = useState(null);
     const [projectQueue, setProjectQueue] = useState([]);
     const [workersMap, setWorkersMap] = useState({});
@@ -23,9 +36,6 @@ const IPad = () => {
     // Tab State
     const [activeTab, setActiveTab] = useState('live');
     
-    // Permissions
-    const [perms, setPerms] = useState({ timer: false, settings: false, fleet: false, timerView: false });
-
     // Timer Logic
     const [displayTime, setDisplayTime] = useState("00:00:00");
     const [now, setNow] = useState(new Date()); 
@@ -44,47 +54,29 @@ const IPad = () => {
         company: '', project: '', category: '', size: '', h: 0, m: 0, s: 0
     });
 
-    // --- INITIALIZATION ---
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkPermissions(user);
-                    initListeners();
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribeAuth();
-    }, [id]);
+        if (roleLoading) return;
 
-    const checkPermissions = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/');
-        const role = uSnap.data().role;
-        const rSnap = await getDoc(doc(db, "config", "roles"));
-        if (role === 'admin') {
-            setPerms({ timer: true, settings: true, fleet: true, timerView: true });
-        } else if (rSnap.exists()) {
-            const rc = rSnap.data()[role];
-            setPerms({
-                timer: rc['timer_edit'] || false,
-                settings: rc['settings_edit'] || false,
-                fleet: rc['fleet_edit'] || false,
-                timerView: rc['timer_view'] || rc['timer_edit'] || false 
-            });
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
-    };
+
+        const unsubs = initListeners();
+        return () => {
+            unsubs.then(cleanup => cleanup());
+        };
+    }, [user, canView, roleLoading, id, navigate]);
 
     const initListeners = async () => {
         const unsubIpad = onSnapshot(doc(db, "ipads", id), (snap) => {
             if (snap.exists()) {
                 setIpadData(snap.data());
-                setLoading(false);
+                setPageLoading(false);
             } else {
                 alert("iPad not found");
-                navigate('/');
+                navigate('/dashboard');
             }
         });
 
@@ -152,8 +144,6 @@ const IPad = () => {
     const getWorkerTimeData = (wid) => {
         if (!ipadData) return { totalMinutes: 0, currentMinutes: 0, bankedMinutes: 0 };
 
-        // 🚨 BULLETPROOF TIMESTAMP EXTRACTOR
-        // Handles both Firebase Timestamps AND Local Javascript Dates safely
         const getSeconds = (ts) => {
             if (!ts) return 0;
             if (ts.seconds !== undefined) return ts.seconds; 
@@ -161,14 +151,10 @@ const IPad = () => {
             return 0;
         };
 
-        // 1. Get exact banked minutes directly from iPad's memory (Avoids log recounting!)
         const baseBankedMinutes = (ipadData.workerBankedMinutes && ipadData.workerBankedMinutes[wid]) || 0;
-
-        // 2. Find ONLY the last clock in time to calculate the active running seconds
         let lastClockIn = null;
         
         if (ipadData.scanHistory) {
-            // Safe sort using our new bulletproof extractor
             const history = [...ipadData.scanHistory].sort((a,b) => getSeconds(a.timestamp) - getSeconds(b.timestamp));
             
             history.forEach(scan => {
@@ -177,13 +163,12 @@ const IPad = () => {
                     if (action.includes("in")) {
                         lastClockIn = getSeconds(scan.timestamp);
                     } else if (action.includes("out")) {
-                        lastClockIn = null; // They clocked out, active session ends
+                        lastClockIn = null; 
                     }
                 }
             });
         }
 
-        // 3. Add active running seconds if they are currently working
         let currentSeconds = 0;
         if (lastClockIn && ipadData.activeWorkers && ipadData.activeWorkers.includes(wid)) {
             currentSeconds = Math.max(0, (now.getTime()/1000) - lastClockIn);
@@ -206,7 +191,6 @@ const IPad = () => {
     };
 
     const startEditingWorker = (wid) => {
-        // Start at 0 for Add/Subtract functionality
         setEditingWorker({ id: wid, h: 0, m: 0 });
     };
 
@@ -234,9 +218,6 @@ const IPad = () => {
             const targetTotalMinutes = data.totalMinutes + adjustmentMinutes;
             const newBankedMinutes = targetTotalMinutes - data.currentMinutes;
 
-            // 🚨 THE FIX: ONLY send the command. 
-            // Do NOT overwrite workerBankedMinutes here. Let the iPad do the math,
-            // adjust the timer, and push the new workerBankedMinutes back to Firebase!
             await updateDoc(doc(db, "ipads", id), {
                 remoteCommand: `EDIT_WORKER|${wid}|${newBankedMinutes}`,
                 commandTimestamp: serverTimestamp()
@@ -296,7 +277,7 @@ const IPad = () => {
     const handleDeleteDevice = async () => {
         if (perms.fleet && window.confirm("Delete this device configuration permanently?")) {
             await deleteDoc(doc(db, "ipads", id));
-            navigate('/');
+            navigate('/dashboard');
         }
     };
 
@@ -307,7 +288,6 @@ const IPad = () => {
         const timeBudget = job.originalSeconds || job.seconds || 0;
         const timeRemaining = job.seconds || timeBudget;
 
-        // 🚨 STRICT TIMESTAMP ENFORCER: Prevents the Swift app from crashing!
         const safeTimestamp = (ts) => {
             if (!ts) return null;
             if (typeof ts.toDate === 'function') return ts; 
@@ -327,7 +307,7 @@ const IPad = () => {
             commandTimestamp: serverTimestamp(),
             scanHistory: (job.scanHistory || []).map(s => ({ ...s, timestamp: safeTimestamp(s.timestamp) })),
             projectEvents: (job.projectEvents || []).map(e => ({ ...e, timestamp: safeTimestamp(e.timestamp) })),
-            workerBankedMinutes: job.workerBankedMinutes || {}, // 🚨 Sends edits back to the iPad
+            workerBankedMinutes: job.workerBankedMinutes || {}, 
             pricePerUnit: job.pricePerUnit || 0,
             expectedUnits: job.expectedUnits || 0
         };
@@ -364,9 +344,8 @@ const IPad = () => {
         setActiveTab('live');
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-     if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading iPad..." /></div>;
+    if (!canView) return null;
 
     const isActive = !!ipadData?.projectName && ipadData?.projectName !== "No Project Loaded";
     const activeWorkers = ipadData?.activeWorkers || [];
@@ -378,7 +357,6 @@ const IPad = () => {
                     &larr; Back to Dashboard
                 </button>
                 <h1 style={{margin:0, fontSize:'20px'}}>iPad: {id}</h1>
-
             </div>
 
             <div className="ipc-container">
@@ -413,14 +391,12 @@ const IPad = () => {
                                         </div>
                                     ) : (
                                         <div>
-                                            {/* CHECK PERMISSION FOR LEADER NAME VISIBILITY */}
                                             <span className="ipc-live-leader">
                                                 {perms.timerView 
                                                     ? (ipadData.lineLeaderName ? `Leader: ${ipadData.lineLeaderName}` : "No Leader")
                                                     : "Leader: Restricted"
                                                 }
                                             </span>
-                                            {/* ONLY SHOW EDIT IF THEY HAVE EDIT PERMS */}
                                             {perms.timer && (
                                                 <span className="material-icons leader-edit-icon" onClick={() => setLeaderEditMode(true)}>edit</span>
                                             )}

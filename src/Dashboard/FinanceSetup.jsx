@@ -1,61 +1,56 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './FinanceSetup.css';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import Loader from '../components/loader'; 
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const FinanceSetup = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [canEdit, setCanEdit] = useState(false);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('finance', 'view');
+    const canEdit = hasPerm('finance', 'edit') && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     
     // Data State
     const [configData, setConfigData] = useState({
         costPerHour: 0,
-        // 4+ Employees (Standard)
         leaderPoolPercent: 0,
         workerPoolPercent: 0,
-        // 3 Employees
         leaderPoolPercent_3: 0,
         workerPoolPercent_3: 0,
-        // 2 Employees
         leaderPoolPercent_2: 0,
         workerPoolPercent_2: 0,
-        // 1 Employee
         workerPoolPercent_1: 0, 
-
         agents: [],
         projectTypes: [],
-        companyMap: {} // Maps Company Name -> { primary: "Name", secondary: "Name" } OR "Name" (Legacy)
+        companyMap: {} 
     });
 
-    // Local inputs for "Add" forms
+    // Local inputs
     const [newAgentName, setNewAgentName] = useState('');
     const [newAgentComm, setNewAgentComm] = useState('');
     const [newType, setNewType] = useState('');
 
-    // Local inputs for "Auto-Assign" form
+    // Auto-Assign inputs
     const [availableCompanies, setAvailableCompanies] = useState([]);
     const [assignCompany, setAssignCompany] = useState('');
     const [assignAgent, setAssignAgent] = useState('');
-    const [assignAgent2, setAssignAgent2] = useState(''); // NEW: Secondary Agent
+    const [assignAgent2, setAssignAgent2] = useState(''); 
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    // Load available companies from ProjectOptions for the dropdown
-    useEffect(() => {
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
+        }
+
         const fetchCompanies = async () => {
             try {
                 const snap = await getDoc(doc(db, "config", "project_options"));
@@ -67,94 +62,59 @@ const FinanceSetup = () => {
             }
         };
         fetchCompanies();
-    }, []);
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let view = false;
-        let edit = false;
-
-        if (role === 'admin') { view = true; edit = true; }
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc) {
-                if (rc['finance_view']) view = true;
-                if (rc['finance_edit']) edit = true;
-            }
-        }
-
-        if (view) {
-            setCanEdit(edit);
-            startListener();
-        } else {
-            setLoading(false);
-        }
-    };
-
-    const denyAccess = () => {
-        setLoading(false);
-    };
+        startListener();
+    }, [user, canView, roleLoading, navigate]);
 
     const startListener = () => {
         const configRef = doc(db, "config", "finance");
-        onSnapshot(configRef, (docSnap) => {
+        const unsubscribe = onSnapshot(configRef, (docSnap) => {
             if (docSnap.exists()) {
                 const data = docSnap.data();
                 setConfigData({
                     costPerHour: data.costPerHour || 0,
-                    
                     leaderPoolPercent: data.leaderPoolPercent || 0,
                     workerPoolPercent: data.workerPoolPercent || 0,
-
                     leaderPoolPercent_3: data.leaderPoolPercent_3 || 0,
                     workerPoolPercent_3: data.workerPoolPercent_3 || 0,
-
                     leaderPoolPercent_2: data.leaderPoolPercent_2 || 0,
                     workerPoolPercent_2: data.workerPoolPercent_2 || 0,
-
                     workerPoolPercent_1: data.workerPoolPercent_1 || 0,
-
                     agents: data.agents || [],
                     projectTypes: data.projectTypes || [],
                     companyMap: data.companyMap || {}
                 });
             } else {
-                // Initialize if missing
-                setDoc(configRef, { 
-                    costPerHour: 0, 
-                    leaderPoolPercent: 0, workerPoolPercent: 0,
-                    leaderPoolPercent_3: 0, workerPoolPercent_3: 0,
-                    leaderPoolPercent_2: 0, workerPoolPercent_2: 0,
-                    workerPoolPercent_1: 0,
-                    agents: [], projectTypes: [], companyMap: {}
-                });
+                if (canEdit) {
+                    setDoc(configRef, { 
+                        costPerHour: 0, 
+                        leaderPoolPercent: 0, workerPoolPercent: 0,
+                        leaderPoolPercent_3: 0, workerPoolPercent_3: 0,
+                        leaderPoolPercent_2: 0, workerPoolPercent_2: 0,
+                        workerPoolPercent_1: 0,
+                        agents: [], projectTypes: [], companyMap: {}
+                    });
+                }
             }
-            setLoading(false);
+            setPageLoading(false);
         });
+
+        return () => unsubscribe();
     };
 
-    // --- HANDLERS ---
-
+    // --- 3. PROTECTED HANDLERS ---
     const handleSaveConstants = async () => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         try {
             const configRef = doc(db, "config", "finance");
             await updateDoc(configRef, {
                 costPerHour: parseFloat(configData.costPerHour),
-                
                 leaderPoolPercent: parseFloat(configData.leaderPoolPercent),
                 workerPoolPercent: parseFloat(configData.workerPoolPercent),
-
                 leaderPoolPercent_3: parseFloat(configData.leaderPoolPercent_3),
                 workerPoolPercent_3: parseFloat(configData.workerPoolPercent_3),
-
                 leaderPoolPercent_2: parseFloat(configData.leaderPoolPercent_2),
                 workerPoolPercent_2: parseFloat(configData.workerPoolPercent_2),
-
                 workerPoolPercent_1: parseFloat(configData.workerPoolPercent_1),
             });
             alert("Configuration Saved");
@@ -171,7 +131,7 @@ const FinanceSetup = () => {
     };
 
     const handleDeleteAgent = async (index) => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         const configRef = doc(db, "config", "finance");
         const updatedAgents = [...configData.agents];
         updatedAgents.splice(index, 1);
@@ -187,25 +147,21 @@ const FinanceSetup = () => {
     };
 
     const handleDeleteType = async (index) => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         const configRef = doc(db, "config", "finance");
         const updatedTypes = [...configData.projectTypes];
         updatedTypes.splice(index, 1);
         await updateDoc(configRef, { projectTypes: updatedTypes });
     };
 
-    // --- MAPPING HANDLERS (UPDATED FOR DUAL AGENTS) ---
-
     const handleAssignAgent = async () => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         if (!assignCompany || !assignAgent) {
             alert("Please select a company and at least a primary agent.");
             return;
         }
 
         const configRef = doc(db, "config", "finance");
-        
-        // Store as object for dual support
         const assignmentObject = {
             primary: assignAgent,
             secondary: assignAgent2 || ""
@@ -224,7 +180,7 @@ const FinanceSetup = () => {
     };
 
     const handleDeleteAssignment = async (companyName) => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         if (!window.confirm(`Remove auto-assignment for ${companyName}?`)) return;
 
         const configRef = doc(db, "config", "finance");
@@ -238,13 +194,9 @@ const FinanceSetup = () => {
         }
     };
 
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Setup..." /></div>;
+    if (!canView) return null;
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-    if (loading) return <div style={{padding:'50px', textAlign:'center'}}>Loading Config...</div>;
-    if (!configData.costPerHour && configData.costPerHour !== 0) return <div className="fs-denied">Access Denied</div>;
-
-    // Helper for rendering rows
     const renderRow = (label, l_field, w_field) => (
         <div className="fs-form-row" style={{borderBottom:'1px solid #eee', paddingBottom:'15px', marginBottom:'15px', alignItems:'center'}}>
             <div style={{width:'150px', fontWeight:'bold', color:'#34495e'}}>{label}</div>
@@ -385,14 +337,13 @@ const FinanceSetup = () => {
                             {Object.keys(configData.companyMap).length === 0 && <li style={{color:'#999', fontStyle:'italic'}}>No assignments yet.</li>}
                             
                             {Object.entries(configData.companyMap).map(([comp, val], i) => {
-                                // Handle Legacy (String) vs New (Object)
                                 let primary = "";
                                 let secondary = "";
                                 if (typeof val === 'object' && val !== null) {
                                     primary = val.primary;
                                     secondary = val.secondary;
                                 } else {
-                                    primary = val; // Legacy string
+                                    primary = val;
                                 }
 
                                 return (
@@ -423,7 +374,6 @@ const FinanceSetup = () => {
                     {renderRow("3 Employees", "leaderPoolPercent_3", "workerPoolPercent_3")}
                     {renderRow("2 Employees", "leaderPoolPercent_2", "workerPoolPercent_2")}
 
-                    {/* 1 Employee (Big Box) */}
                     <div className="fs-form-row" style={{alignItems:'center'}}>
                         <div style={{width:'150px', fontWeight:'bold', color:'#34495e'}}>1 Employee</div>
                         <div style={{flex:1}}>

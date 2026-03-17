@@ -2,13 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './manual_ingest.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
-import { collection, addDoc, getDocs, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db } from './firebase_config.jsx';
+import { collection, addDoc, getDocs } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const ManualIngest = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('manual_ingest', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('manual_ingest', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [rawText, setRawText] = useState('');
     const [parsedData, setParsedData] = useState(null);
     const [status, setStatus] = useState({ type: '', msg: '' });
@@ -17,57 +23,35 @@ const ManualIngest = () => {
     // Interactive State for Preview
     const [selectedLeader, setSelectedLeader] = useState('');
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-    const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-    if (!uSnap.exists()) return denyAccess();
-    const role = uSnap.data().role;
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
+        }
 
-    const rolesSnap = await getDoc(doc(db, "config", "roles"));
-    let allowed = false;
-    if (role === 'admin') allowed = true;
-    else if (rolesSnap.exists()) {
-        const rc = rolesSnap.data()[role];
-        // Now explicitly checking for manual_ingest
-        if (rc && (rc['manual_ingest_view'] || rc['manual_ingest_edit'] || rc['admin_edit'])) allowed = true;
-    }
-
-    if (allowed) {
-        await fetchWorkers();
-        setLoading(false);
-    } else {
-        denyAccess();
-    }
-};
+        const initialize = async () => {
+            await fetchWorkers();
+            setPageLoading(false);
+        };
+        initialize();
+    }, [user, canView, roleLoading, navigate]);
 
     const fetchWorkers = async () => {
         try {
             const snap = await getDocs(collection(db, "workers"));
             const map = {};
             snap.forEach(d => {
-                // Map ID to Name, and Name to Name (for lookup)
                 const w = d.data();
                 const name = w.name || `${w.firstName} ${w.lastName}`;
-                if(w.workerId) map[w.workerId] = name; // If you have IDs
-                map[name] = name; // Also store names directly
+                if(w.workerId) map[w.workerId] = name; 
+                map[name] = name; 
             });
             setWorkersMap(map);
         } catch(e) { console.error("Worker fetch error", e); }
     };
-
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
 
     // --- PARSING LOGIC ---
     const parseReportText = (input) => {
@@ -94,7 +78,6 @@ const ManualIngest = () => {
             return isNaN(d.getTime()) ? null : d;
         };
 
-        // Header Info
         const company = extract('Company Name') || "Unknown";
         const project = extract('Project Name') || "Unknown";
         const leaderRaw = extract('Line Leader') || "";
@@ -102,24 +85,20 @@ const ManualIngest = () => {
         const size = extract('Project Size') || "";
         const originalSeconds = timeToSec(extract('Time Given'));
         const currentSeconds = timeToSec(extract('Time Remaining'));
-        const finalSeconds = currentSeconds; // Logic from HTML
+        const finalSeconds = currentSeconds; 
 
-        // Line-by-Line Parsing
         const lines = text.split('\n');
         let workerCalculations = {};
         let allScanIds = new Set();
         let historyMatchCount = 0;
         
         const badIds = [(new Date().getFullYear()).toString(), (new Date().getFullYear()+1).toString()];
-
-        // 1. Create a quick lookup set of lowercase names to make matching easier
         const knownNames = Object.keys(workersMap).filter(k => isNaN(k));
 
         lines.forEach(line => {
             const cleanLine = line.trim();
             if(!cleanLine) return;
 
-            // A. History Logs
             if (cleanLine.includes('Clocked In') || cleanLine.includes('Clocked Out')) {
                 const parts = cleanLine.split(']:');
                 if (parts.length >= 2) {
@@ -155,21 +134,15 @@ const ManualIngest = () => {
                     }
                 }
             }
-            
-            // B. ID Summaries (Card Numbers)
             else if (/^\d{4,15}$/.test(cleanLine)) {
                 if (!badIds.includes(cleanLine)) {
                     allScanIds.add(cleanLine);
                 }
             } 
-
-            // C. Name Matching (NEW ADDITION)
             else {
-                // Check if this line matches a known worker name (case-insensitive)
                 const matchedName = knownNames.find(name => 
                     name.toLowerCase() === cleanLine.toLowerCase()
                 );
-
                 if (matchedName) {
                     allScanIds.add(matchedName);
                 }
@@ -180,8 +153,6 @@ const ManualIngest = () => {
             const calc = workerCalculations[id];
             const secs = calc ? calc.totalSeconds : 0;
             const mins = secs > 0 ? (secs / 60) : 0;
-            
-            // Lookup Name using the map we fetched
             const name = workersMap[id] || `Unknown (${id})`; 
             return { cardId: id, name, minutes: mins };
         });
@@ -208,12 +179,10 @@ const ManualIngest = () => {
             const result = parseReportText(rawText);
             setParsedData(result);
             
-            // Smart Leader Match
             const raw = (result.leader || '').toLowerCase();
             const allNames = Object.values(workersMap).sort();
             const match = allNames.find(n => n.toLowerCase().includes(raw) && raw.length > 2);
-            setSelectedLeader(match || result.leader); // Default to match or raw
-
+            setSelectedLeader(match || result.leader); 
         } catch (e) {
             console.error(e);
             setStatus({ type: 'error', msg: "Error Parsing: " + e.message });
@@ -222,10 +191,11 @@ const ManualIngest = () => {
     };
 
     const handleSubmit = async () => {
+        if (!canEdit) return alert("Read-Only Access: Cannot import data.");
         if(!parsedData) return;
         
         const finalData = { ...parsedData, leader: selectedLeader };
-        delete finalData._debugHistoryCount; // Clean up
+        delete finalData._debugHistoryCount; 
 
         try {
             await addDoc(collection(db, "reports"), finalData);
@@ -237,8 +207,8 @@ const ManualIngest = () => {
         }
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="manual-ingest-wrapper">
@@ -281,6 +251,7 @@ const ManualIngest = () => {
                                     className="mi-select" 
                                     value={selectedLeader} 
                                     onChange={(e) => setSelectedLeader(e.target.value)}
+                                    disabled={!canEdit}
                                 >
                                     <option value={parsedData.leader}>{parsedData.leader} (Raw)</option>
                                     {Object.values(workersMap).sort().map((name, i) => (
@@ -306,7 +277,11 @@ const ManualIngest = () => {
                                 Debug: Found {parsedData._debugHistoryCount} history events.
                             </div>
 
-                            <button className="btn btn-green" onClick={handleSubmit}>Confirm & Import</button>
+                            {canEdit ? (
+                                <button className="btn btn-green" onClick={handleSubmit}>Confirm & Import</button>
+                            ) : (
+                                <div style={{ color: '#999', fontStyle: 'italic', marginTop: '10px' }}>Read-Only Mode: Cannot Import</div>
+                            )}
                         </div>
                     )}
                 </div>

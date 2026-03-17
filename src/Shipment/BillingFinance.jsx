@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase_config';
 import { collection, query, where, getDocs, doc, serverTimestamp, writeBatch, updateDoc } from 'firebase/firestore';
-import { Filter, XCircle, Check, X, FileText } from 'lucide-react';
+import { Filter, XCircle, Check, X, FileText, Pencil } from 'lucide-react';
 
-const BillingFinance = () => {
+// Accept canEdit as a prop from App.jsx
+const BillingFinance = ({ canEdit = true }) => {
   const [shipments, setShipments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState([]);
@@ -52,16 +53,19 @@ const BillingFinance = () => {
 
   // 2. SELECTION LOGIC
   const handleSelect = (id) => {
+    if (!canEdit) return;
     if (selected.includes(id)) setSelected(selected.filter(s => s !== id));
     else setSelected([...selected, id]);
   };
 
   const handleSelectAll = () => {
+    if (!canEdit) return;
     if (selected.length === filteredShipments.length) setSelected([]);
     else setSelected(filteredShipments.map(s => s.id));
   };
 
   const handleMarkBilled = async () => {
+    if (!canEdit) return alert("Read-Only Access: Cannot mark items as billed.");
     if (selected.length === 0) return;
     
     if (!billingInvoice.trim()) {
@@ -95,11 +99,13 @@ const BillingFinance = () => {
 
   // 3. VENDOR EDIT LOGIC
   const startEdit = (shipment) => {
+    if (!canEdit) return;
     setEditingId(shipment.id);
     setEditValue(shipment.vendor || '');
   };
 
   const saveVendor = async (id) => {
+    if (!canEdit) return alert("Read-Only Access");
     if (!editValue.trim()) return alert("Vendor cannot be empty");
     try {
         await updateDoc(doc(db, "shipments", id), { vendor: editValue.trim() });
@@ -167,14 +173,16 @@ const BillingFinance = () => {
                     value={billingInvoice}
                     onChange={(e) => setBillingInvoice(e.target.value)}
                     style={{ padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', width: '220px', fontSize: '14px' }}
+                    disabled={!canEdit}
                 />
                 <button 
                     onClick={handleMarkBilled} 
-                    disabled={selected.length === 0}
+                    disabled={selected.length === 0 || !canEdit}
                     style={{ 
-                        background: selected.length > 0 ? '#10b981' : '#e2e8f0', 
-                        color: selected.length > 0 ? 'white' : '#94a3b8', 
-                        border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', cursor: selected.length > 0 ? 'pointer' : 'not-allowed',
+                        background: selected.length > 0 && canEdit ? '#10b981' : '#e2e8f0', 
+                        color: selected.length > 0 && canEdit ? 'white' : '#94a3b8', 
+                        border: 'none', padding: '10px 20px', borderRadius: '6px', fontWeight: 'bold', 
+                        cursor: selected.length > 0 && canEdit ? 'pointer' : 'not-allowed',
                         whiteSpace: 'nowrap'
                     }}
                 >
@@ -187,7 +195,7 @@ const BillingFinance = () => {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
             <thead>
                 <tr style={{ background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', color: '#64748b' }}>
-                <th style={{ padding: '15px', width: '40px' }}><input type="checkbox" onChange={handleSelectAll} checked={filteredShipments.length > 0 && selected.length === filteredShipments.length} /></th>
+                <th style={{ padding: '15px', width: '40px' }}><input type="checkbox" onChange={handleSelectAll} checked={filteredShipments.length > 0 && selected.length === filteredShipments.length} disabled={!canEdit} /></th>
                 <th style={{ padding: '15px' }}>Date</th>
                 <th style={{ padding: '15px' }}>Vendor</th>
                 <th style={{ padding: '15px' }}>Reference</th>
@@ -202,7 +210,7 @@ const BillingFinance = () => {
                     <tr><td colSpan="8" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No items ready for billing.</td></tr>
                 ) : filteredShipments.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', background: selected.includes(s.id) ? '#f0fdf4' : 'white' }}>
-                    <td style={{ padding: '15px' }}><input type="checkbox" checked={selected.includes(s.id)} onChange={() => handleSelect(s.id)} /></td>
+                    <td style={{ padding: '15px' }}><input type="checkbox" checked={selected.includes(s.id)} onChange={() => handleSelect(s.id)} disabled={!canEdit} /></td>
                     <td style={{ padding: '15px' }}>{s.date}</td>
                     <td style={{ padding: '15px' }}>
                         {editingId === s.id ? (
@@ -212,7 +220,7 @@ const BillingFinance = () => {
                                 <X size={16} style={{cursor:'pointer', color:'red'}} onClick={()=>setEditingId(null)} />
                             </div>
                         ) : (
-                            <div onClick={() => startEdit(s)} style={{cursor:'pointer', fontWeight: '600', color: '#334155', display:'flex', alignItems:'center', gap:'5px'}}>
+                            <div onClick={() => startEdit(s)} style={{cursor: canEdit ? 'pointer' : 'default', fontWeight: '600', color: '#334155', display:'flex', alignItems:'center', gap:'5px'}}>
                                 {s.vendor}
                             </div>
                         )}

@@ -3,7 +3,7 @@ import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-r
 import { useRole } from '../hooks/useRole';
 import { LogOut, PlusCircle, DollarSign, History, Shield } from 'lucide-react';
 
-import Loader from '../components/Loader';
+import Loader from '../components/loader';
 import ShipmentInput from './ShipmentInput';
 import BillingFinance from './BillingFinance';
 import PastBills from './PastBills';
@@ -11,7 +11,9 @@ import PastBills from './PastBills';
 const ShipmentApp = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { roleData, loading } = useRole(); // We will need to update useRole to expose roleData or similar
+  
+  // Destructure roleData from your root useRole hook
+  const { roleData, loading } = useRole(); 
 
   // Helper to determine active tab style
   const navItemClass = (path) => {
@@ -26,10 +28,16 @@ const ShipmentApp = () => {
     };
   };
 
-  // Permission Check Helper
-  // Roles: 'Admin', 'Finance', 'Input'
+  // --- PERMISSION LOGIC ---
+  const isReadOnly = roleData?.readOnly === true;
+  const isMaster = roleData?.master === true;
   const myRole = roleData?.shipment || 'Input';
-  const canBill = myRole === 'Admin' || myRole === 'Finance';
+
+  // They can VIEW billing if they are Admin, Finance, Master, OR Global Read-Only
+  const canViewBilling = myRole === 'Admin' || myRole === 'Finance' || isMaster || isReadOnly;
+  
+  // They can EDIT only if they have the rights AND are NOT read-only
+  const canEdit = (myRole === 'Admin' || myRole === 'Finance' || myRole === 'Input' || isMaster) && !isReadOnly;
 
   if (loading) return <Loader message="Loading Shipment App..." />;
 
@@ -50,7 +58,7 @@ const ShipmentApp = () => {
           <div>
             <h2 style={{ margin: 0, fontSize: '18px', color: '#0f172a' }}>Shipment & Duties</h2>
             <span style={{ fontSize: '12px', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-              {myRole} Access
+              {isReadOnly ? 'Global Read-Only' : `${myRole} Access`}
             </span>
           </div>
         </div>
@@ -60,7 +68,7 @@ const ShipmentApp = () => {
             <PlusCircle size={18} /> Entry
           </Link>
           
-          {canBill && (
+          {canViewBilling && (
             <Link to="/shipments/billing" style={navItemClass('/shipments/billing')}>
               <DollarSign size={18} /> Finance Billing
             </Link>
@@ -75,9 +83,10 @@ const ShipmentApp = () => {
       {/* Main Content Area */}
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <Routes>
-          <Route path="/" element={<ShipmentInput />} />
-          <Route path="/billing" element={canBill ? <BillingFinance /> : <Navigate to="/shipments" />} />
-          <Route path="/history" element={<PastBills />} />
+          {/* We pass canEdit down as a prop so the pages know to lock the inputs! */}
+          <Route path="/" element={<ShipmentInput canEdit={canEdit} />} />
+          <Route path="/billing" element={canViewBilling ? <BillingFinance canEdit={canEdit} /> : <Navigate to="/shipments" />} />
+          <Route path="/history" element={<PastBills canEdit={canEdit} />} />
           <Route path="*" element={<Navigate to="/shipments" />} />
         </Routes>
       </div>

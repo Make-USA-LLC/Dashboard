@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import ProductionQueue from './ProductionQueue';
 import ActiveProjects from './ActiveProjects';
+// 1. Import the new schedule component
+import ProductionSchedule from './ProductionSchedule'; 
 import { styles } from './styles';
 
 const ProductionApp = () => {
@@ -19,10 +21,16 @@ const ProductionApp = () => {
                 <button style={styles.tab(activeTab === 'active_projects')} onClick={() => setActiveTab('active_projects')}>
                     All Active Projects
                 </button>
+                {/* 2. Add the new tab button */}
+                <button style={styles.tab(activeTab === 'schedule')} onClick={() => setActiveTab('schedule')}>
+                    Weekly Schedule
+                </button>
             </div>
 
+            {/* 3. Render the component when the tab is active */}
             {activeTab === 'pipeline' && <ProductionQueue />}
             {activeTab === 'active_projects' && <ActiveProjects />}
+            {activeTab === 'schedule' && <ProductionSchedule />}
         </div>
     );
 };

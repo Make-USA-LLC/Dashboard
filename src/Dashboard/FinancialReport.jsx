@@ -2,97 +2,74 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './FinancialReport.css';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
-import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
+import Loader from '../components/loader'; 
+import { useRole } from './hooks/useRole'; 
 
 const FinancialReport = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+    
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('financial_report', 'view') || hasPerm('admin', 'view') || isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [reports, setReports] = useState([]);
     const [config, setConfig] = useState({ costPerHour: 0, agents: [] });
     const [timeRange, setTimeRange] = useState('30');
-    const [hasAccess, setHasAccess] = useState(false);
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/');
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            // Now exclusively looking for the new Financial Report permission
-            if (rc && (rc['financial_report_view'] || rc['admin_view'])) allowed = true;
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (allowed) {
-            setHasAccess(true);
-            await loadConfig();
-        } else {
-            setLoading(false);
-        }
-    };
+        const fetchAllData = async () => {
+            setPageLoading(true);
+            
+            // 1. Fetch Config
+            try {
+                const cSnap = await getDoc(doc(db, "config", "finance"));
+                if (cSnap.exists()) {
+                    const d = cSnap.data();
+                    setConfig({
+                        costPerHour: parseFloat(d.costPerHour) || 0,
+                        agents: d.agents || []
+                    });
+                }
+            } catch(e) { console.error("Config fetch error:", e); }
 
-    const loadConfig = async () => {
-        try {
-            const cSnap = await getDoc(doc(db, "config", "finance"));
-            if (cSnap.exists()) {
-                const d = cSnap.data();
-                setConfig({
-                    costPerHour: parseFloat(d.costPerHour) || 0,
-                    agents: d.agents || []
+            // 2. Fetch Reports (using timeRange)
+            try {
+                let q;
+                if (timeRange === 'all') {
+                    q = query(collection(db, "reports"), orderBy("completedAt", "desc"));
+                } else {
+                    const days = parseInt(timeRange);
+                    const cutoff = new Date();
+                    cutoff.setDate(cutoff.getDate() - days);
+                    q = query(
+                        collection(db, "reports"), 
+                        where("completedAt", ">=", cutoff), 
+                        orderBy("completedAt", "desc")
+                    );
+                }
+
+                const snap = await getDocs(q);
+                const list = [];
+                snap.forEach(d => {
+                    list.push({ id: d.id, ...d.data() });
                 });
-            }
-        } catch(e) { console.error(e); }
-    };
+                setReports(list);
+            } catch(e) { console.error("Reports fetch error:", e); }
 
-    useEffect(() => {
-        if(hasAccess) fetchReports();
-    }, [timeRange, hasAccess]);
+            setPageLoading(false);
+        };
 
-    const fetchReports = async () => {
-        setLoading(true);
-        try {
-            let q;
-            if (timeRange === 'all') {
-                q = query(collection(db, "reports"), orderBy("completedAt", "desc"));
-            } else {
-                const days = parseInt(timeRange);
-                const cutoff = new Date();
-                cutoff.setDate(cutoff.getDate() - days);
-                q = query(
-                    collection(db, "reports"), 
-                    where("completedAt", ">=", cutoff), 
-                    orderBy("completedAt", "desc")
-                );
-            }
-
-            const snap = await getDocs(q);
-            const list = [];
-            snap.forEach(d => {
-                list.push({ id: d.id, ...d.data() });
-            });
-            setReports(list);
-        } catch(e) { console.error(e); }
-        setLoading(false);
-    };
+        fetchAllData();
+    }, [user, canView, roleLoading, navigate, timeRange]);
 
     const handleExport = () => {
         const exportData = reports.map(calcRowData);
@@ -135,7 +112,7 @@ const FinancialReport = () => {
         const cost = laborHrs * config.costPerHour;
         
         const inv = Number(data.invoiceAmount) || 0;
-        const units = Number(data.totalUnits) || 1; // Default to 1 for calc safety
+        const units = Number(data.totalUnits) || 1; 
         
         const secPerUnit = (units > 0 && secondsSpent > 0) ? (secondsSpent / units) : 0;
 
@@ -154,27 +131,15 @@ const FinancialReport = () => {
         const recPrice = units > 0 ? (cost / units) : 0;
 
         return {
-            isComplete,
-            leader: data.leader,
-            dateDisplay,
-            company: data.company,
-            plNumber: data.plNumber || '', 
-            financeDesc: data.financeDesc || data.project, 
-            laborHrs,
-            cost,
-            inv,
-            units,
-            secPerUnit,
-            commAmount,
-            agentName: data.agentName,
-            profit,
-            profitPercent,
-            projectType: data.projectType,
-            recPrice
+            isComplete, leader: data.leader, dateDisplay, company: data.company,
+            plNumber: data.plNumber || '', financeDesc: data.financeDesc || data.project, 
+            laborHrs, cost, inv, units, secPerUnit, commAmount, agentName: data.agentName,
+            profit, profitPercent, projectType: data.projectType, recPrice
         };
     };
 
-    if (!hasAccess && !loading) return <div className="fr-denied">⛔ ACCESS DENIED</div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Report Data..." /></div>;
+    if (!canView) return null;
 
     const fmt = (n) => (n || 0).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
     const fmtN = (n) => (n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
@@ -206,87 +171,71 @@ const FinancialReport = () => {
             </div>
 
             <div className="fr-table-container">
-                {/* <-- REPLACED THE TEXT HERE WITH YOUR NEW LOADER --> */}
-                {loading ? (
-                    <div style={{ padding: '80px 0', display: 'flex', justifyContent: 'center' }}>
-                        <Loader message="Loading Report Data..." />
-                    </div>
-                ) : (
-                    <table className="fr-table">
-                        <thead>
-                            <tr>
-                                <th className="bg-green">Rec Price</th>
-                                <th className="bg-yellow">Line Leader</th>
-                                <th className="bg-yellow">Date</th>
-                                <th className="bg-yellow">Customer</th>
-                                <th className="bg-yellow">PL#</th>
-                                <th className="bg-yellow">Desc</th>
-                                <th className="bg-yellow">Labor HRS</th>
-                                <th className="bg-yellow">Cost</th>
-                                <th className="bg-yellow">Inv $</th>
-                                <th className="bg-yellow">Units</th>
-                                <th className="bg-yellow">Sec/Unit</th>
-                                <th className="bg-yellow">Comm.</th>
-                                <th className="bg-yellow">Agent</th>
-                                <th className="bg-blue">P/L $</th>
-                                <th className="bg-blue">P/L %</th>
-                                <th className="bg-blue">Type</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {reports.map(raw => {
-                                const r = calcRowData(raw);
-                                
-                                // Logic: Missing if Inv is 0 OR Units is 0/undefined
-                                const missingFinancials = !r.inv || !raw.totalUnits; 
+                <table className="fr-table">
+                    <thead>
+                        <tr>
+                            <th className="bg-green">Rec Price</th>
+                            <th className="bg-yellow">Line Leader</th>
+                            <th className="bg-yellow">Date</th>
+                            <th className="bg-yellow">Customer</th>
+                            <th className="bg-yellow">PL#</th>
+                            <th className="bg-yellow">Desc</th>
+                            <th className="bg-yellow">Labor HRS</th>
+                            <th className="bg-yellow">Cost</th>
+                            <th className="bg-yellow">Inv $</th>
+                            <th className="bg-yellow">Units</th>
+                            <th className="bg-yellow">Sec/Unit</th>
+                            <th className="bg-yellow">Comm.</th>
+                            <th className="bg-yellow">Agent</th>
+                            <th className="bg-blue">P/L $</th>
+                            <th className="bg-blue">P/L %</th>
+                            <th className="bg-blue">Type</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {reports.map(raw => {
+                            const r = calcRowData(raw);
+                            const missingFinancials = !r.inv || !raw.totalUnits; 
 
-                                return (
-                                    <tr key={raw.id} style={!r.isComplete ? {background: '#fffdf0'} : {}}>
-                                        {/* Col 1: Rec Price - NEW WARNING LOGIC */}
-                                        <td className="align-right">
-                                            {raw.totalUnits ? fmt(r.recPrice) : <span style={{color:'#d35400', fontSize:'1.4em', fontWeight:'bold'}} title="Missing Units">⚠</span>}
+                            return (
+                                <tr key={raw.id} style={!r.isComplete ? {background: '#fffdf0'} : {}}>
+                                    <td className="align-right">
+                                        {raw.totalUnits ? fmt(r.recPrice) : <span style={{color:'#d35400', fontSize:'1.4em', fontWeight:'bold'}} title="Missing Units">⚠️</span>}
+                                    </td>
+                                    <td>{r.leader}</td>
+                                    <td>{r.dateDisplay}</td>
+                                    <td>{r.company}</td>
+                                    
+                                    <td style={{textAlign:'center'}}>
+                                        {r.plNumber ? r.plNumber : <span style={{color:'#d35400', fontSize:'1.4em', fontWeight:'bold'}} title="Missing PL#">⚠️</span>}
+                                    </td>
+                                    
+                                    <td className="align-left">{r.financeDesc}</td>
+                                    <td>{r.laborHrs.toFixed(2)}</td>
+                                    <td className="align-right">{fmt(r.cost)}</td>
+                                    
+                                    {missingFinancials ? (
+                                        <td colSpan="7" className="bg-pending" style={{textAlign:'center', color:'#d35400', fontWeight:'bold', letterSpacing:'0.5px'}}>
+                                            ⚠️ MISSING INVOICE / UNITS
                                         </td>
+                                    ) : (
+                                        <>
+                                            <td className="align-right">{fmt(r.inv)}</td>
+                                            <td>{fmtN(r.units)}</td>
+                                            <td>{fmtN(r.secPerUnit)}</td>
+                                            <td className="align-right">{r.commAmount > 0 ? fmt(r.commAmount) : '-'}</td>
+                                            <td>{r.agentName || '-'}</td>
+                                            <td className={`align-right ${r.profit < 0 ? 'bg-red-cell' : ''}`}>{fmt(r.profit)}</td>
+                                            <td className={r.profit < 0 ? 'bg-red-cell' : ''}>{r.profitPercent.toFixed(0)}%</td>
+                                        </>
+                                    )}
 
-                                        {/* Cols 2-4 */}
-                                        <td>{r.leader}</td>
-                                        <td>{r.dateDisplay}</td>
-                                        <td>{r.company}</td>
-                                        
-                                        {/* Col 5: PL Warning */}
-                                        <td style={{textAlign:'center'}}>
-                                            {r.plNumber ? r.plNumber : <span style={{color:'#d35400', fontSize:'1.4em', fontWeight:'bold'}} title="Missing PL#">⚠</span>}
-                                        </td>
-                                        
-                                        {/* Cols 6-8 */}
-                                        <td className="align-left">{r.financeDesc}</td>
-                                        <td>{r.laborHrs.toFixed(2)}</td>
-                                        <td className="align-right">{fmt(r.cost)}</td>
-                                        
-                                        {/* Cols 9-15: Financial Data OR Warning Banner */}
-                                        {missingFinancials ? (
-                                            <td colSpan="7" className="bg-pending" style={{textAlign:'center', color:'#d35400', fontWeight:'bold', letterSpacing:'0.5px'}}>
-                                                ⚠ MISSING INVOICE / UNITS
-                                            </td>
-                                        ) : (
-                                            <>
-                                                <td className="align-right">{fmt(r.inv)}</td>
-                                                <td>{fmtN(r.units)}</td>
-                                                <td>{fmtN(r.secPerUnit)}</td>
-                                                <td className="align-right">{r.commAmount > 0 ? fmt(r.commAmount) : '-'}</td>
-                                                <td>{r.agentName || '-'}</td>
-                                                <td className={`align-right ${r.profit < 0 ? 'bg-red-cell' : ''}`}>{fmt(r.profit)}</td>
-                                                <td className={r.profit < 0 ? 'bg-red-cell' : ''}>{r.profitPercent.toFixed(0)}%</td>
-                                            </>
-                                        )}
-
-                                        {/* Col 16: Type */}
-                                        <td>{r.projectType}</td>
-                                    </tr>
-                                );
-                            })}
-                        </tbody>
-                    </table>
-                )}
+                                    <td>{r.projectType}</td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

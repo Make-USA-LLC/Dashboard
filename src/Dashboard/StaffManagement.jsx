@@ -2,15 +2,20 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './StaffManagement.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
-import { collection, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { db } from './firebase_config.jsx';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const StaffManagement = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('workers', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('workers', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [workers, setWorkers] = useState([]);
-    const [accessDenied, setAccessDenied] = useState(false);
     
     // Track local changes to emails before saving
     const [emailInputs, setEmailInputs] = useState({});
@@ -18,46 +23,21 @@ const StaffManagement = () => {
     // Status messages for individual rows
     const [statuses, setStatuses] = useState({});
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        
-        // Logic: Admin OR Workers Edit perm required
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc && (rc['admin_edit'] || rc['workers_edit'])) allowed = true;
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (allowed) {
+        const initialize = async () => {
             await fetchWorkers();
-        } else {
-            denyAccess();
-        }
-        setLoading(false);
-    };
-
-    const denyAccess = () => {
-        setAccessDenied(true);
-        setLoading(false);
-    };
+            setPageLoading(false);
+        };
+        initialize();
+    }, [user, canView, roleLoading, navigate]);
 
     const fetchWorkers = async () => {
         try {
@@ -68,7 +48,7 @@ const StaffManagement = () => {
             snap.forEach(d => {
                 const data = d.data();
                 list.push({ id: d.id, ...data });
-                initialEmails[d.id] = data.email || ""; // Pre-fill existing emails
+                initialEmails[d.id] = data.email || ""; 
             });
 
             // Sort by Name
@@ -86,10 +66,12 @@ const StaffManagement = () => {
     };
 
     const handleEmailChange = (id, val) => {
+        if (!canEdit) return;
         setEmailInputs(prev => ({ ...prev, [id]: val }));
     };
 
     const handleSave = async (id) => {
+        if (!canEdit) return alert("Read-Only Access");
         const email = emailInputs[id].trim().toLowerCase();
         
         setStatuses(prev => ({ ...prev, [id]: { msg: 'Saving...', type: 'normal' } }));
@@ -99,7 +81,6 @@ const StaffManagement = () => {
             
             setStatuses(prev => ({ ...prev, [id]: { msg: 'Saved', type: 'success' } }));
             
-            // Clear success message after 2 seconds
             setTimeout(() => {
                 setStatuses(prev => {
                     const newState = { ...prev };
@@ -114,8 +95,8 @@ const StaffManagement = () => {
         }
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-    if (accessDenied) return <div className="sm-denied">Access Denied</div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Staff..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="sm-wrapper">
@@ -124,7 +105,7 @@ const StaffManagement = () => {
                     <span className="material-icons">arrow_back</span> Dashboard
                 </button>
                 <div style={{fontWeight:'bold', fontSize:'18px'}}>Staff Access Manager</div>
-                <div /> {/* Spacer */}
+                <div /> 
             </div>
 
             <div className="sm-container">
@@ -164,10 +145,11 @@ const StaffManagement = () => {
                                                     value={emailInputs[w.id] || ''} 
                                                     onChange={(e) => handleEmailChange(w.id, e.target.value)}
                                                     placeholder="employee@email.com"
+                                                    disabled={!canEdit}
                                                 />
                                             </td>
                                             <td>
-                                                <button className="btn-save" onClick={() => handleSave(w.id)}>Save</button>
+                                                {canEdit && <button className="btn-save" onClick={() => handleSave(w.id)}>Save</button>}
                                                 {status && (
                                                     <span className={`status-msg ${status.type === 'success' ? 'status-success' : status.type === 'error' ? 'status-error' : ''}`}>
                                                         {status.msg}

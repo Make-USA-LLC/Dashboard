@@ -490,7 +490,7 @@ export default function EmployeeDetail() {
   };
 
   const handleRehire = async () => {
-      if(!confirm("Rehire this employee? Resetting logs.")) return;
+      if(!confirm("Rehire this employee? Previous logs will be moved to an archive.")) return;
       const settingsSnap = await getDoc(doc(db, "settings", "checklists"));
       const templates = settingsSnap.exists() ? settingsSnap.data() : {};
       const masterOnboard = employee.type === "Salary" ? (templates.salaryOnboarding || []) : (templates.hourlyOnboarding || []);
@@ -498,14 +498,37 @@ export default function EmployeeDetail() {
       const newOnboard = {}; const newOffboard = {};
       masterOnboard.forEach(item => newOnboard[item] = false); masterOffboard.forEach(item => newOffboard[item] = false);
       
-      const updates = { status: "Active", terminationDate: null, ptoLog: [], hourlyLog: [], sickCarryover: 0, onboarding: newOnboard, offboarding: newOffboard };
+      // 1. Package the old data into an archive object
+      const previousEmployment = {
+          hireDate: employee.hireDate,
+          salaryStartDate: employee.salaryStartDate || null,
+          terminationDate: employee.terminationDate,
+          ptoLog: employee.ptoLog || [],
+          hourlyLog: employee.hourlyLog || [],
+          archivedAt: Date.now()
+      };
+
+      // 2. Add it to the archivedEmployments list
+      const updatedArchivedEmployments = [previousEmployment, ...(employee.archivedEmployments || [])];
+
+      // 3. Update Firestore
+      const updates = { 
+          status: "Active", 
+          terminationDate: null, 
+          ptoLog: [], 
+          hourlyLog: [], 
+          sickCarryover: 0, 
+          onboarding: newOnboard, 
+          offboarding: newOffboard,
+          archivedEmployments: updatedArchivedEmployments // Save the archive
+      };
       await updateDoc(doc(db, "employees", id), updates);
       
       const changes = {
           status: { from: "Inactive", to: "Active" },
           terminationDate: { from: employee.terminationDate, to: null }
       };
-      logAudit("Employee Rehired", employee.name, "Reactivated and reset logs.", changes);
+      logAudit("Employee Rehired", employee.name, "Reactivated and archived old logs.", changes);
       
       const newLocal = {...employee, ...updates}; setEmployee(newLocal);
   };
@@ -843,6 +866,58 @@ export default function EmployeeDetail() {
                               <tbody>{filteredHourlyLogs.map((log, index) => (<tr key={index} style={{borderBottom: '1px solid #f1f5f9', opacity: log.isDeleted ? 0.5 : 1, textDecoration: log.isDeleted ? 'line-through' : 'none', background: log.isDeleted ? '#f9fafb' : 'transparent'}}><td style={{padding: 10}}>{log.date}</td><td style={{padding: 10}}>{log.reason}</td><td style={{padding: 10}}><input type="checkbox" checked={log.paid} onChange={() => togglePaidStatus(index)} disabled={isLocked || log.isDeleted} /></td><td style={{padding: 10}}>{!isLocked && canEditLogs && <button className="text-only" onClick={() => toggleSoftDelete(index)}>{log.isDeleted ? "RESTORE" : "CROSS OUT"}</button>}</td></tr>))}</tbody>
                           </table>
                       )}
+                  </div>
+              )}
+              
+              {/* --- ARCHIVED EMPLOYMENTS DROPDOWN --- */}
+              {(employee.archivedEmployments && employee.archivedEmployments.length > 0) && (
+                  <div style={{marginTop: 30, borderTop: '2px solid #e2e8f0', paddingTop: 20}}>
+                      <h4 style={{margin: '0 0 15px 0', color: '#64748b', fontSize: '13px', textTransform:'uppercase'}}>Previous Employment Periods</h4>
+                      
+                      {employee.archivedEmployments.map((archive, i) => (
+                          <details key={i} style={{marginBottom: 10, background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 8, padding: 12}}>
+                              <summary style={{fontWeight: 'bold', cursor: 'pointer', color: '#334155'}}>
+                                  Archived Logs: Ended {safeFormatDate(archive.terminationDate)}
+                              </summary>
+                              <div style={{marginTop: 15, padding: '10px 0', borderTop: '1px dashed #cbd5e1'}}>
+                                  
+                                  {/* Archived PTO Table */}
+                                  <h5 style={{margin: '0 0 8px 0', color: '#475569'}}>Archived PTO & Time Off</h5>
+                                  {(!archive.ptoLog || archive.ptoLog.length === 0) ? <p style={{fontSize: 13, color: '#94a3b8'}}>No PTO logs for this period.</p> : (
+                                      <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '13px', marginBottom: 20}}>
+                                          <thead><tr style={{borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#64748b'}}><th style={{padding: 6}}>Date</th><th style={{padding: 6}}>Type</th><th style={{padding: 6}}>Amount</th><th style={{padding: 6}}>Note</th></tr></thead>
+                                          <tbody>
+                                              {archive.ptoLog.map((log, idx) => (
+                                                  <tr key={idx} style={{borderBottom: '1px solid #e2e8f0'}}>
+                                                      <td style={{padding: 6}}>{log.date}</td>
+                                                      <td style={{padding: 6}}><span style={{background: '#e2e8f0', padding: '2px 6px', borderRadius: 4, fontSize: '10px', fontWeight: 'bold'}}>{log.type}</span></td>
+                                                      <td style={{padding: 6}}>{log.amount}</td>
+                                                      <td style={{padding: 6, color: '#64748b'}}>{log.note}</td>
+                                                  </tr>
+                                              ))}
+                                          </tbody>
+                                      </table>
+                                  )}
+
+                                  {/* Archived Hourly Table */}
+                                  <h5 style={{margin: '0 0 8px 0', color: '#475569'}}>Archived Hourly Call-Ins</h5>
+                                  {(!archive.hourlyLog || archive.hourlyLog.length === 0) ? <p style={{fontSize: 13, color: '#94a3b8'}}>No hourly logs for this period.</p> : (
+                                      <table style={{width: '100%', borderCollapse: 'collapse', fontSize: '13px'}}>
+                                          <thead><tr style={{borderBottom: '1px solid #cbd5e1', textAlign: 'left', color: '#64748b'}}><th style={{padding: 6}}>Date</th><th style={{padding: 6}}>Reason</th><th style={{padding: 6}}>Paid?</th></tr></thead>
+                                          <tbody>
+                                              {archive.hourlyLog.map((log, idx) => (
+                                                  <tr key={idx} style={{borderBottom: '1px solid #e2e8f0', opacity: log.isDeleted ? 0.5 : 1, textDecoration: log.isDeleted ? 'line-through' : 'none'}}>
+                                                      <td style={{padding: 6}}>{log.date}</td>
+                                                      <td style={{padding: 6}}>{log.reason}</td>
+                                                      <td style={{padding: 6}}>{log.paid ? "Yes" : "No"}</td>
+                                                  </tr>
+                                              ))}
+                                          </tbody>
+                                      </table>
+                                  )}
+                              </div>
+                          </details>
+                      ))}
                   </div>
               )}
             </div>

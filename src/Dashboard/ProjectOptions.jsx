@@ -2,11 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ProjectOptions.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
-import { doc, getDoc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db } from './firebase_config.jsx';
+import { doc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported hook
 
-// 1. MOVED OUTSIDE: RenderCard is now a stable component outside of DropdownManager
 const RenderCard = ({ title, list, type, inputVal, setInput, canEdit, addItem, deleteItem }) => (
     <div className={`dm-card ${!canEdit ? 'read-only' : ''}`}>
         <h2>{title}</h2>
@@ -17,8 +16,9 @@ const RenderCard = ({ title, list, type, inputVal, setInput, canEdit, addItem, d
                 placeholder={`Add ${title}...`}
                 value={inputVal}
                 onChange={e => setInput(e.target.value)}
+                disabled={!canEdit}
             />
-            <button className="btn btn-green" onClick={() => addItem(type, inputVal, setInput)}>Add</button>
+            <button className="btn btn-green" onClick={() => addItem(type, inputVal, setInput)} disabled={!canEdit}>Add</button>
         </div>
         <ul className="dm-list">
             {list.length === 0 && <li className="dm-empty">No items defined.</li>}
@@ -36,8 +36,13 @@ const RenderCard = ({ title, list, type, inputVal, setInput, canEdit, addItem, d
 
 const DropdownManager = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [canEdit, setCanEdit] = useState(false);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('queue', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('queue', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     
     // Data State
     const [data, setData] = useState({
@@ -51,53 +56,17 @@ const DropdownManager = () => {
     const [newCategory, setNewCategory] = useState('');
     const [newSize, setNewSize] = useState('');
 
+    // --- 2. INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let view = false;
-        let edit = false;
-
-        if (role === 'admin') { view = true; edit = true; }
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc) {
-                if (rc['queue_view']) view = true;
-                if (rc['queue_edit']) edit = true;
-            }
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (view) {
-            setCanEdit(edit);
-            startListener();
-        } else {
-            denyAccess();
-        }
-    };
-
-    const denyAccess = () => {
-        alert("Access Denied");
-        navigate('/');
-    };
-
-    const startListener = () => {
         const configRef = doc(db, "config", "project_options");
-        onSnapshot(configRef, (snap) => {
+        const unsubscribe = onSnapshot(configRef, (snap) => {
             if (snap.exists()) {
                 const d = snap.data();
                 setData({
@@ -106,15 +75,17 @@ const DropdownManager = () => {
                     sizes: d.sizes || []
                 });
             } else {
-                setDoc(configRef, { companies: [], categories: [], sizes: [] });
+                if (canEdit) setDoc(configRef, { companies: [], categories: [], sizes: [] });
             }
-            setLoading(false);
+            setPageLoading(false);
         });
-    };
 
-    // --- ACTIONS ---
+        return () => unsubscribe();
+    }, [user, canView, roleLoading, canEdit, navigate]);
+
+    // --- 3. ACTIONS ---
     const addItem = async (type, val, setter) => {
-        if (!canEdit) return alert("Read Only Access");
+        if (!canEdit) return alert("Read-Only Access");
         if (!val.trim()) return;
 
         const configRef = doc(db, "config", "project_options");
@@ -129,7 +100,7 @@ const DropdownManager = () => {
     };
 
     const deleteItem = async (type, index) => {
-        if (!canEdit) return alert("Read Only Access");
+        if (!canEdit) return alert("Read-Only Access");
         if(!window.confirm("Delete item?")) return;
 
         const configRef = doc(db, "config", "project_options");
@@ -138,9 +109,8 @@ const DropdownManager = () => {
         await updateDoc(configRef, { [type]: list });
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Options..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="dm-wrapper">
@@ -152,7 +122,6 @@ const DropdownManager = () => {
 
             <div className="dm-container">
                 <div className="dm-split-view">
-                    {/* 2. Passed the new prop dependencies to the RenderCard components */}
                     <RenderCard 
                         title="Companies" 
                         list={data.companies} 

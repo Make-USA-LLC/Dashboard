@@ -55,7 +55,6 @@ const parseShiftHours = (timeStr) => {
     if (diff < 0) diff += 24; 
     return diff;
 };
-// NEW: Helper to add opacity to hex colors
 const hexToRgba = (hex, alpha) => {
     if (!hex || typeof hex !== 'string' || hex[0] !== '#') return hex;
     const r = parseInt(hex.slice(1, 3), 16);
@@ -176,43 +175,43 @@ export default function Schedule() {
       return gross;
   };
 
-  // UPDATED: Check Area Matches Logic
   const getShiftColor = (timeStr, areaStr) => {
     if (!timeStr || !shiftColorRules.length) return null;
-    
-    // Parse Start Time
     const clean = timeStr.split(/[-–—]/)[0].replace(/\s+/g, '').toUpperCase();
     const match = clean.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)?$/);
-    
     if (!match) return null;
-
     let h = parseInt(match[1], 10);
     const m = match[2] ? parseInt(match[2], 10) : 0;
     const mer = match[3];
-
     if (mer === 'PM' && h < 12) h += 12;
     if (mer === 'AM' && h === 12) h = 0;
-    
     const startDecimal = h + (m / 60);
 
-    // Check rules
     const rule = shiftColorRules.find(r => {
         const timeMatch = startDecimal >= r.start && startDecimal < r.end;
-        
-        // If the rule has specific areas listed, the current cell area must be in that list.
-        // If the rule has NO areas listed, it applies to everyone (backward compatibility/default).
         const areaMatch = !r.areas || r.areas.length === 0 || (areaStr && r.areas.includes(areaStr));
-        
         return timeMatch && areaMatch;
     });
-
     return rule ? rule.color : null;
   };
 
+  // NEW: Calculates total hours dynamically based strictly on currently filtered employees
+  const calculateDailyHours = (dateStr) => {
+      let total = 0;
+      filteredEmployees.forEach(emp => {
+          const cell = getCellData(dateStr, emp);
+          if (cell.time) {
+              total += getNetHours(cell.time);
+          }
+      });
+      return total;
+  };
+
+  // UPDATED: Now uses filteredEmployees instead of employees
   const calculateDailyCost = (dateStr) => {
       if (!canSeeMoney) return 0;
       let total = 0;
-      employees.forEach(emp => {
+      filteredEmployees.forEach(emp => {
           const cell = getCellData(dateStr, emp);
           if (cell.time) {
               const hours = getNetHours(cell.time);
@@ -226,7 +225,6 @@ export default function Schedule() {
 
   const applyChange = async (dateStr, empId, area, time, isDelete) => {
       if (!canEdit) return;
-      
       const emp = employees.find(e => e.id === empId);
       const empName = emp ? `${emp.firstName} ${emp.lastName}` : empId;
 
@@ -238,7 +236,6 @@ export default function Schedule() {
       });
       
       const docRef = doc(db, "schedules", dateStr);
-      
       if (isDelete) {
           try { 
               await updateDoc(docRef, { [`allocations.${empId}`]: deleteField() }); 
@@ -343,6 +340,10 @@ export default function Schedule() {
       return i !== 0 && i !== 6; 
   });
 
+  // Calculate Group Grand Totals
+  const totalWeekHours = visibleDates.reduce((sum, d) => sum + calculateDailyHours(toLocalISO(d)), 0);
+  const totalWeekCost = visibleDates.reduce((sum, d) => sum + calculateDailyCost(toLocalISO(d)), 0);
+
   const printStyle = `
     @media print {
         body * { visibility: hidden; }
@@ -439,8 +440,6 @@ export default function Schedule() {
                                   const hasOverrideData = isOverride && (isOverride.area || isOverride.time);
                                   const isDefault = !isOverride && cell.time;
                                   
-                                  // NEW: Calculate dynamic color with 50% opacity (0.5)
-                                  // Pass the cell area to the color function
                                   const ruleColor = getShiftColor(cell.time, cell.area);
                                   const bgColor = ruleColor ? hexToRgba(ruleColor, 0.5) : (hasOverrideData ? '#eff6ff' : (isDefault ? '#f8fafc' : 'white'));
                                   
@@ -459,12 +458,43 @@ export default function Schedule() {
                           </tr>
                       )
                   })}
-                  {canSeeMoney && (<tr className="no-print" style={{background:'#f0fdf4', borderTop:'2px solid #bbf7d0'}}><td style={{padding: '10px 15px', fontWeight:'bold', color:'#166534', textAlign:'right', position:'sticky', left:0, background:'#f0fdf4'}}>Daily Cost</td>{visibleDates.map(d => {const cost = calculateDailyCost(toLocalISO(d)); return <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#14532d', borderLeft:'1px solid #dcfce7'}}>${cost.toFixed(2)}</td>})}<td></td></tr>)}
+
+                  {/* NEW ROW: Dynamic Total Hours for the Filtered Group */}
+                  <tr className="no-print" style={{background:'#f8fafc', borderTop:'2px solid #e2e8f0'}}>
+                      <td style={{padding: '10px 15px', fontWeight:'bold', color:'#334155', textAlign:'right', position:'sticky', left:0, background:'#f8fafc'}}>
+                          Total Hrs (Group)
+                      </td>
+                      {visibleDates.map(d => {
+                          const hrs = calculateDailyHours(toLocalISO(d));
+                          return (
+                              <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#334155', borderLeft:'1px solid #e2e8f0'}}>
+                                  {hrs > 0 ? hrs.toFixed(1) : '-'}
+                              </td>
+                          );
+                      })}
+                      <td style={{textAlign:'center', fontSize:'13px', fontWeight:'bold', color:'#334155', borderLeft:'2px solid #e2e8f0'}}>{totalWeekHours.toFixed(1)}</td>
+                  </tr>
+
+                  {/* UPDATED ROW: Dynamic Daily Cost for the Filtered Group */}
+                  {canSeeMoney && (
+                      <tr className="no-print" style={{background:'#f0fdf4', borderTop:'1px solid #bbf7d0'}}>
+                          <td style={{padding: '10px 15px', fontWeight:'bold', color:'#166534', textAlign:'right', position:'sticky', left:0, background:'#f0fdf4'}}>
+                              Daily Cost (Group)
+                          </td>
+                          {visibleDates.map(d => {
+                              const cost = calculateDailyCost(toLocalISO(d)); 
+                              return (
+                                  <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#14532d', borderLeft:'1px solid #dcfce7'}}>
+                                      ${cost.toFixed(2)}
+                                  </td>
+                              )
+                          })}
+                          <td style={{textAlign:'center', fontSize:'13px', fontWeight:'bold', color:'#14532d', borderLeft:'2px solid #dcfce7'}}>${totalWeekCost.toFixed(2)}</td>
+                      </tr>
+                  )}
               </tbody>
           </table>
       </div>
-      
-      {/* ... [Rest of the existing code for MODALS] ... */}
       
       {/* CLICK EDIT MODAL */}
       {editingCell && (

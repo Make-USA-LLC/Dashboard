@@ -13,12 +13,12 @@ const MasterAdmin = () => {
     const [lists, setLists] = useState({ 
         ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
         production: [], qc: [], blending: [], wifi: [], admin: [], 
-        client: [], clientRoles: [] // <-- Dynamic Roles
+        client: [], clientRoles: [], readOnlyAdmin: [] // <-- Added readOnlyAdmin
     });
     
     const [inputs, setInputs] = useState({ 
         ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
-        production: '', qc: '', blending: '', wifi: '', admin: '', client: '' 
+        production: '', qc: '', blending: '', wifi: '', admin: '', client: '', readOnlyAdmin: '' // <-- Added readOnlyAdmin
     });
     
     const [roles, setRoles] = useState({ ipad: [], hr: [], wifi: [] });
@@ -63,6 +63,7 @@ const MasterAdmin = () => {
         listen("wifi_access", "wifi", d => ({email: d.id, ...d.data()})); 
         listen("master_admin_access", "admin", d => ({email: d.id}));
         listen("client_access", "client", d => ({email: d.id, ...d.data()})); 
+        listen("readonly_admin_access", "readOnlyAdmin", d => ({email: d.id})); // <-- Added listener
         
         // Listen for custom Client Roles
         onSnapshot(collection(db, "client_roles"), (s) => {
@@ -336,6 +337,26 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
+                {/* NEW READ-ONLY ADMIN CARD */}
+                <div className="admin-card" style={{ borderLeft: '5px solid #6366f1' }}>
+                    <h3 className="admin-card-header">Global Read-Only Admin</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.readOnlyAdmin} onChange={e => setInputs({...inputs, readOnlyAdmin: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAddUser("readOnlyAdmin", "readonly_admin_access")} className="btn-add">Add</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.readOnlyAdmin.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemoveUser("readonly_admin_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* MOVED MASTER ADMIN TO ITS OWN ROW */}
+            <div className="admin-grid-row">
                 <div className="admin-card master-card">
                     <h3 className="admin-card-header">Master Admin</h3>
                     <div className="admin-add-row">

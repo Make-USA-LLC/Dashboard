@@ -15,6 +15,7 @@ export default function Logs({ canRevoke }) {
     }, []);
 
     const handleRevoke = async (id, name) => {
+        if (!canRevoke) return;
         if (!window.confirm(`Are you sure you want to kill network access for ${name}?`)) return;
         setProcessing(id);
         try {
@@ -48,7 +49,6 @@ export default function Logs({ canRevoke }) {
                             const isFailed = log.status === 'revoke_failed';
                             const isPending = log.status === 'revoke_pending' || processing === log.id;
                             
-                            // Format duration nicely (Days vs Hours)
                             const durationMins = log.duration || 720;
                             const durationDisplay = durationMins >= 1440 
                                 ? `${(durationMins / 1440).toFixed(1).replace('.0', '')} Days` 

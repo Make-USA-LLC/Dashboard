@@ -3,14 +3,20 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ArchiveUpload.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
-import { collection, writeBatch, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db } from './firebase_config.jsx';
+import { collection, writeBatch, doc } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const ArchiveUpload = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [canEdit, setCanEdit] = useState(false);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    
+    // Original rule: 'finance_edit' OR 'admin_edit' required to view/edit this page
+    const canView = hasPerm('finance', 'edit') || hasPerm('admin', 'edit') || isReadOnly;
+    const canEdit = (hasPerm('finance', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
     const [selectedFile, setSelectedFile] = useState(null);
     const [statusMsg, setStatusMsg] = useState('');
     const [statusType, setStatusType] = useState(''); // 'success' or 'error'
@@ -18,44 +24,16 @@ const ArchiveUpload = () => {
     
     const fileInputRef = useRef(null);
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            // Check 'finance_edit' OR 'admin_edit'
-            if (rc && (rc['finance_edit'] || rc['admin_edit'])) allowed = true;
+        if (!user || !canView) {
+            navigate('/dashboard');
         }
+    }, [user, canView, roleLoading, navigate]);
 
-        if (allowed) {
-            setCanEdit(true);
-        }
-        setLoading(false);
-    };
-
-    const denyAccess = () => {
-        setLoading(false);
-        setCanEdit(false);
-    };
-
+    // --- 3. UPLOAD LOGIC (Unchanged, just uses the hook's user) ---
     const handleFileChange = (e) => {
         if (e.target.files.length > 0) {
             setSelectedFile(e.target.files[0]);
@@ -64,6 +42,7 @@ const ArchiveUpload = () => {
     };
 
     const handleUpload = async () => {
+        if (!canEdit) return alert("Read-Only Access: Cannot upload archives.");
         if (!selectedFile) return;
         setIsUploading(true);
         setStatusMsg("Reading file...");
@@ -89,8 +68,8 @@ const ArchiveUpload = () => {
                 let totalUploaded = 0;
 
                 for (const row of jsonData) {
-                    // Add metadata
-                    row.uploadedBy = auth.currentUser.email;
+                    // Add metadata using the user context from our hook
+                    row.uploadedBy = user.email;
                     row.uploadedAt = new Date().toISOString();
 
                     const docRef = doc(collection(db, "archive"));
@@ -130,18 +109,16 @@ const ArchiveUpload = () => {
         reader.readAsArrayBuffer(selectedFile);
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="au-wrapper">
             <div className="au-top-bar">
                 <div style={{display:'flex', alignItems:'center', gap:'20px'}}>
                     <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
-                    <button onClick={() => navigate('/finance-setup')} className="btn-blue-outline">Finance Setup</button>
+                    <button onClick={() => navigate('/dashboard/finance-setup')} className="btn-blue-outline">Finance Setup</button>
                 </div>
-           
             </div>
 
             <div className="au-container">
@@ -178,8 +155,8 @@ const ArchiveUpload = () => {
                     ) : (
                         <div className="au-locked-ui">
                             <span className="material-icons" style={{fontSize:'32px'}}>lock</span><br/>
-                            <strong>Access Denied</strong><br/>
-                            You do not have the permissions required to view this page.
+                            <strong>Access Denied / Read Only</strong><br/>
+                            You do not have the permissions required to edit this page.
                         </div>
                     )}
 
@@ -194,4 +171,4 @@ const ArchiveUpload = () => {
     );
 };
 
-export default ArchiveUpload;
+export default ArchiveUpload; 

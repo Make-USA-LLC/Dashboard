@@ -2,23 +2,24 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './UpcomingProjects.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, addDoc, updateDoc, deleteDoc, doc, getDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const UpcomingProjects = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
     
-    // Permission States
-    const [canEdit, setCanEdit] = useState(false);
-    const [canAdd, setCanAdd] = useState(false);
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
     
-    // Config Data
+    const canView = hasPerm('queue', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('queue', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+    // We treat 'queue_add' differently from general queue edit to allow more granular control
+    const canAdd = (hasPerm('queue_add', 'view') || hasPerm('queue_add', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [costPerHour, setCostPerHour] = useState(0);
     const [options, setOptions] = useState({ companies: [], categories: [], sizes: [] });
-    
-    // Queue Data
     const [jobs, setJobs] = useState([]);
     
     // Form State
@@ -29,51 +30,22 @@ const UpcomingProjects = () => {
     });
     const [timePreview, setTimePreview] = useState("Waiting for input...");
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/'); 
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let editPerm = false;
-        let addPerm = false;
-        
-        if (role === 'admin') {
-            editPerm = true;
-            addPerm = true;
-        } else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc) {
-                if (rc['admin_edit']) {
-                    editPerm = true;
-                    addPerm = true;
-                }
-                
-                // Strictly separated:
-                if (rc['queue_edit']) editPerm = true;
-                if (rc['queue_add_edit'] || rc['queue_add_view']) addPerm = true;
-            }
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        setCanEdit(editPerm);
-        setCanAdd(addPerm);
-        await Promise.all([loadFinanceConfig(), loadOptions()]);
-        initQueueListener();
-        setLoading(false);
-    };
+        const initialize = async () => {
+            await Promise.all([loadFinanceConfig(), loadOptions()]);
+            initQueueListener();
+            setPageLoading(false);
+        };
+        initialize();
+    }, [user, canView, roleLoading, navigate]);
 
     const loadFinanceConfig = async () => {
         try {
@@ -98,7 +70,7 @@ const UpcomingProjects = () => {
         });
     };
 
-    // --- FORM LOGIC ---
+    // --- 3. FORM LOGIC ---
     useEffect(() => {
         const qty = parseFloat(form.quantity) || 0;
         const price = parseFloat(form.price) || 0;
@@ -124,7 +96,6 @@ const UpcomingProjects = () => {
     };
 
     const handleSubmit = async () => {
-        // Strict Permission Checks decoupled from each other
         if (editingId && !canEdit) return alert("Access Denied: You do not have permission to edit projects.");
         if (!editingId && !canAdd) return alert("Access Denied: You do not have permission to add new projects.");
 
@@ -159,7 +130,7 @@ const UpcomingProjects = () => {
     };
 
     const handleEdit = (job) => {
-        if (!canEdit) return;
+        if (!canEdit) return alert("Read-Only Access");
         setEditingId(job.id);
         setForm({
             company: job.company || '',
@@ -185,7 +156,8 @@ const UpcomingProjects = () => {
         }
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Queue..." /></div>;
+    if (!canView) return null;
 
     // Logic: Form shows if they have Add Access AND aren't editing anything OR if they specifically clicked Edit.
     const showForm = (canAdd && !editingId) || (editingId !== null);
@@ -203,7 +175,7 @@ const UpcomingProjects = () => {
             <div className="up-container">
                 <div className={`up-card ${editingId ? 'edit-mode' : ''}`}>
                     
-                    {showForm && (
+                    {showForm ? (
                         <>
                             <h2 style={{color: editingId ? '#f39c12' : '#2c3e50'}}>
                                 {editingId ? "Edit Project" : "Add New Project"}
@@ -211,7 +183,7 @@ const UpcomingProjects = () => {
 
                             <div id="inputSection">
                                 {canEdit && (
-                                    <button className="up-link-btn" onClick={() => navigate('/ProjectOptions')}>
+                                    <button className="up-link-btn" onClick={() => navigate('/dashboard/project-options')}>
                                         Manage Dropdowns &rarr;
                                     </button>
                                 )}
@@ -278,6 +250,10 @@ const UpcomingProjects = () => {
                                 <hr style={{margin:'30px 0', border:0, borderTop:'1px solid #eee'}} />
                             </div>
                         </>
+                    ) : (
+                        <div style={{ color: '#999', fontStyle: 'italic', marginBottom: '20px' }}>
+                            Read Only View: You do not have permission to add new projects.
+                        </div>
                     )}
 
                     <h3 style={{marginTop:0, color:'#2c3e50'}}>Pending Projects</h3>

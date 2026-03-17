@@ -18,7 +18,11 @@ const ProductionQueue = () => {
     // Edit State
     const [editingId, setEditingId] = useState(null);
 
-    const [form, setForm] = useState({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
+    // Added startDate and workerCount to form state
+    const [form, setForm] = useState({ 
+        company: '', project: '', category: '', size: '', 
+        quantity: '', price: '', notes: '', startDate: '', workerCount: '' 
+    });
     
     // Simplified Blending State
     const [requiresBlending, setRequiresBlending] = useState(false);
@@ -113,7 +117,12 @@ const ProductionQueue = () => {
 
     const handleCreate = async () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
-        const finalPayload = { ...form };
+        
+        // Ensure numeric workerCount
+        const finalPayload = { 
+            ...form,
+            workerCount: form.workerCount ? parseInt(form.workerCount, 10) : 0
+        };
         
         let finalIngredients = [];
         if (requiresBlending) {
@@ -127,7 +136,6 @@ const ProductionQueue = () => {
 
         try {
             if (editingId) {
-                // Update existing job
                 await updateDoc(doc(db, "production_pipeline", editingId), {
                     ...finalPayload,
                     requiresBlending,
@@ -135,7 +143,6 @@ const ProductionQueue = () => {
                 });
                 alert("Job updated!");
             } else {
-                // Create new job
                 if (requiresBlending) {
                     const prodRef = await addDoc(collection(db, "production_pipeline"), {
                         ...finalPayload,
@@ -163,7 +170,6 @@ const ProductionQueue = () => {
                         requiresBlending: false,
                         blendingStatus: "not_required",
                         ingredients: [],
-                        notes: '',
                         techSheetUploaded: false,
                         techSheets: [],
                         componentsArrived: false,
@@ -187,7 +193,9 @@ const ProductionQueue = () => {
             size: job.size || '',
             quantity: job.quantity || '',
             price: job.price || '',
-            notes: job.notes || ''
+            notes: job.notes || '',
+            startDate: job.startDate || '',
+            workerCount: job.workerCount || ''
         });
         setRequiresBlending(job.requiresBlending || false);
         setIngredients(job.ingredients?.length > 0 ? job.ingredients : [
@@ -201,7 +209,7 @@ const ProductionQueue = () => {
 
     const handleCancel = () => {
         setEditingId(null);
-        setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '' });
+        setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '', startDate: '', workerCount: '' });
         setRequiresBlending(false);
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
@@ -237,7 +245,7 @@ const ProductionQueue = () => {
                     <h3 style={{marginTop:0, color: editingId ? '#d35400' : '#333'}}>
                         {editingId ? "Edit Production Job" : "New Production Job"}
                     </h3>
-                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:'15px', marginBottom: '15px'}}>
+                    <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'15px', marginBottom: '15px'}}>
                         <div><label style={styles.label}>Company</label>
                             <select style={styles.input} value={form.company} onChange={e=>setForm({...form, company:e.target.value})}><option value="">Select...</option>{options.companies?.map(c=><option key={c} value={c}>{c}</option>)}</select>
                         </div>
@@ -249,7 +257,11 @@ const ProductionQueue = () => {
                             <select style={styles.input} value={form.size} onChange={e=>setForm({...form, size:e.target.value})}><option value="">Select...</option>{options.sizes?.map(c=><option key={c} value={c}>{c}</option>)}</select>
                         </div>
                         <div><label style={styles.label}>Quantity</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
-                        <div><label style={styles.label}>Price per Unit</label><input type="number" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
+                        <div><label style={styles.label}>Price per Unit</label><input type="number" step="0.01" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
+                        
+                        {/* NEW FIELDS */}
+                        <div><label style={styles.label}>Start Date</label><input type="date" style={styles.input} value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
+                        <div><label style={styles.label}>Employees Required</label><input type="number" style={styles.input} value={form.workerCount} onChange={e=>setForm({...form, workerCount:e.target.value})} /></div>
                     </div>
 
                     <div style={{ borderTop: '1px solid #ccc', paddingTop: '15px', marginTop: '15px' }}>
@@ -301,7 +313,9 @@ const ProductionQueue = () => {
                     <div style={{display:'flex', justifyContent:'space-between'}}>
                         <div style={{maxWidth: '50%'}}>
                             <h3 style={{margin:'0 0 5px 0'}}>{job.project}</h3>
-                            <div style={{color:'#666'}}>{job.company} • {job.quantity} units</div>
+                            <div style={{color:'#666'}}>
+                                {job.company} • {job.quantity || 'N/A'} units • Starts: {job.startDate || 'TBD'} • Workers: {job.workerCount || 0}
+                            </div>
                             
                             {job.notes && (
                                 <div style={{marginTop: '8px', padding: '6px 10px', background: '#fef3c7', borderLeft: '3px solid #f59e0b', borderRadius: '4px', fontSize: '12px', color: '#92400e'}}>

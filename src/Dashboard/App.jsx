@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { deleteField, deleteDoc } from 'firebase/firestore'; // <-- NEW IMPORTS
+import React from 'react';
+import { Routes, Route, Navigate } from 'react-router-dom';
+
+// Pages
 import Dashboard from './Dashboard';
 import Login from './Login';
 import Admin from './Admin';
@@ -27,168 +28,76 @@ import StaffManagement from './StaffManagement';
 import ProjectSummary from './ProjectSummary';
 import UpcomingProjects from './UpcomingProjects';
 import Workers from './Workers';
-import Loader from '../components/Loader';
-import { auth, onAuthStateChanged, db, doc, getDoc, setDoc, signOut } from './firebase_config.jsx';
+
+// Context & Loaders
+import Loader from '../components/loader';
+import { RoleProvider, useRole } from './hooks/useRole';
+
+const DashboardGuard = ({ children }) => {
+    const { user, loading } = useRole();
+    
+    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
+    if (!user) return <Login type="admin" />;
+    
+    return children;
+};
 
 function App() {
-  const [user, setUser] = useState(null);
-  const [loading, setLoading] = useState(true);
-  
-  // 1. DETERMINE DOMAIN CONTEXT
   const host = window.location.hostname;
   const isEmployeeDomain = host.includes("portal.make"); 
   const isAgentDomain = host.includes("agent") || host.includes("commission");
 
-  // 2. Auth Listener
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        await checkAccess(currentUser);
-      } else {
-        setUser(null);
-        setLoading(false);
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  const checkAccess = async (currentUser) => {
-    const emailKey = currentUser.email.toLowerCase();
-    
-    // Admin Bypass
-    if (emailKey === "daniel.s@makeit.buzz") {
-      await setDoc(doc(db, "users", emailKey), { role: "admin", email: emailKey, allowPassword: true }, { merge: true });
-      setUser(currentUser);
-      setLoading(false);
-      return;
-    }
-
-    try {
-      const masterDoc = await getDoc(doc(db, "master_admin_access", emailKey));
-      const userDocRef = doc(db, "users", emailKey);
-      const userDoc = await getDoc(userDocRef);
-      
-      let data = userDoc.exists() ? userDoc.data() : null;
-
-      // --- MASTER ADMIN INTERCEPT & AUTO-UPGRADE ---
-      if (masterDoc.exists()) {
-         if (!data || data.role !== "admin") {
-             await setDoc(userDocRef, { 
-                 role: "admin", 
-                 // Explicitly track if they had zero access before upgrading
-                 previous_role: data?.role || "NO_ACCESS", 
-                 email: emailKey 
-             }, { merge: true });
-         }
-
-         setUser(currentUser); 
-         setLoading(false);
-         return;
-      } 
-      
-      // --- AUTO-REVERT DOWNGRADE ---
-      if (data && data.previous_role) {
-         if (data.previous_role === "NO_ACCESS") {
-             // They had no access before, so completely remove them from the system
-             await deleteDoc(userDocRef);
-             data = null; // Clear local data so the legacy check below blocks them
-         } else {
-             // Revert them to their original legitimate role
-             await setDoc(userDocRef, {
-                 role: data.previous_role,
-                 previous_role: deleteField() // Properly wipes the backup field
-             }, { merge: true });
-             
-             data.role = data.previous_role; 
-         }
-      }
-
-      // --- LEGACY CHECK ---
-      if (!data) {
-         setUser(null);
-      } else {
-        const isGoogle = currentUser.providerData.some(p => p.providerId === 'google.com');
-        if (!isGoogle && data.allowPassword !== true && data.role !== 'admin') {
-            await signOut(auth);
-            setUser(null);
-        } else {
-            setUser(currentUser);
-        }
-      }
-    } catch (err) {
-      console.error("Login Check Error", err);
-      setUser(null);
-    }
-    setLoading(false);
-  };
-
-  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
-
-  const DashboardGuard = ({ children }) => {
-      if (!user) return <Login type="admin" />;
-      return children;
-  };
-
   return (
-    <Routes>
-      {/* --- PUBLIC / PORTAL ROUTES (Keep at Root) --- */}
-      {/* These must be absolute paths because they are outside the dashboard scope */}
-      <Route path="/kiosk" element={<Kiosk />} />
-      <Route path="/kiosk.html" element={<Kiosk />} />
-      <Route path="/logout" element={<Logout />} />
-      
-      {/* Portals */}
-      <Route path="/employee-portal" element={<EmployeePortal />} />
-      <Route path="/agent-portal" element={<AgentPortal />} />
+    <RoleProvider>
+        <Routes>
+          {/* --- PUBLIC / PORTAL ROUTES --- */}
+          <Route path="/kiosk" element={<Kiosk />} />
+          <Route path="/kiosk.html" element={<Kiosk />} />
+          <Route path="/logout" element={<Logout />} />
+          <Route path="/employee-portal" element={<EmployeePortal />} />
+          <Route path="/agent-portal" element={<AgentPortal />} />
 
-      {/* Root Redirection for Portals */}
-      <Route path="/" element={
-          isEmployeeDomain ? <EmployeePortal /> :
-          isAgentDomain ? <AgentPortal /> :
-          <Navigate to="/dashboard" replace />
-      } />
+          <Route path="/" element={
+              isEmployeeDomain ? <EmployeePortal /> :
+              isAgentDomain ? <AgentPortal /> :
+              <Navigate to="/dashboard" replace />
+          } />
 
-      {/* --- DASHBOARD INTERNAL ROUTES --- 
-          Since this App component is mounted at "/dashboard/*" by the Root App,
-          we use RELATIVE paths here. (e.g., path="admin" becomes /dashboard/admin)
-      */}
-      
-      {/* Main Dashboard View (at /dashboard/) */}
-      <Route index element={<DashboardGuard><Dashboard /></DashboardGuard>} />
-      
-      {/* Fix for the "dashboard/dashboard" issue - Redirect relative 'dashboard' back to index */}
-      <Route path="dashboard" element={<Navigate to="/dashboard" replace />} />
+          {/* --- DASHBOARD INTERNAL ROUTES --- */}
+          <Route index element={<DashboardGuard><Dashboard /></DashboardGuard>} />
+          <Route path="dashboard" element={<Navigate to="/" replace />} />
+          
+          {/* Management */}
+          <Route path="admin" element={<DashboardGuard><Admin /></DashboardGuard>} />
+          <Route path="workers" element={<DashboardGuard><Workers /></DashboardGuard>} />
+          <Route path="staff-management" element={<DashboardGuard><StaffManagement /></DashboardGuard>} />
+          <Route path="agent-management" element={<DashboardGuard><AgentManagement /></DashboardGuard>} />
 
-      {/* Management */}
-      <Route path="admin" element={<DashboardGuard><Admin /></DashboardGuard>} />
-      <Route path="workers" element={<DashboardGuard><Workers /></DashboardGuard>} />
-      <Route path="staff-management" element={<DashboardGuard><StaffManagement /></DashboardGuard>} />
-      <Route path="agent-management" element={<DashboardGuard><AgentManagement /></DashboardGuard>} />
+          {/* Finance */}
+          <Route path="manual-ingest" element={<DashboardGuard><ManualIngest /></DashboardGuard>} />
+          <Route path="production-input" element={<DashboardGuard><ProductionInput /></DashboardGuard>} />
+          <Route path="finance-input" element={<DashboardGuard><FinanceInput /></DashboardGuard>} />
+          <Route path="financial-report" element={<DashboardGuard><FinancialReport /></DashboardGuard>} />
+          <Route path="finance-setup" element={<DashboardGuard><FinanceSetup /></DashboardGuard>} />
+          <Route path="bonuses" element={<DashboardGuard><Bonuses /></DashboardGuard>} />
+          <Route path="bonus-reports" element={<DashboardGuard><BonusReports /></DashboardGuard>} />
+          <Route path="commisions" element={<DashboardGuard><Commisions /></DashboardGuard>} />
+          <Route path="agent-reports" element={<DashboardGuard><AgentReports /></DashboardGuard>} />
 
-      {/* Finance */}
-      <Route path="manual-ingest" element={<DashboardGuard><ManualIngest /></DashboardGuard>} />
-      <Route path="production-input" element={<DashboardGuard><ProductionInput /></DashboardGuard>} />
-      <Route path="finance-input" element={<DashboardGuard><FinanceInput /></DashboardGuard>} />
-      <Route path="financial-report" element={<DashboardGuard><FinancialReport /></DashboardGuard>} />
-      <Route path="finance-setup" element={<DashboardGuard><FinanceSetup /></DashboardGuard>} />
-      <Route path="bonuses" element={<DashboardGuard><Bonuses /></DashboardGuard>} />
-      <Route path="bonus-reports" element={<DashboardGuard><BonusReports /></DashboardGuard>} />
-      <Route path="commisions" element={<DashboardGuard><Commisions /></DashboardGuard>} />
-      <Route path="agent-reports" element={<DashboardGuard><AgentReports /></DashboardGuard>} />
+          {/* Projects & Queue */}
+          <Route path="project-search" element={<DashboardGuard><ProjectSearch /></DashboardGuard>} />
+          <Route path="upload" element={<DashboardGuard><ArchiveUpload /></DashboardGuard>} />
+          <Route path="upcoming-projects" element={<DashboardGuard><UpcomingProjects /></DashboardGuard>} />
+          <Route path="project-summary" element={<DashboardGuard><ProjectSummary /></DashboardGuard>} />
+          <Route path="project-options" element={<DashboardGuard><ProjectOptions /></DashboardGuard>} />
 
-      {/* Projects & Queue */}
-      <Route path="project-search" element={<DashboardGuard><ProjectSearch /></DashboardGuard>} />
-      <Route path="upload" element={<DashboardGuard><ArchiveUpload /></DashboardGuard>} />
-      <Route path="upcoming-projects" element={<DashboardGuard><UpcomingProjects /></DashboardGuard>} />
-      <Route path="project-summary" element={<DashboardGuard><ProjectSummary /></DashboardGuard>} />
-      <Route path="project-options" element={<DashboardGuard><ProjectOptions /></DashboardGuard>} />
+          {/* iPads */}
+          <Route path="ipad-control/:id" element={<DashboardGuard><IpadControl /></DashboardGuard>} />
 
-      {/* iPads */}
-      <Route path="ipad-control/:id" element={<DashboardGuard><IpadControl /></DashboardGuard>} />
-
-      {/* Fallback */}
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+          {/* Fallback */}
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+    </RoleProvider>
   );
 }
 

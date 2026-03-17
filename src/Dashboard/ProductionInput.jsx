@@ -2,23 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ProductionInput.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, updateDoc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
-// --- SUB-COMPONENT: Individual Report Card ---
-const ReportCard = ({ data, projectTypes, onRefresh }) => {
-    // Initial State setup
+const ReportCard = ({ data, projectTypes, onRefresh, canEdit }) => {
     const [plNumber, setPlNumber] = useState(data.plNumber ? data.plNumber.replace(/^(PL-|PL)/i, '').trim() : '');
     const [projectType, setProjectType] = useState(data.projectType || '');
     
-    // BONUS LOGIC: Defaults to True (Eligible) unless explicitly False
     const [isBonusEligible, setIsBonusEligible] = useState(data.bonusEligible !== false); 
     const [bonusReason, setBonusReason] = useState(data.bonusIneligibleReason || '');
     
     const [isAdjusting, setIsAdjusting] = useState(data.laborAdjustmentActive || false);
     
-    // Adjustment States
     const [adjustOp, setAdjustOp] = useState('add');
     const [adjustMethod, setAdjustMethod] = useState('total');
     const [valTotal, setValTotal] = useState('');
@@ -30,6 +26,7 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
     const dateStr = data.completedAt ? new Date(data.completedAt.seconds * 1000).toLocaleString() : 'Unknown';
 
     const handleDelete = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         if(!window.confirm("PERMANENTLY DELETE report? This cannot be undone.")) return;
         try {
             await deleteDoc(doc(db, "reports", data.id));
@@ -38,32 +35,30 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
     };
 
     const handleReturnQueue = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         if(!window.confirm("Send back to iPad? This restores remaining time.")) return;
         try {
-            // Create queue entry
             await addDoc(collection(db, "project_queue"), {
                 company: data.company || "Unknown",
                 project: data.project || "Unknown",
                 category: data.category || "General",
                 size: data.size || "Standard",
-                seconds: data.finalSeconds || 0, // Restore remaining
+                seconds: data.finalSeconds || 0, 
                 originalSeconds: data.originalSeconds || 0,
-                lineLeaderName: data.leader || "", // Trigger auto-login
+                lineLeaderName: data.leader || "", 
                 expectedUnits: 0, pricePerUnit: 0,
                 requeuedFromReport: true,
                 createdAt: serverTimestamp()
             });
-            // Delete report
             await deleteDoc(doc(db, "reports", data.id));
             onRefresh();
         } catch(e) { alert("Error: " + e.message); }
     };
 
     const handleSubmit = async () => {
-        // 1. Basic Validation
+        if (!canEdit) return alert("Read-Only Access");
         if(!plNumber || !projectType) return alert("Please enter PL# and Production Type.");
         
-        // 2. Bonus Validation: If NOT eligible, reason is mandatory
         if(!isBonusEligible && !bonusReason.trim()) {
             return alert("Please enter a reason for bonus ineligibility.");
         }
@@ -73,8 +68,6 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
             projectType: projectType,
             financeStatus: "pending_finance",
             laborAdjustmentActive: isAdjusting,
-            
-            // 3. Save Bonus Data
             bonusEligible: isBonusEligible,
             bonusIneligibleReason: isBonusEligible ? "" : bonusReason
         };
@@ -124,30 +117,29 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
                     <label className="pi-label">Packing List # (PL)</label>
                     <div className="pi-pl-group">
                         <span className="pi-pl-prefix">PL-</span>
-                        <input className="pi-pl-input" value={plNumber} onChange={e => setPlNumber(e.target.value)} placeholder="5505" />
+                        <input className="pi-pl-input" value={plNumber} onChange={e => setPlNumber(e.target.value)} placeholder="5505" disabled={!canEdit} />
                     </div>
                 </div>
                 <div>
                     <label className="pi-label">Production Type</label>
-                    <select className="pi-select" value={projectType} onChange={e => setProjectType(e.target.value)}>
+                    <select className="pi-select" value={projectType} onChange={e => setProjectType(e.target.value)} disabled={!canEdit}>
                         <option value="">Select Type...</option>
                         {projectTypes.map(t => <option key={t} value={t}>{t}</option>)}
                     </select>
                 </div>
             </div>
 
-            {/* --- BONUS SECTION (Matching HTML Logic) --- */}
             <div className="pi-bonus-box">
                 <label className="pi-chk-container">
                     <input 
                         type="checkbox" 
                         checked={isBonusEligible} 
                         onChange={e => setIsBonusEligible(e.target.checked)} 
+                        disabled={!canEdit}
                     />
                     <span className="pi-chk-label">Project Eligible for Bonus?</span>
                 </label>
                 
-                {/* Reason box shows only if NOT eligible */}
                 {!isBonusEligible && (
                     <div className="pi-reason-box">
                         <label className="pi-label" style={{color:'#c0392b'}}>Reason for Ineligibility *</label>
@@ -156,6 +148,7 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
                             value={bonusReason} 
                             onChange={e => setBonusReason(e.target.value)} 
                             placeholder="e.g. Rework Required, Late Shipment, Quality Issue" 
+                            disabled={!canEdit}
                         />
                     </div>
                 )}
@@ -164,7 +157,7 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
             <div className="pi-adjust-box">
                 <div style={{display:'flex', justifyContent:'space-between', marginBottom:'15px'}}>
                     <label className="pi-chk-container">
-                        <input type="checkbox" checked={isAdjusting} onChange={e => setIsAdjusting(e.target.checked)} />
+                        <input type="checkbox" checked={isAdjusting} onChange={e => setIsAdjusting(e.target.checked)} disabled={!canEdit} />
                         <span className="pi-chk-label">Adjust Labor Time</span>
                     </label>
                     <span style={{fontSize:'11px', color:'#7f8c8d'}}>Scanned: <strong>{scannedHrs} hrs</strong></span>
@@ -175,14 +168,14 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
                         <div style={{display:'flex', gap:'10px', marginBottom:'10px'}}>
                             <div style={{flex:1}}>
                                 <label className="pi-label">Operation</label>
-                                <select className="pi-select" value={adjustOp} onChange={e => setAdjustOp(e.target.value)}>
+                                <select className="pi-select" value={adjustOp} onChange={e => setAdjustOp(e.target.value)} disabled={!canEdit}>
                                     <option value="add">Add (+)</option>
                                     <option value="sub">Subtract (-)</option>
                                 </select>
                             </div>
                             <div style={{flex:1}}>
                                 <label className="pi-label">Method</label>
-                                <select className="pi-select" value={adjustMethod} onChange={e => setAdjustMethod(e.target.value)}>
+                                <select className="pi-select" value={adjustMethod} onChange={e => setAdjustMethod(e.target.value)} disabled={!canEdit}>
                                     <option value="total">Total Man Hours</option>
                                     <option value="calc">Hours x Men</option>
                                 </select>
@@ -192,12 +185,12 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
                         {adjustMethod === 'total' ? (
                             <div>
                                 <label className="pi-label">Total Hours to Adjust</label>
-                                <input type="number" className="pi-input" value={valTotal} onChange={e => setValTotal(e.target.value)} placeholder="e.g. 2.5" />
+                                <input type="number" className="pi-input" value={valTotal} onChange={e => setValTotal(e.target.value)} placeholder="e.g. 2.5" disabled={!canEdit} />
                             </div>
                         ) : (
                             <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'10px'}}>
-                                <div><label className="pi-label"># People</label><input type="number" className="pi-input" value={valPpl} onChange={e => setValPpl(e.target.value)} /></div>
-                                <div><label className="pi-label">Hours Each</label><input type="number" className="pi-input" value={valAvg} onChange={e => setValAvg(e.target.value)} /></div>
+                                <div><label className="pi-label"># People</label><input type="number" className="pi-input" value={valPpl} onChange={e => setValPpl(e.target.value)} disabled={!canEdit} /></div>
+                                <div><label className="pi-label">Hours Each</label><input type="number" className="pi-input" value={valAvg} onChange={e => setValAvg(e.target.value)} disabled={!canEdit} /></div>
                             </div>
                         )}
                     </div>
@@ -205,67 +198,55 @@ const ReportCard = ({ data, projectTypes, onRefresh }) => {
             </div>
 
             <div className="pi-card-footer">
-                <div className="pi-action-group">
-                    <button className="btn-text btn-red-text" onClick={handleDelete}>
-                        <span className="material-icons" style={{fontSize:'16px'}}>delete</span> Delete
-                    </button>
-                    <button className="btn-text btn-orange-text" onClick={handleReturnQueue}>
-                        <span className="material-icons" style={{fontSize:'16px'}}>undo</span> Send to Queue
-                    </button>
-                </div>
-                <button className="btn btn-blue" onClick={handleSubmit}>Submit to Finance &rarr;</button>
+                {canEdit ? (
+                    <>
+                        <div className="pi-action-group">
+                            <button className="btn-text btn-red-text" onClick={handleDelete}>
+                                <span className="material-icons" style={{fontSize:'16px'}}>delete</span> Delete
+                            </button>
+                            <button className="btn-text btn-orange-text" onClick={handleReturnQueue}>
+                                <span className="material-icons" style={{fontSize:'16px'}}>undo</span> Send to Queue
+                            </button>
+                        </div>
+                        <button className="btn btn-blue" onClick={handleSubmit}>Submit to Finance &rarr;</button>
+                    </>
+                ) : (
+                    <div style={{ color: '#999', fontStyle: 'italic', width: '100%', textAlign: 'center' }}>Read Only View</div>
+                )}
             </div>
         </div>
     );
 };
 
-// --- MAIN COMPONENT ---
 const ProductionInput = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('prod_input', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('prod_input', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [reports, setReports] = useState([]);
     const [projectTypes, setProjectTypes] = useState([]);
     const [scannedCount, setScannedCount] = useState(0);
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            // Check specifically for the new Production Input permission instead of queue_edit
-            if (rc && (rc['prod_input_view'] || rc['prod_input_edit'] || rc['admin_edit'])) allowed = true;
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (allowed) {
+        const initialize = async () => {
             await loadConfig();
-            fetchData();
-        } else {
-            denyAccess();
-        }
-    };
+            await fetchData();
+        };
 
-    const denyAccess = () => {
-        alert("Access Denied");
-        navigate('/');
-    };
+        initialize();
+    }, [user, canView, roleLoading, navigate]);
 
     const loadConfig = async () => {
         try {
@@ -275,7 +256,7 @@ const ProductionInput = () => {
     };
 
     const fetchData = async () => {
-        setLoading(true);
+        setPageLoading(true);
         try {
             const q = query(collection(db, "reports"), orderBy("completedAt", "desc"), limit(100));
             const snap = await getDocs(q);
@@ -293,12 +274,11 @@ const ProductionInput = () => {
             setReports(pending);
             setScannedCount(total);
         } catch(e) { console.error(e); }
-        setLoading(false);
+        setPageLoading(false);
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-     if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Inputs..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="pi-wrapper">
@@ -309,7 +289,6 @@ const ProductionInput = () => {
                 <div style={{fontWeight:'bold', color:'#3498db', display:'flex', alignItems:'center', gap:'8px'}}>
                     <span className="material-icons">input</span> Production Input
                 </div>
-               
             </div>
 
             <div className="pi-container">
@@ -328,6 +307,7 @@ const ProductionInput = () => {
                                 data={r} 
                                 projectTypes={projectTypes} 
                                 onRefresh={fetchData} 
+                                canEdit={canEdit}
                             />
                         ))}
                         <div style={{textAlign:'center', marginTop:'20px', fontSize:'12px', color:'#aaa'}}>

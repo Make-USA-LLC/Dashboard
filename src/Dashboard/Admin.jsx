@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom'; 
 import './Admin.css';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { 
   collection, 
   getDocs, 
@@ -11,8 +11,8 @@ import {
   deleteDoc, 
   getDoc 
 } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
 import Loader from '../components/loader';
+import { useRole } from './hooks/useRole'; // <-- Import our new hook!
 
 const FEATURES = [
     { id: 'access', label: 'Dashboard Login' },
@@ -35,14 +35,18 @@ const FEATURES = [
 
 const Admin = () => {
     const navigate = useNavigate(); 
-    const [loading, setLoading] = useState(true);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, isReadOnly, hasPerm, loading: roleLoading } = useRole();
+    const canView = hasPerm('admin', 'view');
+    const canEdit = hasPerm('admin', 'edit');
 
+    const [pageLoading, setPageLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('users');
     const [users, setUsers] = useState([]);
-    const [rolesConfig, setRolesConfig] = useState({});
-    const [currentUserEmail, setCurrentUserEmail] = useState('');
-    const [currentUserRole, setCurrentUserRole] = useState('');
-    const [globalSettings, setGlobalSettings] = useState({ allowEmailLogin: false });
+    
+    // We keep a local copy of roles config so you can edit it before saving
+    const [localRolesConfig, setLocalRolesConfig] = useState({});
     
     // Form States
     const [newUserEmail, setNewUserEmail] = useState('');
@@ -50,72 +54,27 @@ const Admin = () => {
     const [newUserPassAccess, setNewUserPassAccess] = useState(false);
     const [newRoleName, setNewRoleName] = useState('');
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                setCurrentUserEmail(user.email.toLowerCase());
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return; // Wait for the hook to finish thinking
 
-    const checkAccess = async (user) => {
-        const emailKey = user.email.toLowerCase();
-
-        try {
-            // Master Admin Intercept
-            const masterDoc = await getDoc(doc(db, "master_admin_access", emailKey));
-            if (masterDoc.exists()) {
-                setCurrentUserRole('admin'); 
-                await fetchRolesConfig(); 
-                await fetchUsers();
-                await fetchGlobalSettings();
-                setLoading(false);
-                return;
-            }
-
-            const uSnap = await getDoc(doc(db, "users", emailKey));
-            if (uSnap.exists()) {
-                const r = uSnap.data().role;
-                setCurrentUserRole(r);
-                await fetchRolesConfig(); 
-                const configSnap = await getDoc(doc(db, "config", "roles"));
-                if(configSnap.exists()) {
-                    const config = configSnap.data();
-                    setRolesConfig(config);
-                    
-                    let hasAccess = false;
-                    if(r === 'admin') hasAccess = true;
-                    else if (config[r] && (config[r]['admin_view'] || config[r]['admin_edit'])) hasAccess = true;
-
-                    if (!hasAccess) {
-                        alert("Access Denied.");
-                        navigate('/dashboard'); 
-                        return;
-                    }
-                    
-                    await fetchUsers();
-                    await fetchGlobalSettings();
-                    setLoading(false);
-                }
-            } else {
-                alert("Access Denied.");
-                navigate('/dashboard'); 
-            }
-        } catch (error) {
-            console.error("Access Check Error:", error);
-            navigate('/dashboard');
+        if (!user || !canView) {
+            navigate('/dashboard'); 
+            return;
         }
-    };
+
+        const loadData = async () => {
+            await fetchRolesConfig(); 
+            await fetchUsers();
+            setPageLoading(false);
+        };
+
+        loadData();
+    }, [user, canView, roleLoading, navigate]);
 
     const fetchRolesConfig = async () => {
         const snap = await getDoc(doc(db, "config", "roles"));
-        if (snap.exists()) setRolesConfig(snap.data());
+        if (snap.exists()) setLocalRolesConfig(snap.data());
     };
 
     const fetchUsers = async () => {
@@ -130,20 +89,15 @@ const Admin = () => {
             const u = d.data();
             const email = u.email ? u.email.toLowerCase() : d.id.toLowerCase();
 
-            // 1. Filter out "Ghost" Records (Removed from Master, but hasn't logged in to auto-delete)
-            if (u.previous_role === "NO_ACCESS" && !masterEmails.has(email)) {
-                return; 
-            }
+            if (u.previous_role === "NO_ACCESS" && !masterEmails.has(email)) return; 
 
-            // 2. Visual Revert for Pending Downgrades (Removed from Master, but hasn't logged in to auto-revert)
             if (u.previous_role && u.previous_role !== "NO_ACCESS" && !masterEmails.has(email)) {
                 u.role = u.previous_role; 
             }
 
-            // 3. Identify active Master Admins to lock their controls
             if (masterEmails.has(email)) {
                 u.isMasterAdmin = true;
-                u.role = 'admin'; // Ensure they show as admin in the table
+                u.role = 'admin'; 
             }
 
             list.push(u);
@@ -151,12 +105,9 @@ const Admin = () => {
         setUsers(list);
     };
 
-    const fetchGlobalSettings = async () => {
-        const snap = await getDoc(doc(db, "config", "global"));
-        if (snap.exists()) setGlobalSettings(snap.data());
-    };
-
+    // --- 3. ACTIONS PROTECTED BY canEdit / isReadOnly ---
     const handleAddUser = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         if (!newUserEmail) return alert("Enter email");
         const email = newUserEmail.toLowerCase().trim();
         await setDoc(doc(db, "users", email), {
@@ -170,11 +121,13 @@ const Admin = () => {
     };
 
     const handleUpdateUser = async (email, field, value) => {
+        if (!canEdit) return alert("Read-Only Access");
         await updateDoc(doc(db, "users", email), { [field]: value });
         fetchUsers();
     };
 
     const handleDeleteUser = async (email) => {
+        if (!canEdit) return alert("Read-Only Access");
         if (window.confirm(`Remove access for ${email}?`)) {
             await deleteDoc(doc(db, "users", email));
             fetchUsers();
@@ -182,25 +135,28 @@ const Admin = () => {
     };
 
     const handleAddRole = () => {
+        if (!canEdit) return alert("Read-Only Access");
         const roleKey = newRoleName.trim().toLowerCase().replace(/\s+/g, '_');
         if (!roleKey) return;
-        if (rolesConfig[roleKey]) return alert("Role exists");
+        if (localRolesConfig[roleKey]) return alert("Role exists");
 
-        const newConfig = { ...rolesConfig, [roleKey]: { access_view: true } };
-        setRolesConfig(newConfig);
+        const newConfig = { ...localRolesConfig, [roleKey]: { access_view: true } };
+        setLocalRolesConfig(newConfig);
         setNewRoleName('');
     };
 
     const handleDeleteRole = (roleKey) => {
+        if (!canEdit) return alert("Read-Only Access");
         if (window.confirm(`Delete role ${roleKey}?`)) {
-            const newConfig = { ...rolesConfig };
+            const newConfig = { ...localRolesConfig };
             delete newConfig[roleKey];
-            setRolesConfig(newConfig);
+            setLocalRolesConfig(newConfig);
         }
     };
 
     const handleSetPermission = (roleKey, featureId, level) => {
-        const newConfig = { ...rolesConfig };
+        if (!canEdit) return;
+        const newConfig = { ...localRolesConfig };
         const viewKey = featureId + '_view';
         const editKey = featureId + '_edit';
 
@@ -213,19 +169,23 @@ const Admin = () => {
             newConfig[roleKey][editKey] = true;
         }
         
-        setRolesConfig(newConfig);
+        setLocalRolesConfig(newConfig);
     };
 
     const saveAllRoles = async () => {
-        await setDoc(doc(db, "config", "roles"), rolesConfig);
+        if (!canEdit) return alert("Read-Only Access");
+        await setDoc(doc(db, "config", "roles"), localRolesConfig);
         alert("Roles Configuration Saved!");
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Admin Panel..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Admin Panel..." /></div>;
+    if (!canView) return null; // Fallback catch
 
-    const sortedRoles = Object.keys(rolesConfig).sort((a, b) => 
+    const sortedRoles = Object.keys(localRolesConfig).sort((a, b) => 
         a === 'admin' ? -1 : b === 'admin' ? 1 : a.localeCompare(b)
     );
+
+    const currentUserEmail = user?.email?.toLowerCase();
 
     return (
         <div className="admin-page-wrapper" style={{background:'#f4f7f6', minHeight:'100vh'}}>
@@ -260,6 +220,8 @@ const Admin = () => {
                     <>
                         <div className="admin-card">
                             <div style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '20px' }}>User Access Control</div>
+                            
+                            {canEdit && (
                             <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'center', flexWrap:'wrap' }}>
                                 <input 
                                     type="text" 
@@ -292,6 +254,7 @@ const Admin = () => {
                                 </div>
                                 <button className="btn-green" onClick={handleAddUser}>Authorize</button>
                             </div>
+                            )}
 
                             <table className="admin-table">
                                 <thead>
@@ -315,7 +278,7 @@ const Admin = () => {
                                                     onChange={(e) => handleUpdateUser(u.email, 'role', e.target.value)}
                                                     className="admin-input"
                                                     style={{ padding: '5px' }}
-                                                    disabled={u.email === currentUserEmail || u.isMasterAdmin}
+                                                    disabled={u.email === currentUserEmail || u.isMasterAdmin || !canEdit}
                                                 >
                                                     {sortedRoles.map(r => (
                                                         <option key={r} value={r}>{r.toUpperCase()}</option>
@@ -328,13 +291,13 @@ const Admin = () => {
                                                         type="checkbox" 
                                                         checked={u.allowPassword || false} 
                                                         onChange={(e) => handleUpdateUser(u.email, 'allowPassword', e.target.checked)}
-                                                        disabled={u.email === currentUserEmail || u.isMasterAdmin}
+                                                        disabled={u.email === currentUserEmail || u.isMasterAdmin || !canEdit}
                                                     />
                                                     <span className="slider"></span>
                                                 </label>
                                             </td>
                                             <td style={{textAlign:'right'}}>
-                                                {u.email !== currentUserEmail && !u.isMasterAdmin && (
+                                                {u.email !== currentUserEmail && !u.isMasterAdmin && canEdit && (
                                                     <button className="btn-red-outline" onClick={() => handleDeleteUser(u.email)}>Remove</button>
                                                 )}
                                             </td>
@@ -350,9 +313,10 @@ const Admin = () => {
                     <div className="admin-card">
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                             <h2 style={{ margin: 0 }}>Permissions Matrix</h2>
-                            <button className="btn-green" onClick={saveAllRoles}>Save All Changes</button>
+                            {canEdit && <button className="btn-green" onClick={saveAllRoles}>Save All Changes</button>}
                         </div>
 
+                        {canEdit && (
                         <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', background: '#e8f6f3', padding: '15px', borderRadius: '8px', alignItems: 'center' }}>
                             <span className="material-icons" style={{ color: '#27ae60' }}>add_circle</span>
                             <input 
@@ -365,17 +329,18 @@ const Admin = () => {
                             />
                             <button className="btn-green" style={{ padding: '8px 15px' }} onClick={handleAddRole}>Create Role</button>
                         </div>
+                        )}
 
                         <div className="role-grid">
                             {sortedRoles.map(role => {
-                                const perms = rolesConfig[role] || {};
+                                const perms = localRolesConfig[role] || {};
                                 const isLocked = perms._locked === true;
                                 
                                 return (
                                     <div key={role} className={`role-card ${role === 'admin' ? 'admin-role' : ''}`}>
                                         <div className="role-header">
                                             <div className="role-name">{role.replace(/_/g, ' ')}</div>
-                                            {!isLocked && (
+                                            {!isLocked && canEdit && (
                                                 <span 
                                                     className="material-icons" 
                                                     style={{ color: '#e74c3c', cursor: 'pointer' }} 
@@ -404,15 +369,15 @@ const Admin = () => {
                                                         <div className="perm-label">{f.label}</div>
                                                         <div className="level-select">
                                                             <div 
-                                                                className={`level-opt ${level === 'none' ? 'active' : ''}`}
+                                                                className={`level-opt ${level === 'none' ? 'active' : ''} ${!canEdit ? 'disabled' : ''}`}
                                                                 onClick={() => handleSetPermission(role, f.id, 'none')}
                                                             >None</div>
                                                             <div 
-                                                                className={`level-opt view ${level === 'view' ? 'active' : ''}`}
+                                                                className={`level-opt view ${level === 'view' ? 'active' : ''} ${!canEdit ? 'disabled' : ''}`}
                                                                 onClick={() => handleSetPermission(role, f.id, 'view')}
                                                             >View</div>
                                                             <div 
-                                                                className={`level-opt edit ${level === 'edit' ? 'active' : ''}`}
+                                                                className={`level-opt edit ${level === 'edit' ? 'active' : ''} ${!canEdit ? 'disabled' : ''}`}
                                                                 onClick={() => handleSetPermission(role, f.id, 'edit')}
                                                             >Edit</div>
                                                         </div>

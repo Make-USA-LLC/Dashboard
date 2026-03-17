@@ -225,16 +225,25 @@ const JobApproval = () => {
             const hours = revenue / costPerHour;
             const totalSeconds = Math.floor(hours * 3600);
 
+            // 🚨 THE FIX: Use spread operator to keep ALL data, and double-map fields so iPad and Web stay happy.
             await addDoc(collection(db, "project_queue"), {
-                company: job.company,
-                project: job.project,
-                category: job.category,
-                size: job.size,
-                expectedUnits: job.quantity,
-                pricePerUnit: job.price,
+                ...job, // Preserves Tech Sheets, QC Photos, Ingredients, Notes, etc.
+                
+                // Web App standard names (Ensure they are explicitly saved)
+                company: job.company || "",
+                project: job.project || "",
+                quantity: job.quantity || 0,
+                price: job.price || 0,
+
+                // iPad App specific names (Dual-mapped)
+                companyName: job.company || "",
+                projectName: job.project || "",
+                expectedUnits: job.quantity || 0,
+                pricePerUnit: job.price || 0,
+                
                 seconds: totalSeconds > 0 ? totalSeconds : 3600, 
                 createdAt: serverTimestamp(),
-                sharepointFolder: job.sharepointFolder 
+                sharepointFolder: job.sharepointFolder || ""
             });
 
             await deleteDoc(doc(db, "production_pipeline", job.id));

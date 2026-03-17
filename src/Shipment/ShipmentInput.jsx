@@ -3,7 +3,8 @@ import { db, auth } from '../firebase_config';
 import { collection, addDoc, serverTimestamp, query, where, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { Save, AlertCircle, Check, Pencil, X } from 'lucide-react';
 
-const ShipmentInput = () => {
+// Accept canEdit as a prop from App.jsx
+const ShipmentInput = ({ canEdit = true }) => {
   const [loading, setLoading] = useState(false);
   const [missingVendorItems, setMissingVendorItems] = useState([]);
   
@@ -38,6 +39,8 @@ const ShipmentInput = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canEdit) return alert("Read-Only Access: Cannot add shipments.");
+
     setLoading(true);
 
     try {
@@ -76,6 +79,7 @@ const ShipmentInput = () => {
     const [editData, setEditData] = useState({ ...item });
 
     const handleSave = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         try {
             const { id, createdAt, createdBy, createdByName, ...updateData } = editData;
             
@@ -101,7 +105,6 @@ const ShipmentInput = () => {
                 <input style={miniInputStyle} value={editData.vendor} onChange={(e) => setEditData({...editData, vendor: e.target.value})} placeholder="Vendor Name" />
                 <input style={miniInputStyle} value={editData.trackingNumber} onChange={(e) => setEditData({...editData, trackingNumber: e.target.value})} placeholder="Tracking #" />
                 
-                {/* NEW: Description Edit Input */}
                 <input 
                     style={miniInputStyle} 
                     value={editData.description} 
@@ -126,13 +129,15 @@ const ShipmentInput = () => {
                 <span>{item.date}</span>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                     <span style={{fontWeight:'600'}}>{item.carrier}</span>
-                    <button 
-                        onClick={() => setIsEditing(true)} 
-                        style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0 }}
-                        title="Edit Details"
-                    >
-                        <Pencil size={14} />
-                    </button>
+                    {canEdit && (
+                        <button 
+                            onClick={() => setIsEditing(true)} 
+                            style={{ background: 'none', border: 'none', color: '#2563eb', cursor: 'pointer', padding: 0 }}
+                            title="Edit Details"
+                        >
+                            <Pencil size={14} />
+                        </button>
+                    )}
                 </div>
             </div>
             <div style={{fontWeight:'500', color:'#1e293b', fontSize:'14px'}}>
@@ -147,10 +152,13 @@ const ShipmentInput = () => {
                     value={editData.vendor}
                     onChange={(e) => setEditData({...editData, vendor: e.target.value})}
                     style={{ flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize:'13px' }}
+                    disabled={!canEdit}
                 />
-                <button onClick={handleSave} disabled={!editData.vendor.trim()} style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '0 10px', cursor: 'pointer' }}>
-                    <Check size={16} />
-                </button>
+                {canEdit && (
+                    <button onClick={handleSave} disabled={!editData.vendor.trim()} style={{ background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', padding: '0 10px', cursor: 'pointer' }}>
+                        <Check size={16} />
+                    </button>
+                )}
             </div>
         </div>
     );
@@ -161,11 +169,12 @@ const ShipmentInput = () => {
       
       {/* MAIN INPUT FORM */}
       <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', overflow: 'hidden', marginBottom: '30px' }}>
-        <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc' }}>
+        <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, color: '#1e293b' }}>New Shipment Entry</h3>
+          {!canEdit && <span style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold'}}>Read-Only Mode</span>}
         </div>
 
-        <form onSubmit={handleSubmit} style={{ padding: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px' }}>
+        <form onSubmit={handleSubmit} style={{ padding: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '25px', opacity: canEdit ? 1 : 0.7 }}>
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Client / Who to Bill <span style={{fontWeight:'400', color:'#94a3b8'}}>(Optional - leave blank to add below)</span></label>
             <input 
@@ -174,17 +183,18 @@ const ShipmentInput = () => {
               value={formData.vendor}
               onChange={handleChange}
               placeholder="e.g. Make USA"
+              disabled={!canEdit}
             />
           </div>
 
           <div>
             <label style={labelStyle}>Date Received</label>
-            <input required type="date" style={inputStyle} name="date" value={formData.date} onChange={handleChange} />
+            <input required type="date" style={inputStyle} name="date" value={formData.date} onChange={handleChange} disabled={!canEdit} />
           </div>
 
           <div>
             <label style={labelStyle}>Carrier</label>
-            <select style={inputStyle} name="carrier" value={formData.carrier} onChange={handleChange}>
+            <select style={inputStyle} name="carrier" value={formData.carrier} onChange={handleChange} disabled={!canEdit}>
               <option value="UPS">UPS</option>
               <option value="FedEx">FedEx</option>
               <option value="DHL">DHL</option>
@@ -195,33 +205,34 @@ const ShipmentInput = () => {
 
           <div>
             <label style={labelStyle}>Tracking Number</label>
-            <input style={inputStyle} name="trackingNumber" value={formData.trackingNumber} onChange={handleChange} placeholder="Tracking #" />
+            <input style={inputStyle} name="trackingNumber" value={formData.trackingNumber} onChange={handleChange} placeholder="Tracking #" disabled={!canEdit} />
           </div>
 
-          <div>
-          </div>
+          <div></div>
 
           <div style={{ background: '#fffbeb', padding: '15px', borderRadius: '8px', border: '1px solid #fcd34d' }}>
             <label style={{...labelStyle, color: '#b45309'}}>Duties / Tax Amount ($)</label>
-            <input type="number" step="0.01" style={{...inputStyle, borderColor: '#fcd34d'}} name="dutiesAmount" value={formData.dutiesAmount} onChange={handleChange} placeholder="0.00" />
+            <input type="number" step="0.01" style={{...inputStyle, borderColor: '#fcd34d'}} name="dutiesAmount" value={formData.dutiesAmount} onChange={handleChange} placeholder="0.00" disabled={!canEdit} />
           </div>
 
           <div style={{ background: '#fffbeb', padding: '15px', borderRadius: '8px', border: '1px solid #fcd34d' }}>
             <label style={{...labelStyle, color: '#b45309'}}>Shipping Cost ($)</label>
-            <input type="number" step="0.01" style={{...inputStyle, borderColor: '#fcd34d'}} name="shippingCost" value={formData.shippingCost} onChange={handleChange} placeholder="0.00" />
+            <input type="number" step="0.01" style={{...inputStyle, borderColor: '#fcd34d'}} name="shippingCost" value={formData.shippingCost} onChange={handleChange} placeholder="0.00" disabled={!canEdit} />
           </div>
 
           <div style={{ gridColumn: '1 / -1' }}>
             <label style={labelStyle}>Description / Contents</label>
-            <textarea rows="3" style={{...inputStyle, fontFamily: 'inherit'}} name="description" value={formData.description} onChange={handleChange} placeholder="Brief description of goods..." />
+            <textarea rows="3" style={{...inputStyle, fontFamily: 'inherit'}} name="description" value={formData.description} onChange={handleChange} placeholder="Brief description of goods..." disabled={!canEdit} />
           </div>
 
-          <div style={{ gridColumn: '1 / -1', paddingTop: '10px' }}>
-             <button disabled={loading} type="submit" style={btnStyle}>
-                <Save size={18} />
-                {loading ? 'Saving...' : 'Save Shipment Record'}
-             </button>
-          </div>
+          {canEdit && (
+              <div style={{ gridColumn: '1 / -1', paddingTop: '10px' }}>
+                 <button disabled={loading} type="submit" style={btnStyle}>
+                    <Save size={18} />
+                    {loading ? 'Saving...' : 'Save Shipment Record'}
+                 </button>
+              </div>
+          )}
         </form>
       </div>
 

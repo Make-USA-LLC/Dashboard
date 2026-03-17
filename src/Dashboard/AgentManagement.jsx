@@ -1,74 +1,61 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './AgentManagement.css';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
+import Loader from '../components/loader'; 
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const AgentManagement = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [currentUserRole, setCurrentUserRole] = useState('');
+    
+    // --- 1. USE THE HOOK ---
+    const { user, role, isReadOnly, hasPerm, loading: roleLoading } = useRole();
+    
+    // The original requirement was admin_edit or finance_edit to view this page
+    const canView = hasPerm('admin', 'edit') || hasPerm('finance', 'edit') || isReadOnly;
+    const canEdit = (hasPerm('admin', 'edit') || hasPerm('finance', 'edit')) && !isReadOnly;
+    const isAdmin = role === 'admin';
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [financeConfig, setFinanceConfig] = useState({ agents: [] });
     const [impersonateTarget, setImpersonateTarget] = useState('');
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return; 
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        
-        const role = uSnap.data().role;
-        setCurrentUserRole(role);
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let hasAccess = false;
-        
-        if (role === 'admin') {
-            hasAccess = true;
-        } else if (rolesSnap.exists()) {
-            const rConfig = rolesSnap.data()[role];
-            if (rConfig && (rConfig['admin_edit'] || rConfig['finance_edit'])) {
-                hasAccess = true;
-            }
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (!hasAccess) return denyAccess();
         loadAgents();
-        setLoading(false);
-    };
-
-    const denyAccess = () => {
-        alert("Access Denied.");
-        navigate('/');
-    };
+    }, [user, canView, roleLoading, navigate]);
 
     const loadAgents = async () => {
-        const snap = await getDoc(doc(db, "config", "finance"));
-        if (snap.exists()) {
-            setFinanceConfig(snap.data());
+        try {
+            const snap = await getDoc(doc(db, "config", "finance"));
+            if (snap.exists()) {
+                setFinanceConfig(snap.data());
+            }
+            setPageLoading(false);
+        } catch (error) {
+            console.error("Failed to load agents:", error);
+            setPageLoading(false);
         }
     };
 
+    // --- 3. PROTECTED ACTIONS ---
     const handleEmailChange = (index, newVal) => {
+        if (!canEdit) return;
         const updatedAgents = [...financeConfig.agents];
         updatedAgents[index].email = newVal;
         setFinanceConfig({ ...financeConfig, agents: updatedAgents });
     };
 
     const handleSaveEmail = async (index) => {
+        if (!canEdit) return alert("Read-Only Access");
         try {
             const agentToSave = financeConfig.agents[index];
             if(!agentToSave) return;
@@ -86,21 +73,14 @@ const AgentManagement = () => {
         window.open(url, '_blank');
     };
 
-    const handleLogout = () => {
-        signOut(auth).then(() => window.location.href = '/');
-    };
-
-    // --- FIX IS HERE: Swapped the hardcoded text for the smooth loader ---
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Agent Management..." /></div>;
-    
-    const isAdmin = currentUserRole === 'admin';
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Agent Management..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="agent-page-wrapper">
             <div className="agent-top-bar">
                 <button onClick={() => navigate('/dashboard')} style={{background:'none', border:'none', fontSize:'16px', fontWeight:'bold', cursor:'pointer', color:'#2c3e50'}}>&larr; Dashboard</button>
                 <div style={{fontWeight:'bold', color:'#8e44ad'}}>Agent Management</div>
-                
             </div>
 
             <div className="agent-container">
@@ -128,8 +108,21 @@ const AgentManagement = () => {
                             {financeConfig.agents?.map((agent, index) => (
                                 <tr key={index}>
                                     <td><span className="agent-name">{agent.name}</span> <span className="comm-rate">{agent.comm}%</span></td>
-                                    <td><input type="email" className="agent-input" value={agent.email || ''} onChange={(e) => handleEmailChange(index, e.target.value)} placeholder="agent@company.com"/></td>
-                                    <td><button className="btn btn-green" onClick={() => handleSaveEmail(index)}>Save</button></td>
+                                    <td>
+                                        <input 
+                                            type="email" 
+                                            className="agent-input" 
+                                            value={agent.email || ''} 
+                                            onChange={(e) => handleEmailChange(index, e.target.value)} 
+                                            placeholder="agent@company.com"
+                                            disabled={!canEdit}
+                                        />
+                                    </td>
+                                    <td>
+                                        {canEdit && (
+                                            <button className="btn btn-green" onClick={() => handleSaveEmail(index)}>Save</button>
+                                        )}
+                                    </td>
                                 </tr>
                             ))}
                         </tbody>

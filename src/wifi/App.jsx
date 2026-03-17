@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { db, auth } from '../firebase_config';
+import { db } from '../firebase_config';
 import { doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged } from 'firebase/auth';
+import { useRole } from '../hooks/useRole'; // <-- Connected to our global hook!
 
 import Loader from '../components/Loader';
 import Generator from './Generator';
@@ -9,58 +9,73 @@ import Logs from './Logs';
 import Admin from './Admin';
 
 export default function WifiApp() {
-    const [activeTab, setActiveTab] = useState('generate');
-    const [loading, setLoading] = useState(true);
+    const { access, loading: roleLoading } = useRole();
     
-    // Default permissions (safest setting)
+    const [activeTab, setActiveTab] = useState('generate');
+    const [pageLoading, setPageLoading] = useState(true);
     const [perms, setPerms] = useState({ create: false, logs: false, revoke: false, admin: false });
 
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, async (user) => {
-            if (user) {
-                const email = user.email.toLowerCase();
-                
-                // 1. Check Master Admin
-                const adminSnap = await getDoc(doc(db, "master_admin_access", email));
-                if (adminSnap.exists() || email === 'daniel.s@makeit.buzz') {
-                    setPerms({ create: true, logs: true, revoke: true, admin: true });
-                } else {
-                    // 2. Fetch standard user's assigned role name
-                    const roleSnap = await getDoc(doc(db, "wifi_access", email));
-                    if (roleSnap.exists()) {
-                        const roleName = roleSnap.data().role;
+        if (roleLoading) return;
+
+        const fetchPerms = async () => {
+            // 1. Master Admin Check
+            if (access.master) {
+                setPerms({ create: true, logs: true, revoke: true, admin: true });
+            } 
+            // 2. Global Read-Only Check
+            else if (access.readOnly) {
+                setPerms({ create: false, logs: true, revoke: false, admin: false });
+                setActiveTab('logs'); // Force them to logs since they can't generate
+            } 
+            // 3. Standard Wi-Fi Role Check
+            else if (access.wifi) {
+                try {
+                    const configSnap = await getDoc(doc(db, "config", "wifi_roles"));
+                    if (configSnap.exists() && configSnap.data()[access.wifi]) {
+                        const rolePerms = configSnap.data()[access.wifi];
+                        setPerms(rolePerms);
                         
-                        // 3. Fetch what that role is actually allowed to do from config
-                        const configSnap = await getDoc(doc(db, "config", "wifi_roles"));
-                        if (configSnap.exists() && configSnap.data()[roleName]) {
-                            setPerms(configSnap.data()[roleName]);
-                        } else {
-                            // Failsafe if role was deleted
-                            setPerms({ create: true, logs: false, revoke: false, admin: false });
-                        }
+                        // Auto-route tab based on permissions
+                        if (!rolePerms.create && (rolePerms.logs || rolePerms.revoke)) setActiveTab('logs');
+                        else if (!rolePerms.create && !rolePerms.logs && rolePerms.admin) setActiveTab('admin');
                     }
+                } catch (e) {
+                    console.error("Error fetching Wi-Fi config:", e);
                 }
             }
-            setLoading(false);
-        });
-        return () => unsubscribe();
-    }, []);
+            setPageLoading(false);
+        };
+        
+        fetchPerms();
+    }, [access, roleLoading]);
 
-    if (loading) return <Loader message="Loading Wi-Fi Management..." />;
+    if (roleLoading || pageLoading) return <Loader message="Loading Wi-Fi Management..." />;
+
+    const hasNoAccess = !perms.create && !perms.logs && !perms.revoke && !perms.admin;
+
+    if (hasNoAccess) {
+        return (
+            <div style={{ padding: '40px', textAlign: 'center', marginTop: '50px', fontFamily: 'sans-serif' }}>
+                <div style={{ background: 'white', padding: '40px', borderRadius: '12px', boxShadow: '0 4px 6px rgba(0,0,0,0.1)', display: 'inline-block' }}>
+                    <span className="material-icons" style={{fontSize: '48px', color: '#e74c3c', marginBottom: '10px'}}>gpp_bad</span>
+                    <h2 style={{ color: '#0f172a', margin: '0 0 10px 0' }}>Access Denied</h2>
+                    <p style={{ color: '#64748b', margin: 0 }}>You do not have permission to view the Wi-Fi portal.</p>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div style={{ padding: '20px', maxWidth: '1000px', margin: '0 auto', fontFamily: 'sans-serif' }}>
             
-            {/* Navigation Tabs based on Granular Permissions */}
             <div className="no-print" style={{ display: 'flex', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                
                 {perms.create && (
                     <button onClick={() => setActiveTab('generate')} style={{ padding: '10px 20px', fontWeight: 'bold', background: activeTab === 'generate' ? '#1e293b' : '#e2e8f0', color: activeTab === 'generate' ? 'white' : '#333', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
                         Generate Guest Code
                     </button>
                 )}
                 
-                {/* Note: If they have either 'logs' OR 'revoke' access, show the tab */}
                 {(perms.logs || perms.revoke) && (
                     <button onClick={() => setActiveTab('logs')} style={{ padding: '10px 20px', fontWeight: 'bold', background: activeTab === 'logs' ? '#1e293b' : '#e2e8f0', color: activeTab === 'logs' ? 'white' : '#333', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>
                         Access Logs
@@ -74,12 +89,8 @@ export default function WifiApp() {
                 )}
             </div>
 
-            {/* Active Tab Rendering */}
             {activeTab === 'generate' && perms.create && <Generator />}
-            
-            {/* We pass the revoke permission down into the Logs component! */}
             {activeTab === 'logs' && (perms.logs || perms.revoke) && <Logs canRevoke={perms.revoke} />}
-            
             {activeTab === 'admin' && perms.admin && <Admin />}
         </div>
     );

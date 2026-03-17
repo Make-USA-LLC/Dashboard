@@ -3,16 +3,19 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './AgentReports.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData, checkPermission } from './firebase_config'; // Adjust path
+import { db } from './firebase_config'; 
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const AgentReports = () => {
     const navigate = useNavigate();
     
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, loading: roleLoading } = useRole();
+    const canView = hasPerm('commissions', 'view') || hasPerm('admin', 'view');
+    
     // State
-    const [loading, setLoading] = useState(true);
-    const [accessDenied, setAccessDenied] = useState(false);
+    const [pageLoading, setPageLoading] = useState(true);
     const [allReports, setAllReports] = useState([]);
     const [config, setConfig] = useState({});
     
@@ -25,26 +28,23 @@ const AgentReports = () => {
     const [periods, setPeriods] = useState([]);
     const [agents, setAgents] = useState([]);
 
-    // 1. Auth & Initial Load
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    const hasAccess = checkPermission('commissions', 'view') || checkPermission('admin', 'view');
-                    if (hasAccess) {
-                        await loadConfig();
-                        await initData();
-                    } else {
-                        setAccessDenied(true);
-                    }
-                    setLoading(false);
-                });
-            } else {
-                navigate('/'); // Redirect to login
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
+
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
+        }
+
+        const fetchData = async () => {
+            await loadConfig();
+            await initData();
+            setPageLoading(false);
+        };
+
+        fetchData();
+    }, [user, canView, roleLoading, navigate]);
 
     const loadConfig = async () => {
         try {
@@ -96,7 +96,7 @@ const AgentReports = () => {
         }
     };
 
-    // 2. Filter & Calculate Data (Memoized)
+    // 3. Filter & Calculate Data (Memoized)
     const { reportGroups, grandTotal, totalCount, processedData } = useMemo(() => {
         let filtered = allReports.filter(r => {
             if (selectedAgent && r.agentName !== selectedAgent) return false;
@@ -160,9 +160,7 @@ const AgentReports = () => {
 
     }, [allReports, selectedAgent, selectedPeriod, isAllTime, config]);
 
-    // 3. Actions
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
+    // 4. Actions
     const handleExportCSV = () => {
         if(processedData.length === 0) return alert("No data to export");
         const ws = XLSX.utils.json_to_sheet(processedData);
@@ -177,8 +175,8 @@ const AgentReports = () => {
         return p ? p.label : selectedPeriod;
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-    if (accessDenied) return <div className="ar-wrapper"><div className="ar-empty-state">⛔ Access Denied</div></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Reports..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="ar-wrapper">
@@ -190,7 +188,6 @@ const AgentReports = () => {
                     <span className="material-icons">arrow_back</span> Dashboard
                 </div>
                 <div style={{fontWeight:'bold', color:'#8e44ad'}}>Agent Report Generator</div>
-               
             </div>
 
             <div className="ar-container">

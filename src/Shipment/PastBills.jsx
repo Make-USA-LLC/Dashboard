@@ -3,7 +3,8 @@ import { db } from '../firebase_config';
 import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import { FileText } from 'lucide-react';
 
-const PastBills = () => {
+// Passed canEdit for consistency with App.jsx routing, even though this page is inherently read-only
+const PastBills = ({ canEdit = true }) => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,9 +44,12 @@ const PastBills = () => {
 
   return (
     <div style={{ background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
-        <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0' }}>
-            <h3 style={{ margin: 0, color: '#1e293b' }}>Billing History</h3>
-            <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '14px' }}>Showing last 100 billed transactions</p>
+        <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+                <h3 style={{ margin: 0, color: '#1e293b' }}>Billing History</h3>
+                <p style={{ margin: '5px 0 0', color: '#64748b', fontSize: '14px' }}>Showing last 100 billed transactions</p>
+            </div>
+            {!canEdit && <span style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold'}}>Read-Only Mode</span>}
         </div>
         <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px' }}>
@@ -61,7 +65,9 @@ const PastBills = () => {
                     </tr>
                 </thead>
                 <tbody>
-                    {history.map(h => (
+                    {history.length === 0 ? (
+                        <tr><td colSpan="7" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No history found.</td></tr>
+                    ) : history.map(h => (
                         <tr key={h.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '15px' }}>
                                 {h.billedDate?.toDate().toLocaleDateString()}

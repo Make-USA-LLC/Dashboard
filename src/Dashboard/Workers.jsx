@@ -2,15 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Workers.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
-import { collection, onSnapshot, setDoc, deleteDoc, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db } from './firebase_config.jsx';
+import { collection, onSnapshot, setDoc, deleteDoc, doc } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const Workers = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [canEdit, setCanEdit] = useState(false);
-    const [hasAccess, setHasAccess] = useState(false);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('workers', 'view') || hasPerm('admin', 'view') || isReadOnly;
+    const canEdit = (hasPerm('workers', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     
     // Data State
     const [allWorkers, setAllWorkers] = useState([]);
@@ -22,49 +26,18 @@ const Workers = () => {
     const [newName, setNewName] = useState('');
     const idInputRef = useRef(null);
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let view = false;
-        let edit = false;
-
-        if (role === 'admin') { view = true; edit = true; }
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc) {
-                if (rc['workers_view']) view = true;
-                if (rc['workers_edit']) edit = true;
-            }
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (view) {
-            setHasAccess(true);
-            setCanEdit(edit);
-            startListener();
-        } else {
-            denyAccess();
-        }
-    };
-
-    const denyAccess = () => {
-        setLoading(false);
-    };
+        const unsub = startListener();
+        return () => { if (unsub) unsub(); }
+    }, [user, canView, roleLoading, navigate]);
 
     const startListener = () => {
         const unsub = onSnapshot(collection(db, "workers"), (snapshot) => {
@@ -75,11 +48,10 @@ const Workers = () => {
             // Sort Alphabetically
             list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
             setAllWorkers(list);
-            // Apply filter immediately if search exists, otherwise show all
             setFilteredWorkers(prev => searchText ? prev : list); 
-            setLoading(false);
+            setPageLoading(false);
         });
-        return () => unsub(); // Cleanup on unmount
+        return unsub; 
     };
 
     // Filter Logic
@@ -93,7 +65,7 @@ const Workers = () => {
     }, [searchText, allWorkers]);
 
     const handleAddWorker = async () => {
-        if (!canEdit) return alert("Access Denied: View Only");
+        if (!canEdit) return alert("Read-Only Access: Cannot add workers.");
         
         const id = newId.trim();
         const name = newName.trim();
@@ -111,16 +83,14 @@ const Workers = () => {
     };
 
     const handleDelete = async (id) => {
-        if (!canEdit) return alert("Access Denied: View Only");
+        if (!canEdit) return alert("Read-Only Access: Cannot delete workers.");
         if (window.confirm(`Are you sure you want to delete worker ID: ${id}?`)) {
             await deleteDoc(doc(db, "workers", id));
         }
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-    if (!hasAccess) return <div className="wm-denied">Access Denied: You do not have permission to view workers.</div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workers..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="wm-wrapper">
@@ -128,7 +98,6 @@ const Workers = () => {
                 <button onClick={() => navigate('/dashboard')} className="btn-link">
                     <span className="material-icons">arrow_back</span> Dashboard
                 </button>
-                
             </div>
 
             <div className="wm-container">
@@ -162,7 +131,6 @@ const Workers = () => {
                                 />
                             </div>
                             
-                            {/* Button - Auto Width */}
                             <button className="btn-green" onClick={handleAddWorker}>Add Worker</button>
                         </div>
                     )}

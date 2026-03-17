@@ -7,7 +7,6 @@ const RECAPTCHA_SITE_KEY = "6LdcNYMsAAAAAGDn5A45rNo_6ltKibANemPEa2Vk";
 
 function GuestForm() {
     const { executeRecaptcha } = useGoogleReCaptcha();
-    // Default to 1 device
     const [form, setForm] = useState({ firstName: '', lastName: '', email: '', devices: '1' });
     const [loading, setLoading] = useState(false);
     const [voucher, setVoucher] = useState(null);
@@ -27,8 +26,8 @@ function GuestForm() {
                 firstName: form.firstName,
                 lastName: form.lastName,
                 email: form.email,
-                devices: parseInt(form.devices), // Number of devices
-                duration: 720, // 12 Hours by default for public
+                devices: parseInt(form.devices), 
+                duration: 720, 
                 status: 'pending', 
                 generatedAt: serverTimestamp()
             });
@@ -120,7 +119,6 @@ export default function GuestAccess() {
     );
 }
 
-// --- STYLES ---
 const cardStyle = { background: 'white', padding: '40px', borderRadius: '16px', boxShadow: '0 4px 20px rgba(0,0,0,0.08)', maxWidth: '400px', width: '100%', boxSizing: 'border-box' };
 const logoStyle = { height: '70px', marginBottom: '20px', display: 'block', marginLeft: 'auto', marginRight: 'auto', width: 'auto', objectFit: 'contain' };
 const inputStyle = { padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '15px', width: '100%', boxSizing: 'border-box' };

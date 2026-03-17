@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ProjectSummary.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, limit, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const FIELD_MAPPINGS = {
     'Line Leader': ['line leader', 'line leader_1', 'leader', 'lineleader'],
@@ -18,8 +18,6 @@ const FIELD_MAPPINGS = {
     'Sec/Unit': ['sec/unit', 'efficiency', 'seconds per unit'],
     'Agent': ['agent', 'sales rep','agentname'],
     'Type': ['type', 'category', 'project type', 'projecttype'],
-    
-    // NEW MAPPING
     'Target Price': [
         'priceperunit', 'price per unit', 'price/unit', 
         'target price', 'targetprice', 
@@ -35,8 +33,12 @@ const DEFAULT_COLUMNS = [
 
 const ProjectSummary = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true);
-    const [hasAccess, setHasAccess] = useState(false);
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('summary', 'view') || hasPerm('admin', 'view') || isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     
     // Data
     const [combinedData, setCombinedData] = useState([]);
@@ -44,7 +46,6 @@ const ProjectSummary = () => {
     const [categories, setCategories] = useState([]);
     const [allColumns, setAllColumns] = useState([]);
     
-    // Initialize visible columns
     const [visibleColumns, setVisibleColumns] = useState(new Set([...DEFAULT_COLUMNS, 'Source']));
 
     // Filters
@@ -62,20 +63,18 @@ const ProjectSummary = () => {
     const [sortCol, setSortCol] = useState('Date');
     const [sortAsc, setSortAsc] = useState(false); 
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    // FORCE COLUMN RESET (Fixes browser cache issues)
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
+        }
+
+        initData();
+    }, [user, canView, roleLoading, navigate]);
+
     useEffect(() => {
         setVisibleColumns(prev => {
             const next = new Set(prev);
@@ -84,45 +83,17 @@ const ProjectSummary = () => {
         });
     }, []);
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return denyAccess();
-        const role = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (role === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[role];
-            if (rc && (rc['summary_view'] || rc['admin_view'])) allowed = true;
-        }
-
-        if (allowed) {
-            setHasAccess(true);
-            await initData();
-        } else {
-            denyAccess();
-        }
-    };
-
-    const denyAccess = () => {
-        setLoading(false);
-    };
-
     const initData = async () => {
-        setLoading(true);
+        setPageLoading(true);
         try {
-            // 1. Get Categories
             const cSnap = await getDoc(doc(db, "config", "finance"));
             if(cSnap.exists()) setCategories((cSnap.data().projectTypes || []).sort());
 
-            // 2. Fetch Data
             const [archiveResult, reportsResult] = await Promise.allSettled([
                 getDocs(query(collection(db, "archive"), limit(1000))),
                 getDocs(query(collection(db, "reports"), where("financeStatus", "==", "complete"), limit(1000)))
             ]);
 
-            // 3. Process Archive
             const archiveList = (archiveResult.status === 'fulfilled') 
                 ? archiveResult.value.docs.map(d => {
                     let flat = flattenObject(d.data());
@@ -131,7 +102,6 @@ const ProjectSummary = () => {
                     return { _source: 'archive', id: d.id, ...flat };
                 }) : [];
 
-            // 4. Process Live
             const reportsList = (reportsResult.status === 'fulfilled')
                 ? reportsResult.value.docs.map(d => {
                     const data = d.data();
@@ -152,9 +122,7 @@ const ProjectSummary = () => {
                         'CUSTOMER': data.company,
                         'Desc': data.project,
                         'Line Leader': data.leader, 
-                        // FIXED: Check plNumber first, then fallback to jobId
                         'PL#': data.plNumber || data.jobId || '-', 
-                        // FIXED: Check projectType first (from Production Input)
                         'Type': data.projectType || data.jobName || data.category || '',
                         'Agent': data.agentName,
                         'Target Price': data.pricePerUnit || 0 
@@ -165,13 +133,9 @@ const ProjectSummary = () => {
                     return { _source: 'live', id: d.id, ...flat };
                 }) : [];
 
-            // 5. Merge & Setup
             let combined = [...reportsList, ...archiveList];
             
-            // Extract Columns (Exclude Financials)
             const keys = new Set(['Source']);
-            
-            // Explicitly add Defaults FIRST
             DEFAULT_COLUMNS.forEach(c => keys.add(c));
             
             combined.slice(0, 100).forEach(row => {
@@ -181,7 +145,6 @@ const ProjectSummary = () => {
                     const kLow = k.toLowerCase();
                     const restricted = ['inv', 'cost', 'profit', 'bonus', 'commission', 'price', '$'];
                     
-                    // Allow "Target Price" specifically, block other prices
                     if (k === 'Target Price') {
                         keys.add(k);
                         return;
@@ -193,7 +156,6 @@ const ProjectSummary = () => {
                 });
             });
 
-            // Sort Columns: Source -> Defaults -> Alphabetical
             const sortedCols = Array.from(keys).sort((a, b) => {
                 if (a === 'Source') return -1;
                 if (b === 'Source') return 1;
@@ -214,12 +176,10 @@ const ProjectSummary = () => {
             handleSort('Date', combined, false);
 
         } catch(e) { console.error(e); }
-        setLoading(false);
+        setPageLoading(false);
     };
 
     // --- HELPERS ---
-    
-    // Check if column is numeric to force Right Alignment
     const isNumericCol = (key) => {
         const k = key.toLowerCase();
         return (
@@ -368,14 +328,12 @@ const ProjectSummary = () => {
         XLSX.writeFile(wb, "Production_Summary_Export.xlsx");
     };
 
-    // --- RENDER ---
     const totalPages = Math.ceil(filteredData.length / rowsPerPage);
     const startIdx = (currentPage - 1) * rowsPerPage;
     const currentData = filteredData.slice(startIdx, startIdx + rowsPerPage);
 
-    if (!hasAccess && !loading) return <div className="ps-denied">⛔ ACCESS DENIED</div>;
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Summary..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="ps-wrapper">
@@ -384,14 +342,10 @@ const ProjectSummary = () => {
                     <button onClick={() => navigate('/dashboard')} className="btn-link">&larr; Dashboard</button>
                     <h3 style={{margin:0}}>Production Summary</h3>
                 </div>
-                <div style={{display:'flex', alignItems:'center'}}>
-                 
-                </div>
             </div>
 
             <div className="ps-container">
                 <div className="ps-filter-card">
-                    {/* Inputs */}
                     <div className="ps-input-group" style={{flex:2}}>
                         <label className="ps-label">Search Production</label>
                         <input className="ps-input" value={searchText} onChange={e => setSearchText(e.target.value)} onKeyDown={e => e.key==='Enter' && handleSearch()} placeholder="Keyword..." />
@@ -411,16 +365,13 @@ const ProjectSummary = () => {
                         </div>
                     </div>
                     
-                    {/* Grouped Actions for Alignment */}
                     <div style={{display:'flex', alignItems:'flex-end', gap:'10px'}}>
                         <button className="btn btn-search" onClick={handleSearch}>Search</button>
                         <button className="btn btn-clear" onClick={handleClear}>Clear</button>
                     </div>
                     
-                    {/* Aligned Divider */}
                     <div style={{width:'1px', background:'#ddd', height:'32px', margin:'0 15px', alignSelf:'flex-end', marginBottom:'4px'}}></div>
                     
-                    {/* Grouped Tools for Alignment */}
                     <div style={{display:'flex', alignItems:'flex-end', gap:'10px'}}>
                         <button className="btn btn-export" onClick={handleExport}>Export</button>
                         
@@ -450,15 +401,9 @@ const ProjectSummary = () => {
                                     <div style={{maxHeight:'350px', overflowY:'auto', display:'flex', flexDirection:'column', gap:'2px'}}>
                                         {allColumns.map(col => (
                                             <label key={col} style={{
-                                                display:'flex', 
-                                                alignItems:'center', 
-                                                gap:'10px', 
-                                                padding:'6px 8px', 
-                                                cursor:'pointer', 
-                                                fontSize:'13px', 
-                                                userSelect:'none',
-                                                borderRadius:'4px',
-                                                transition:'background 0.2s'
+                                                display:'flex', alignItems:'center', gap:'10px', 
+                                                padding:'6px 8px', cursor:'pointer', fontSize:'13px', 
+                                                userSelect:'none', borderRadius:'4px', transition:'background 0.2s'
                                             }} 
                                             onMouseEnter={e => e.currentTarget.style.background = '#f5f5f5'}
                                             onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
@@ -467,20 +412,11 @@ const ProjectSummary = () => {
                                                     type="checkbox" 
                                                     checked={visibleColumns.has(col)} 
                                                     onChange={() => toggleColumn(col)}
-                                                    style={{
-                                                        margin:0, 
-                                                        cursor:'pointer', 
-                                                        width:'16px', 
-                                                        height:'16px', 
-                                                        accentColor:'#2c3e50',
-                                                        flexShrink: 0 
-                                                    }} 
+                                                    style={{margin:0, cursor:'pointer', width:'16px', height:'16px', accentColor:'#2c3e50', flexShrink: 0}} 
                                                 />
                                                 <span style={{
                                                     color: visibleColumns.has(col) ? '#2c3e50' : '#7f8c8d',
-                                                    whiteSpace:'nowrap', 
-                                                    overflow:'hidden', 
-                                                    textOverflow:'ellipsis'
+                                                    whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis'
                                                 }}>{col}</span>
                                             </label>
                                         ))}
@@ -510,7 +446,7 @@ const ProjectSummary = () => {
                                                 onClick={() => handleSort(col, undefined, !sortAsc)}
                                                 style={{textAlign: isNumericCol(col) ? 'right' : 'left'}}
                                             >
-                                                {col} {sortCol === col ? (sortAsc ? '↑' : '↓') : ''}
+                                                {col} {sortCol === col ? (sortAsc ? '▲' : '▼') : ''}
                                             </th>
                                         )
                                     ))}

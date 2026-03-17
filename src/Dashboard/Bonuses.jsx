@@ -2,9 +2,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Bonuses.css';
 import Loader from '../components/loader';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 // --- INTERNAL CALCULATION LOGIC ---
 const sanitize = (str) => (str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -74,12 +74,9 @@ const calculateBonusesInternal = (report, globalConfig) => {
     const params = report.bonusCalcMethod || {};
 
     if (method === 'standard_percent') {
-        // --- NEW: TEAM SIZE LOGIC ---
-        // Count = Leader (if exists) + Workers
         const leaderCount = (report.leader && leaderMin > 0) ? 1 : 0;
         const totalCount = leaderCount + workersOnly.length;
 
-        // Default to Standard (4+)
         let l_pct = usedConfig.leaderPoolPercent || 0;
         let w_pct = usedConfig.workerPoolPercent || 0;
 
@@ -99,7 +96,6 @@ const calculateBonusesInternal = (report, globalConfig) => {
 
         leaderPool = Math.max(0, profit * (l_pct / 100));
         workerPool = Math.max(0, profit * (w_pct / 100));
-        // ---------------------------
     } 
     else if (method === 'leader_percent') {
         leaderPool = Math.max(0, profit * ((params.l_pct || 0) / 100));
@@ -181,11 +177,18 @@ const calculateBonusesInternal = (report, globalConfig) => {
 
 const Bonuses = () => {
     const navigate = useNavigate();
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    
+    const canView = hasPerm('bonuses', 'view') || hasPerm('finance', 'view') || isReadOnly;
+    const canEdit = (hasPerm('bonuses', 'edit') || hasPerm('finance', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [view, setView] = useState('unpaid');
     const [reports, setReports] = useState([]);
     const [config, setConfig] = useState({});
     const [processedData, setProcessedData] = useState([]);
-    const [loading, setLoading] = useState(true);
     const [expandedRows, setExpandedRows] = useState({});
     const [showSummary, setShowSummary] = useState(true);
 
@@ -202,43 +205,24 @@ const Bonuses = () => {
         l_amt: '', l_thr: 1000, w_amt: '', w_thr: 1000
     });
 
-    const [hasAccess, setHasAccess] = useState(false);
-
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/');
-        const r = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let allowed = false;
-        if (r === 'admin') allowed = true;
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[r];
-            if (rc && (rc['bonuses_view'] || rc['finance_view'])) allowed = true;
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (allowed) {
-            setHasAccess(true);
+        const fetchAll = async () => {
+            setPageLoading(true);
             const loadedConfig = await loadConfig();
-            loadData(loadedConfig);
-        } else {
-            alert("Access Denied");
-            navigate('/');
-        }
-    };
+            await loadData(loadedConfig);
+            setPageLoading(false);
+        };
+
+        fetchAll();
+    }, [user, canView, roleLoading, navigate, view]);
 
     const loadConfig = async () => {
         const cSnap = await getDoc(doc(db, "config", "finance"));
@@ -251,7 +235,6 @@ const Bonuses = () => {
     };
 
     const loadData = async (currentConfig = config) => {
-        setLoading(true);
         const q = query(collection(db, "reports"), where("financeStatus", "==", "complete"));
         const snap = await getDocs(q);
         
@@ -295,17 +278,13 @@ const Bonuses = () => {
             const summaryArray = Object.values(summaryMap).sort((a,b) => b.total - a.total);
             setProcessedData(summaryArray);
         }
-        setLoading(false);
     };
 
-    useEffect(() => {
-        if(hasAccess) loadData(config);
-    }, [view]);
-
-    const handleLogout = () => signOut(auth).then(() => window.location.href = '/');
     const toggleRow = (name) => setExpandedRows(prev => ({ ...prev, [name]: !prev[name] }));
 
+    // --- 3. PROTECTED ACTIONS ---
     const clickPay = (reportId, amount) => {
+        if (!canEdit) return alert("Read-Only Access");
         const d = new Date();
         const day = d.getDay(); 
         const dist = 6 - day; 
@@ -319,6 +298,7 @@ const Bonuses = () => {
     };
 
     const confirmPay = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         if(!payDate) return alert("Select Date");
         const parts = payDate.split('-');
         const fmtDate = `${parts[1]}/${parts[2]}/${parts[0]}`; 
@@ -349,6 +329,7 @@ const Bonuses = () => {
     };
 
     const handleMarkIneligible = async (reportId) => {
+        if (!canEdit) return alert("Read-Only Access");
         const r = prompt("Reason for ineligibility:");
         if(!r) return;
         await updateDoc(doc(db, "reports", reportId), { bonusEligible: false, bonusIneligibleReason: r });
@@ -356,6 +337,7 @@ const Bonuses = () => {
     };
 
     const handleRevertToPending = async (reportId) => {
+        if (!canEdit) return alert("Read-Only Access");
         if(window.confirm("Are you sure you want to revert this bonus back to pending?")) {
             await updateDoc(doc(db, "reports", reportId), { 
                 bonusPaid: false 
@@ -365,6 +347,7 @@ const Bonuses = () => {
     };
 
     const handleEditBonus = async (reportId, personName, currentAmt) => {
+        if (!canEdit) return alert("Read-Only Access");
         const val = prompt(`Override bonus for ${personName}:`, currentAmt);
         if(val === null) return;
         const num = parseFloat(val);
@@ -379,6 +362,7 @@ const Bonuses = () => {
     };
 
     const openCalcModal = (report) => {
+        if (!canEdit) return alert("Read-Only Access");
         setTargetReportId(report.id);
         const m = report.bonusCalcMethod || {};
         setCalcForm({
@@ -393,6 +377,7 @@ const Bonuses = () => {
     };
 
     const saveCalcSettings = async () => {
+        if (!canEdit) return alert("Read-Only Access");
         const payload = {
             type: calcForm.type,
             distribution: calcForm.distribution,
@@ -419,7 +404,9 @@ const Bonuses = () => {
         };
     };
 
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Bonuses..." /></div>;
+    if (!canView) return null;
+
     const grandTotal = processedData.reduce((acc, curr) => acc + curr.total, 0);
 
     return (
@@ -433,9 +420,7 @@ const Bonuses = () => {
                         <button className={`toggle-btn ${view==='ineligible'?'active ineligible':''}`} onClick={() => setView('ineligible')}>Ineligible</button>
                     </div>
                 </div>
-                <div style={{textAlign:'right'}}>
-                    
-                </div>
+                <div style={{textAlign:'right'}}></div>
             </div>
 
             <div className="bonuses-container">
@@ -486,7 +471,7 @@ const Bonuses = () => {
                                     <div style={{textAlign:'right'}}>
                                         <div style={{color:'#f1c40f', fontWeight:'bold'}}>
                                             {r.plNumber ? `PL# ${r.plNumber}` : ''}
-                                            {view === 'unpaid' && (
+                                            {view === 'unpaid' && canEdit && (
                                                 <span className="material-icons settings-icon" onClick={() => openCalcModal(r)}>settings</span>
                                             )}
                                         </div>
@@ -524,7 +509,7 @@ const Bonuses = () => {
                                                         <td style={{textAlign:'right'}}>
                                                             {w.isCustom && <span style={{color:'blue', marginRight:'2px'}}>*</span>}
                                                             ${w.amount.toFixed(2)}
-                                                            {view === 'unpaid' && <span className="material-icons" style={{fontSize:'14px', marginLeft:'5px', cursor:'pointer', color:'#999'}} onClick={() => handleEditBonus(r.id, w.name, w.amount)}>edit</span>}
+                                                            {view === 'unpaid' && canEdit && <span className="material-icons" style={{fontSize:'14px', marginLeft:'5px', cursor:'pointer', color:'#999'}} onClick={() => handleEditBonus(r.id, w.name, w.amount)}>edit</span>}
                                                         </td>
                                                     </tr>
                                                 ))
@@ -535,7 +520,7 @@ const Bonuses = () => {
                                     </table>
                                 </div>
 
-                                {view === 'unpaid' && (
+                                {view === 'unpaid' && canEdit && (
                                     <div className="card-footer">
                                         <div className="btn-card btn-outline-red" onClick={() => handleMarkIneligible(r.id)}>Mark Ineligible</div>
                                         <div className="btn-card btn-solid-green" onClick={() => clickPay(r.id, totalBonus)}>Pay (${totalBonus.toFixed(2)})</div>
@@ -547,13 +532,15 @@ const Bonuses = () => {
                                             <span className="history-label">Total Paid </span>
                                             <span className="history-amount">${totalBonus.toFixed(2)}</span>
                                         </div>
-                                        <button 
-                                            className="btn-card btn-outline-red" 
-                                            onClick={() => handleRevertToPending(r.id)}
-                                            style={{ padding: '4px 10px', fontSize: '12px', margin: '0', background: '#fff', border: '1px solid #e74c3c', color: '#e74c3c', borderRadius: '4px', cursor: 'pointer' }}
-                                        >
-                                            Revert to Pending
-                                        </button>
+                                        {canEdit && (
+                                            <button 
+                                                className="btn-card btn-outline-red" 
+                                                onClick={() => handleRevertToPending(r.id)}
+                                                style={{ padding: '4px 10px', fontSize: '12px', margin: '0', background: '#fff', border: '1px solid #e74c3c', color: '#e74c3c', borderRadius: '4px', cursor: 'pointer' }}
+                                            >
+                                                Revert to Pending
+                                            </button>
+                                        )}
                                     </div>
                                 )}
                             </div>

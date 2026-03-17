@@ -2,14 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './BonusReports.css';
 import { calculateBonuses, getPayDate, getWorkWeekFromPayDate, sanitize } from './calculations/bonuses';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
+import Loader from '../components/loader'; 
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const BonusReports = () => {
     const navigate = useNavigate();
-    const [loading, setLoading] = useState(true); // <-- LOADING STATE ADDED HERE
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('bonuses', 'view') || hasPerm('finance', 'view') || isReadOnly;
+    
+    const [pageLoading, setPageLoading] = useState(true); 
     const [reportsCache, setReportsCache] = useState([]);
     const [workersDir, setWorkersDir] = useState([]);
     const [processedData, setProcessedData] = useState([]);
@@ -23,20 +28,21 @@ const BonusReports = () => {
     const [isAllTime, setIsAllTime] = useState(false);
     const [isFormerMode, setIsFormerMode] = useState(false);
 
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, () => {
-                    loadInitData();
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
+
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
+        }
+
+        loadInitData();
+    }, [user, canView, roleLoading, navigate]);
 
     const loadInitData = async () => {
+        setPageLoading(true);
+        
         // 1. Config
         const cSnap = await getDoc(doc(db, "config", "finance"));
         if(cSnap.exists()) setConfig(cSnap.data());
@@ -66,8 +72,7 @@ const BonusReports = () => {
         // 4. Build Dropdowns
         buildPeriodDropdown(list);
         
-        // <-- TURN OFF LOADER WHEN DONE FETCHING
-        setLoading(false); 
+        setPageLoading(false); 
     };
 
     // Rebuild Employee Dropdown whenever Reports or Mode changes
@@ -172,12 +177,10 @@ const BonusReports = () => {
         document.body.removeChild(link);
     };
 
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
     const grandTotal = processedData.reduce((acc, curr) => acc + curr.total, 0);
 
-    // <-- LOADER RENDERED HERE BEFORE THE MAIN PAGE LOADS
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Bonus Reports..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Bonus Reports..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="reports-page-wrapper">

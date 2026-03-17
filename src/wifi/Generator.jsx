@@ -20,7 +20,6 @@ export default function Generator() {
         setLoading(true); setError(''); setVoucher(null);
         
         try {
-            // 1. Calculate the exact minutes to send to UniFi
             let finalDurationMins = 720;
             if (form.durationSelection === 'custom') {
                 const val = parseInt(form.customValue);
@@ -30,7 +29,6 @@ export default function Generator() {
                 finalDurationMins = parseInt(form.durationSelection);
             }
 
-            // 2. Calculate the exact number of devices
             let finalDevices = 1;
             if (form.deviceSelection === 'custom') {
                 const dVal = parseInt(form.customDeviceValue);
@@ -40,7 +38,6 @@ export default function Generator() {
                 finalDevices = parseInt(form.deviceSelection);
             }
 
-            // 3. SECURITY CHECK: Confirm if > 5 Days OR > 6 Devices
             if (finalDurationMins > 7200 || finalDevices > 6) {
                 const daysToDisplay = (finalDurationMins / 1440).toFixed(1).replace('.0', '');
                 const confirmed = window.confirm(
@@ -49,11 +46,10 @@ export default function Generator() {
                 
                 if (!confirmed) {
                     setLoading(false);
-                    return; // Stop the generation process
+                    return; 
                 }
             }
 
-            // 4. Submit to Firebase
             const docRef = await addDoc(collection(db, 'guest_wifi_logs'), {
                 firstName: form.firstName, lastName: form.lastName, email: form.email,
                 duration: finalDurationMins, devices: finalDevices,
@@ -65,7 +61,6 @@ export default function Generator() {
         }
     };
 
-    // Listen for the background script's reply
     useEffect(() => {
         if (!requestId) return;
         const unsubscribe = onSnapshot(doc(db, 'guest_wifi_logs', requestId), (snapshot) => {
@@ -81,7 +76,6 @@ export default function Generator() {
 
     const handlePrint = () => window.print();
     
-    // Format the text for the printed voucher based on what they selected
     const getDurationText = () => {
         if (form.durationSelection === 'custom') return `${form.customValue}-${form.customUnit === 'days' ? 'day' : 'hour'}`;
         const mapping = { '120': '2-hour', '720': '12-hour', '1440': '1-day', '4320': '3-day', '10080': '7-day' };
@@ -104,7 +98,6 @@ export default function Generator() {
                     </div>
                     <input required type="email" placeholder="Guest Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} disabled={loading} style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
                     
-                    {/* QUICK SELECT DURATION BUTTONS */}
                     <div>
                         <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '8px' }}>Pass Duration</label>
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -129,7 +122,6 @@ export default function Generator() {
                             ))}
                         </div>
 
-                        {/* CUSTOM DURATION POP-OUT */}
                         {form.durationSelection === 'custom' && (
                             <div style={{ display: 'flex', gap: '10px', marginTop: '12px', background: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ flex: 1 }}>
@@ -147,7 +139,6 @@ export default function Generator() {
                         )}
                     </div>
 
-                    {/* DEVICES DROPDOWN */}
                     <div>
                         <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '8px' }}>Devices Allowed</label>
                         <select value={form.deviceSelection} onChange={e => setForm({...form, deviceSelection: e.target.value})} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}>
@@ -159,7 +150,6 @@ export default function Generator() {
                             <option value="custom">Custom...</option>
                         </select>
                         
-                        {/* CUSTOM DEVICE POP-OUT */}
                         {form.deviceSelection === 'custom' && (
                             <div style={{ marginTop: '12px', background: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                 <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Custom Number of Devices</label>
@@ -176,7 +166,6 @@ export default function Generator() {
                 </form>
             )}
 
-            {/* VOUCHER DISPLAY */}
             {voucher && (
                 <div id="printable-voucher" style={{ maxWidth: '650px', margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
                     <div className="print-header" style={{ borderBottom: '3px solid #0f172a', paddingBottom: '20px', marginBottom: '30px', display: 'flex', alignItems: 'center', gap: '20px' }}>

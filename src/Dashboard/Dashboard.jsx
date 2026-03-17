@@ -3,21 +3,12 @@ import './Dashboard.css';
 import Sortable from 'sortablejs';
 import { useNavigate } from 'react-router-dom'; 
 import Loader from '../components/loader';
-import { db, auth, loadUserData, newIpadDefaults } from './firebase_config'; 
-import { 
-  doc, 
-  collection, 
-  onSnapshot, 
-  serverTimestamp, 
-  setDoc, 
-  deleteDoc, 
-  getDoc 
-} from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { db, newIpadDefaults } from './firebase_config'; 
+import { doc, collection, onSnapshot, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const BASE = "/dashboard";
 
-// Helper function to score the iPads for auto-sorting
 const getSortScore = (ipad) => {
     const isActive = ipad.secondsRemaining !== 0;
     if (isActive && !ipad.isPaused) return 3; // Running
@@ -28,105 +19,46 @@ const getSortScore = (ipad) => {
 const Dashboard = () => {
   const navigate = useNavigate(); 
   
-  const [user, setUser] = useState(null);
-  const [role, setRole] = useState('');
-  const [rolesConfig, setRolesConfig] = useState({});
+  // --- 1. USE THE HOOK ---
+  const { user, role, isReadOnly, hasPerm, loading: roleLoading } = useRole();
+  
   const [liveIpads, setLiveIpads] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [newIpadId, setNewIpadId] = useState('');
   const [now, setNow] = useState(Date.now()); 
-  
-  // NEW: State to track if the user has manually dragged cards
   const [hasCustomLayout, setHasCustomLayout] = useState(false);
 
   const gridRef = useRef(null);
   const sortableInstance = useRef(null);
 
-  // 1. Auth & Initial Load
+  // --- 2. STREAMLINED INITIALIZATION ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
-        
-        // Check for existing custom layout on load
-        const storageKey = `makeusa_layout_${currentUser.email}`;
-        const savedOrder = JSON.parse(localStorage.getItem(storageKey));
-        if (savedOrder && Array.isArray(savedOrder) && savedOrder.length > 0) {
-            setHasCustomLayout(true);
-        }
-
-        loadUserData(currentUser, async () => {
-           await fetchPermissions(currentUser);
-           setLoading(false);
-        });
-      } else {
-        window.location.href = '/'; 
-      }
-    });
-    return () => unsubscribe();
-  }, []);
-
-  // 2. Fetch Permissions
-  const fetchPermissions = async (currentUser) => {
-    try {
-      const uSnap = await getDoc(doc(db, "users", currentUser.email.toLowerCase()));
-      if (uSnap.exists()) {
-        const userRole = uSnap.data().role;
-        setRole(userRole);
-      }
-
-      const rSnap = await getDoc(doc(db, "config", "roles"));
-      if (rSnap.exists()) setRolesConfig(rSnap.data());
-    } catch (e) {
-      console.error("Perm fetch error", e);
+    if (roleLoading) return;
+    if (!user) {
+        navigate('/'); 
+        return;
     }
-  };
-
-  // 3. Permission Helper
-  const hasPerm = (feature, type) => {
-    if (!role) return false;
-    if (role === 'admin') return true;
-
-    const cleanUserRole = role.toLowerCase().replace(/[^a-z0-9]/g, '');
-    let matchedRoleKey = null;
-    const configKeys = Object.keys(rolesConfig);
-
-    if (rolesConfig[role]) matchedRoleKey = role;
-    else {
-      for (const key of configKeys) {
-        if (key.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanUserRole) {
-          matchedRoleKey = key;
-          break;
-        }
-      }
+    
+    const storageKey = `makeusa_layout_${user.email}`;
+    const savedOrder = JSON.parse(localStorage.getItem(storageKey));
+    if (savedOrder && Array.isArray(savedOrder) && savedOrder.length > 0) {
+        setHasCustomLayout(true);
     }
+  }, [user, roleLoading, navigate]);
 
-    if (!matchedRoleKey) return false;
-    const roleData = rolesConfig[matchedRoleKey];
-    const viewKey = feature + '_view';
-    const editKey = feature + '_edit';
-    const canView = roleData[viewKey] === true;
-    const canEdit = roleData[editKey] === true;
-
-    if (type === 'edit') return canEdit;
-    if (type === 'view') return canView || canEdit;
-    return false;
-  };
-
-  // 4. Live Data Listener (iPads)
+  // --- 3. LIVE DATA LISTENERS ---
   useEffect(() => {
+    if (!user) return;
     const unsubscribe = onSnapshot(collection(db, "ipads"), (snapshot) => {
       let ipads = [];
       snapshot.forEach((doc) => {
         ipads.push({ id: doc.id, ...doc.data() });
       });
 
-      const storageKey = user ? `makeusa_layout_${user.email}` : 'layout_default';
+      const storageKey = `makeusa_layout_${user.email}`;
       const savedOrder = JSON.parse(localStorage.getItem(storageKey));
 
       if (savedOrder && Array.isArray(savedOrder) && savedOrder.length > 0) {
-        // Apply Custom Dragged Layout
         ipads.sort((a, b) => {
           const idxA = savedOrder.indexOf(a.id);
           const idxB = savedOrder.indexOf(b.id);
@@ -136,11 +68,10 @@ const Dashboard = () => {
           return idxA - idxB;
         });
       } else {
-        // Apply Auto-Sorting Logic
         ipads.sort((a, b) => {
-            const scoreDiff = getSortScore(b) - getSortScore(a); // Sort by Priority
+            const scoreDiff = getSortScore(b) - getSortScore(a); 
             if (scoreDiff !== 0) return scoreDiff;
-            return a.id.localeCompare(b.id); // Secondary Sort: Alphabetical so cards don't jitter
+            return a.id.localeCompare(b.id); 
         });
       }
       setLiveIpads(ipads);
@@ -148,17 +79,15 @@ const Dashboard = () => {
     return () => unsubscribe();
   }, [user]);
 
-  // 5. Timer Interval
   useEffect(() => {
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, []);
 
-  // 6. Initialize SortableJS
   useEffect(() => {
     if (sortableInstance.current) return;
 
-    if (gridRef.current && !loading) {
+    if (gridRef.current && !roleLoading) {
         sortableInstance.current = new Sortable(gridRef.current, {
             animation: 150,
             forceFallback: true, 
@@ -171,7 +100,7 @@ const Dashboard = () => {
                 const order = Array.from(gridRef.current.children).map(card => card.getAttribute('data-id'));
                 const storageKey = `makeusa_layout_${user?.email}`;
                 localStorage.setItem(storageKey, JSON.stringify(order));
-                setHasCustomLayout(true); // Trigger UI to show Reset button
+                setHasCustomLayout(true);
             }
         });
     }
@@ -182,7 +111,7 @@ const Dashboard = () => {
            sortableInstance.current = null;
        }
     };
-  }, [loading, user]);
+  }, [roleLoading, user]);
 
   const handleCreateIpad = async () => {
     if (!newIpadId.trim()) return alert("Enter ID");
@@ -203,16 +132,11 @@ const Dashboard = () => {
     }
   };
 
-  const handleLogout = () => {
-    signOut(auth).then(() => navigate('/'));
-  };
-
   const handleResetLayout = () => {
     const storageKey = `makeusa_layout_${user?.email}`;
     localStorage.removeItem(storageKey);
     setHasCustomLayout(false);
     
-    // Instantly animates the cards back into auto-sort without a page reload
     setLiveIpads(prev => [...prev].sort((a, b) => {
         const scoreDiff = getSortScore(b) - getSortScore(a);
         if (scoreDiff !== 0) return scoreDiff;
@@ -238,12 +162,12 @@ const Dashboard = () => {
     return `${isNeg ? '-' : ''}${h}:${fmt(m)}:${fmt(s)}`;
   };
 
-  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
+  if (roleLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Workspace..." /></div>;
 
-  // INCLUDE prod_input inside canViewFinance so the category header renders
-  const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view') || hasPerm('manual_ingest', 'view');
-  const canViewQueue = hasPerm('queue', 'view') || hasPerm('search', 'view') || hasPerm('summary', 'view');
-  const canViewIpads = hasPerm('fleet', 'view') || hasPerm('timer', 'view');
+  // EXPLICITLY check isReadOnly to guarantee visibility for global admins
+  const canViewFinance = hasPerm('finance', 'view') || hasPerm('financial_report', 'view') || hasPerm('bonuses', 'view') || hasPerm('queue', 'edit') || hasPerm('admin', 'edit') || hasPerm('commissions', 'view') || hasPerm('prod_input', 'view') || hasPerm('manual_ingest', 'view') || isReadOnly;
+  const canViewQueue = hasPerm('queue', 'view') || hasPerm('search', 'view') || hasPerm('summary', 'view') || isReadOnly;
+  const canViewIpads = hasPerm('fleet', 'view') || hasPerm('timer', 'view') || isReadOnly;
 
   return (
     <div className="dashboard-layout">
@@ -257,22 +181,22 @@ const Dashboard = () => {
         <ul className="nav-list">
             <div className="section-header">Management</div>
             
-            {hasPerm('admin', 'view') && (
+            {(hasPerm('admin', 'view') || isReadOnly) && (
                 <li className="nav-item" onClick={() => navigate(`${BASE}/admin`)}>
                     <div className="nav-item-main"><span className="material-icons">admin_panel_settings</span> Admin Panel</div>
                 </li>
             )}
-             {hasPerm('workers', 'view') && (
+             {(hasPerm('workers', 'view') || isReadOnly) && (
                 <li className="nav-item" onClick={() => navigate(`${BASE}/workers`)}>
                     <div className="nav-item-main"><span className="material-icons">people</span> Manage Workers</div>
                 </li>
             )}
-             {(hasPerm('admin', 'edit') || hasPerm('workers', 'edit')) && (
+             {(hasPerm('admin', 'edit') || hasPerm('workers', 'edit') || isReadOnly) && (
                 <li className="nav-item" onClick={() => navigate(`${BASE}/staff-management`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#f39c12'}}>manage_accounts</span> Staff Access</div>
                 </li>
             )}
-             {(hasPerm('admin', 'edit') || hasPerm('finance', 'edit')) && (
+             {(hasPerm('admin', 'edit') || hasPerm('finance', 'edit') || isReadOnly) && (
                 <li className="nav-item" onClick={() => navigate(`${BASE}/agent-management`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>support_agent</span> Agent Management</div>
                 </li>
@@ -283,22 +207,19 @@ const Dashboard = () => {
                 <>
                     <div className="section-header">Finance & Reporting</div>
                     
-                    {/* Manual Ingest */}
-                    {hasPerm('manual_ingest', 'view') && (
+                    {(hasPerm('manual_ingest', 'view') || isReadOnly) && (
                          <li className="nav-item" onClick={() => navigate(`${BASE}/manual-ingest`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#e74c3c'}}>playlist_add</span> Manual Ingest</div>
                         </li>
                     )}
 
-                    {/* Production Input - STRICTLY checking the new prod_input perm */}
-                    {hasPerm('prod_input', 'view') && (
+                    {(hasPerm('prod_input', 'view') || isReadOnly) && (
                          <li className="nav-item" onClick={() => navigate(`${BASE}/production-input`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#3498db'}}>input</span> Production Input</div>
                         </li>
                     )}
 
-                    {/* Finance Input */}
-                    {hasPerm('finance', 'view') && (
+                    {(hasPerm('finance', 'view') || isReadOnly) && (
                         <li className="nav-item" onClick={() => navigate(`${BASE}/finance-input`)}>
                             <div className="nav-item-main">
                                 <span className="material-icons" style={{color:'#f1c40f'}}>monetization_on</span> 
@@ -307,15 +228,13 @@ const Dashboard = () => {
                         </li>
                     )}
 
-                    {/* Financial Report */}
-                    {hasPerm('financial_report', 'view') && (
+                    {(hasPerm('financial_report', 'view') || isReadOnly) && (
                         <li className="nav-item" onClick={() => navigate(`${BASE}/financial-report`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#2ecc71'}}>assessment</span> Financial Report</div>
                         </li>
                     )}
 
-                    {/* Bonuses */}
-                    {hasPerm('bonuses', 'view') && (
+                    {(hasPerm('bonuses', 'view') || isReadOnly) && (
                         <>
                             <li className="nav-item" onClick={() => navigate(`${BASE}/bonuses`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#9b59b6'}}>emoji_events</span> Bonuses</div>
@@ -326,8 +245,7 @@ const Dashboard = () => {
                         </>
                     )}
 
-                    {/* Commissions */}
-                    {hasPerm('commissions', 'view') && (
+                    {(hasPerm('commissions', 'view') || isReadOnly) && (
                         <>
                             <li className="nav-item" onClick={() => navigate(`${BASE}/commisions`)}>
                                 <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>pie_chart</span> Commisions</div>
@@ -338,8 +256,7 @@ const Dashboard = () => {
                         </>
                     )}
 
-                    {/* Finance Setup */}
-                    {hasPerm('finance', 'edit') && (
+                    {(hasPerm('finance', 'edit') || isReadOnly) && (
                         <li className="nav-item" onClick={() => navigate(`${BASE}/finance-setup`)}>
                             <div className="nav-item-main">
                                 <span className="material-icons" style={{color:'#3498db'}}>settings</span> 
@@ -351,7 +268,7 @@ const Dashboard = () => {
             )}
 
             {/* PROJECT ARCHIVE */}
-            {hasPerm('search', 'view') && (
+            {(hasPerm('search', 'view') || isReadOnly) && (
                 <li className="nav-item" onClick={() => navigate(`${BASE}/project-search`)}>
                     <div className="nav-item-main"><span className="material-icons" style={{color:'#e67e22'}}>history</span> Project Archive</div>
                 </li>
@@ -361,17 +278,17 @@ const Dashboard = () => {
             {canViewQueue && (
                 <>
                     <div className="section-header">Production Planning</div>
-                    {hasPerm('queue', 'view') && (
+                    {(hasPerm('queue', 'view') || isReadOnly) && (
                          <li className="nav-item" onClick={() => navigate(`${BASE}/upcoming-projects`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#3498db'}}>queue</span> Project Queue</div>
                         </li>
                     )}
-                     {hasPerm('summary', 'view') && (
+                     {(hasPerm('summary', 'view') || isReadOnly) && (
                          <li className="nav-item" onClick={() => navigate(`${BASE}/project-summary`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#8e44ad'}}>summarize</span> Production Summary</div>
                         </li>
                     )}
-                    {hasPerm('queue', 'edit') && (
+                    {(hasPerm('queue', 'edit') || isReadOnly) && (
                             <li className="nav-item" onClick={() => navigate(`${BASE}/project-options`)}>
                             <div className="nav-item-main"><span className="material-icons" style={{color:'#16a085'}}>list_alt</span> Edit Dropdowns</div>
                         </li>
@@ -419,7 +336,6 @@ const Dashboard = () => {
                     <button className="btn-green" onClick={handleCreateIpad}>+ Add iPad</button>
                 </div>
             )}
-            
         </div>
       </div>
 
@@ -429,8 +345,7 @@ const Dashboard = () => {
                 <span className="material-icons mobile-toggle" onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>menu</span>
                 <h1 style={{margin:0, fontSize: '20px', color:'#2c3e50'}}>iPad Dashboard</h1>
             </div>
-            {/* Conditionally render the Reset button based on drag layout state */}
-            {hasPerm('timer', 'view') && hasCustomLayout && (
+            {(hasPerm('timer', 'view') || isReadOnly) && hasCustomLayout && (
                 <button className="btn-small" onClick={handleResetLayout}>Reset View</button>
             )}
         </div>
@@ -446,7 +361,6 @@ const Dashboard = () => {
 
             <div id="ipadGrid" className="ipad-grid" ref={gridRef} style={{display: liveIpads.length > 0 ? 'grid' : 'none'}}>
                 {liveIpads.map(ipad => {
-                     // NEW LOGIC FOR NEGATIVE DETECTION
                      let seconds = ipad.secondsRemaining || 0;
                      if (!ipad.isPaused && ipad.lastUpdateTime && (ipad.activeWorkers || []).length > 0) {
                         const lastUpdate = ipad.lastUpdateTime.seconds * 1000;
@@ -467,12 +381,10 @@ const Dashboard = () => {
                          if (isPaused) {
                              statusClass = 'st-paused';
                              statusText = 'PAUSED';
-                             // If negative, show negative color, otherwise paused color
                              timerClass = isNegative ? 'timer-negative' : 'timer-paused';
                          } else {
                              statusClass = 'st-active';
                              statusText = 'RUNNING';
-                             // If negative, show negative color, otherwise running color
                              timerClass = isNegative ? 'timer-negative' : 'timer-running';
                          }
                      }

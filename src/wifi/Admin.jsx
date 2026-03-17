@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
-import { ShieldAlert, Users, Plus, X, CheckSquare } from 'lucide-react';
+import { ShieldAlert, Users, Plus, X } from 'lucide-react';
 
 export default function Admin() {
     const [users, setUsers] = useState([]);
-    const [roles, setRoles] = useState({}); // Now stores an object instead of an array
+    const [roles, setRoles] = useState({}); 
     const [newUserEmail, setNewUserEmail] = useState('');
     
     // New Role Form State
@@ -23,7 +23,6 @@ export default function Admin() {
             if (docSnap.exists()) {
                 setRoles(docSnap.data());
             } else {
-                // Default fallback if database is empty
                 setRoles({ 'Basic User': { create: true, logs: false, revoke: false, admin: false } }); 
             }
         });
@@ -56,7 +55,6 @@ export default function Admin() {
         e.preventDefault();
         if (!newRoleName) return;
         try {
-            // Saves the role name AND its specific permissions object to Firebase
             await setDoc(doc(db, 'config', 'wifi_roles'), { [newRoleName]: newRolePerms }, { merge: true });
             setNewRoleName(''); 
             setNewRolePerms({ create: true, logs: false, revoke: false, admin: false });

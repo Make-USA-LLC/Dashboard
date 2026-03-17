@@ -9,6 +9,7 @@ const RoleContext = createContext();
 export function RoleProvider({ children }) {
   const [roleName, setRoleName] = useState(null);
   const [permissions, setPermissions] = useState({});
+  const [isReadOnly, setIsReadOnly] = useState(false); // <-- NEW: State for Read-Only Admin
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,26 +19,33 @@ export function RoleProvider({ children }) {
       if (!currentUser) {
         setRoleName(null);
         setPermissions({});
+        setIsReadOnly(false);
         setLoading(false);
         return;
       }
 
       try {
-        // --- NEW: Check for Master Admin globally first ---
+        // --- Check for Master Admin globally first ---
         const masterRef = doc(db, 'master_admin_access', currentUser.email);
         const masterSnap = await getDoc(masterRef);
         const isMasterAdmin = masterSnap.exists();
+
+        // --- NEW: Check for Global Read-Only Admin ---
+        const readOnlyRef = doc(db, 'readonly_admin_access', currentUser.email);
+        const readOnlySnap = await getDoc(readOnlyRef);
+        const isGlobalReadOnly = readOnlySnap.exists();
+        setIsReadOnly(isGlobalReadOnly);
 
         // Fetch Authorized User Doc
         const userRef = doc(db, 'authorized_users', currentUser.email);
         const userSnap = await getDoc(userRef);
 
         if (isMasterAdmin || userSnap.exists()) {
-          // --- NEW: Default to 'Admin' if they possess Master access ---
+          // Default to 'Admin' if they possess Master access
           const rName = isMasterAdmin ? 'Admin' : userSnap.data().role;
           setRoleName(rName);
 
-          // 3. Determine Permissions
+          // Determine Permissions
           if (rName === 'Admin') {
             setPermissions({ __admin: true });
           } else {
@@ -51,6 +59,10 @@ export function RoleProvider({ children }) {
               setPermissions({});
             }
           }
+        } else if (isGlobalReadOnly) {
+            // --- NEW: If they are only Read-Only Admin, give them a placeholder role ---
+            setRoleName('Viewer');
+            setPermissions({}); 
         } else {
           setRoleName(null);
           setPermissions({});
@@ -59,6 +71,7 @@ export function RoleProvider({ children }) {
         console.error("Error fetching permissions:", error);
         setRoleName(null);
         setPermissions({});
+        setIsReadOnly(false);
       }
 
       setLoading(false);
@@ -70,6 +83,9 @@ export function RoleProvider({ children }) {
   const checkAccess = (resource, action = 'view') => {
       if (loading) return false;
       if (roleName === 'Admin' || permissions.__admin) return true;
+
+      // --- NEW: Global Read-Only Admin bypass for viewing ---
+      if (isReadOnly && (action === 'view' || action === 'read')) return true;
 
       const level = permissions[resource] || 0;
       

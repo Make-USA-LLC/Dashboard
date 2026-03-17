@@ -1,17 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Commisions.css';
-import { db, auth, loadUserData } from './firebase_config.jsx';
+import { db } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
-import Loader from '../components/loader'; // <-- IMPORT ADDED HERE
+import Loader from '../components/loader'; 
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const Commissions = () => {
     const navigate = useNavigate();
+    
+    // --- 1. USE THE HOOK ---
+    const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+    const canView = hasPerm('commissions', 'view') || hasPerm('finance', 'view') || isReadOnly;
+    const canEditFinance = (hasPerm('finance', 'edit') || hasPerm('commissions', 'edit')) && !isReadOnly;
+
+    const [pageLoading, setPageLoading] = useState(true);
     const [view, setView] = useState('unpaid');
     const [reports, setReports] = useState([]);
     const [config, setConfig] = useState({});
-    const [loading, setLoading] = useState(true);
     const [agentTotals, setAgentTotals] = useState({});
     
     // Modal State
@@ -19,59 +25,36 @@ const Commissions = () => {
     const [payTargetId, setPayTargetId] = useState(null);
     const [payDate, setPayDate] = useState('');
 
-    // Permissions
-    const [canEditFinance, setCanEditFinance] = useState(false);
-    const [canViewAll, setCanViewAll] = useState(false);
-
+    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
-        const unsubscribe = onAuthStateChanged(auth, (user) => {
-            if (user) {
-                loadUserData(user, async () => {
-                    await checkAccess(user);
-                });
-            } else {
-                navigate('/');
-            }
-        });
-        return () => unsubscribe();
-    }, []);
+        if (roleLoading) return;
 
-    const checkAccess = async (user) => {
-        const uSnap = await getDoc(doc(db, "users", user.email.toLowerCase()));
-        if (!uSnap.exists()) return navigate('/');
-        const r = uSnap.data().role;
-
-        const rolesSnap = await getDoc(doc(db, "config", "roles"));
-        let edit = false;
-        let view = false;
-
-        if (r === 'admin') { edit = true; view = true; }
-        else if (rolesSnap.exists()) {
-            const rc = rolesSnap.data()[r];
-            if (rc) {
-                if (rc['finance_edit']) edit = true;
-                if (rc['finance_view'] || rc['commissions_view']) view = true;
-            }
+        if (!user || !canView) {
+            navigate('/dashboard');
+            return;
         }
 
-        if (edit || view) {
-            setCanEditFinance(edit);
-            setCanViewAll(edit); // Usually editors can view all
-            await loadConfig();
-            loadData(edit);
-        } else {
-            alert("Access Denied");
-            navigate('/');
-        }
-    };
+        const fetchAll = async () => {
+            setPageLoading(true);
+            const loadedConfig = await loadConfig();
+            await loadData(loadedConfig);
+            setPageLoading(false);
+        };
+
+        fetchAll();
+    }, [user, canView, roleLoading, navigate, view]);
 
     const loadConfig = async () => {
         const cSnap = await getDoc(doc(db, "config", "finance"));
-        if(cSnap.exists()) setConfig(cSnap.data());
+        if(cSnap.exists()) {
+            const data = cSnap.data();
+            setConfig(data);
+            return data;
+        }
+        return {};
     };
 
-    const loadData = async (isEditor) => {
-        setLoading(true);
+    const loadData = async (currentConfig = config) => {
         const q = query(collection(db, "reports"), where("financeStatus", "==", "complete"));
         const snap = await getDocs(q);
         
@@ -87,11 +70,6 @@ const Commissions = () => {
 
                 // We track payment status independently (sort of).
                 // Currently the DB only has one 'commissionPaid' flag.
-                // LIMITATION: If we have 2 agents, we assume they are paid together for now,
-                // OR we'd need to migrate the DB to have 'commissionPaid_primary' etc.
-                // For this implementation, we will use the single flag for BOTH.
-                // Future upgrade: split the flags.
-                
                 const isPaid = data.commissionPaid === true;
                 
                 // Filter View
@@ -100,8 +78,8 @@ const Commissions = () => {
 
                 // Calculate Comm
                 let rate = 0;
-                if (config.agents) {
-                    const ag = config.agents.find(a => a.name === agentName);
+                if (currentConfig.agents) {
+                    const ag = currentConfig.agents.find(a => a.name === agentName);
                     if(ag) rate = parseFloat(ag.comm);
                 }
                 const invoice = data.invoiceAmount || 0;
@@ -137,23 +115,18 @@ const Commissions = () => {
         list.sort((a,b) => (b.completedAt?.seconds||0) - (a.completedAt?.seconds||0));
         setReports(list);
         setAgentTotals(totals);
-        setLoading(false);
     };
 
-    useEffect(() => {
-        if(config.agents) loadData(canEditFinance);
-    }, [view, config]);
-
-    const handleLogout = () => signOut(auth).then(() => navigate('/'));
-
-    // --- ACTIONS ---
+    // --- 3. PROTECTED ACTIONS ---
     const openPayModal = (id) => {
+        if (!canEditFinance) return alert("Read-Only Access");
         setPayTargetId(id);
         setPayDate(new Date().toISOString().split('T')[0]);
         setShowPayModal(true);
     };
 
     const confirmPay = async () => {
+        if (!canEditFinance) return alert("Read-Only Access");
         if(!payDate) return alert("Select Date");
         const parts = payDate.split('-');
         const fmtDate = `${parts[1]}/${parts[2]}/${parts[0]}`;
@@ -163,19 +136,20 @@ const Commissions = () => {
             commissionPaid: true, commissionPaidAt: new Date(), commissionPaidDate: fmtDate 
         });
         setShowPayModal(false);
-        loadData(canEditFinance);
+        loadData(config);
     };
 
     const undoPay = async (id) => {
+        if (!canEditFinance) return alert("Read-Only Access");
         if(!window.confirm("Undo payment status? This affects both agents on this job.")) return;
         await updateDoc(doc(db, "reports", id), { commissionPaid: false, commissionPaidDate: null });
-        loadData(canEditFinance);
+        loadData(config);
     };
 
     const grandTotal = Object.values(agentTotals).reduce((a,b) => a+b, 0);
 
-    // <-- LOADER RENDERED HERE BEFORE THE MAIN PAGE LOADS
-    if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Commissions..." /></div>;
+    if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Commissions..." /></div>;
+    if (!canView) return null;
 
     return (
         <div className="commissions-page-wrapper">

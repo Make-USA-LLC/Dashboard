@@ -1,12 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  db, auth, collection, doc, getDoc, getDocs, updateDoc, deleteDoc, 
-  query, orderBy, limit, onAuthStateChanged 
-} from './firebase_config'; 
-import { checkPermission, loadUserData } from './firebase_config'; 
+import { db, collection, doc, getDoc, getDocs, updateDoc, deleteDoc, query, orderBy, limit } from './firebase_config'; 
 import './FinanceInput.css';
 import Loader from '../components/loader';
+import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit }) => {
   // Parse Dates
@@ -21,23 +18,19 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
   const [totalUnits, setTotalUnits] = useState(data.totalUnits || '');
   const [invoiceAmount, setInvoiceAmount] = useState(data.invoiceAmount || '');
   
-  // AUTO-ASSIGN LOGIC (UPDATED FOR DUAL)
+  // AUTO-ASSIGN LOGIC
   const [selectedAgent, setSelectedAgent] = useState(() => {
-    // 1. If agent is already saved on this specific report, use it
     if (data.agentName) return data.agentName;
-    // 2. Otherwise, check if this company has an auto-assigned agent
     if (companyMap && companyMap[data.company]) {
        const map = companyMap[data.company];
        if (typeof map === 'object') return map.primary || '';
-       return map; // Legacy string
+       return map; 
     }
     return '';
   });
 
   const [selectedAgent2, setSelectedAgent2] = useState(() => {
-    // 1. Saved?
     if (data.agentName2) return data.agentName2;
-    // 2. Config?
     if (companyMap && companyMap[data.company]) {
         const map = companyMap[data.company];
         if (typeof map === 'object') return map.secondary || '';
@@ -57,7 +50,7 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
   const [manualPpl, setManualPpl] = useState(data.manualPeople || '');
   const [manualAvg, setManualAvg] = useState(data.manualAvgHours || '');
 
-  // BONUS ELIGIBILITY STATE (Default to true unless explicitly false in DB)
+  // BONUS ELIGIBILITY STATE
   const [isBonusEligible, setIsBonusEligible] = useState(data.bonusEligible !== false);
   const [bonusReason, setBonusReason] = useState(data.bonusIneligibleReason || '');
 
@@ -65,7 +58,6 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
     onProcess(data.id, {
       desc, totalUnits, invoiceAmount, selectedAgent, selectedAgent2, commExcluded,
       isAdjusting, op, method, manualTotal, manualPpl, manualAvg,
-      // Pass Bonus Data
       isBonusEligible, bonusReason,
       originalSeconds: data.originalSeconds,
       finalSeconds: data.finalSeconds
@@ -104,7 +96,6 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
           <input type="number" value={invoiceAmount} onChange={(e) => setInvoiceAmount(e.target.value)} disabled={!canEdit} />
         </div>
         
-        {/* AGENT 1 */}
         <div>
           <label>Primary Agent</label>
           <select value={selectedAgent} onChange={(e) => setSelectedAgent(e.target.value)} disabled={!canEdit}>
@@ -115,7 +106,6 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
           </select>
         </div>
 
-        {/* AGENT 2 (NEW) */}
         <div>
           <label>Secondary Agent</label>
           <select value={selectedAgent2} onChange={(e) => setSelectedAgent2(e.target.value)} disabled={!canEdit}>
@@ -140,7 +130,6 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
         )}
       </div>
 
-      {/* BONUS ELIGIBILITY SECTION - MATCHING HTML LOGIC */}
       <div className="bonus-box">
         <label className="chk-container">
             <input 
@@ -152,7 +141,6 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
             <span className="chk-label" style={{color:'#2c3e50'}}>Project Eligible for Bonus?</span>
         </label>
         
-        {/* Only show reason box if UNCHECKED */}
         {!isBonusEligible && (
             <div className="reason-box">
                 <label style={{color:'#c0392b'}}>Reason for Ineligibility *</label>
@@ -263,33 +251,30 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
 const FinanceInput = () => {
   const navigate = useNavigate();
   
-  const [loading, setLoading] = useState(true);
-  const [accessDenied, setAccessDenied] = useState(false);
-  const [canEdit, setCanEdit] = useState(false);
+  // --- 1. USE THE HOOK ---
+  const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
+  const canView = hasPerm('finance', 'view');
+  const canEdit = hasPerm('finance', 'edit') && !isReadOnly;
+
+  const [pageLoading, setPageLoading] = useState(true);
   const [agents, setAgents] = useState([]);
-  const [companyMap, setCompanyMap] = useState({}); // Stores company->agent map
+  const [companyMap, setCompanyMap] = useState({}); 
   const [pendingProjects, setPendingProjects] = useState([]);
 
+  // --- 2. STREAMLINED INITIALIZATION ---
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      if (user) {
-        loadUserData(user, () => {
-          if (checkPermission('finance', 'view')) {
-            setCanEdit(checkPermission('finance', 'edit'));
-            initData();
-          } else {
-            setAccessDenied(true);
-            setLoading(false);
-          }
-        });
-      } else {
-        window.location.href = 'index.html';
-      }
-    });
-    return () => unsubscribe();
-  }, []);
+    if (roleLoading) return;
+
+    if (!user || !canView) {
+        navigate('/dashboard');
+        return;
+    }
+
+    initData();
+  }, [user, canView, roleLoading, navigate]);
 
   const initData = async () => {
+    setPageLoading(true);
     try {
       const configSnap = await getDoc(doc(db, "config", "finance"));
       if (configSnap.exists()) {
@@ -310,12 +295,12 @@ const FinanceInput = () => {
       console.error("Error loading data:", e);
       alert("Error loading data: " + e.message);
     } finally {
-      setLoading(false);
+      setPageLoading(false);
     }
   };
 
   const handleProcessItem = async (id, formState) => {
-    if (!canEdit) return alert("Access Denied");
+    if (!canEdit) return alert("Read-Only Access");
     
     // Validation
     if (!formState.totalUnits || !formState.invoiceAmount) {
@@ -332,12 +317,10 @@ const FinanceInput = () => {
       totalUnits: Number(formState.totalUnits),
       invoiceAmount: Number(formState.invoiceAmount),
       agentName: formState.selectedAgent,
-      agentName2: formState.selectedAgent2, // NEW FIELD
+      agentName2: formState.selectedAgent2, 
       commissionExcluded: Number(formState.commExcluded) || 0,
       financeStatus: "complete",
       laborAdjustmentActive: formState.isAdjusting,
-      
-      // SAVE BONUS DATA
       bonusEligible: formState.isBonusEligible,
       bonusIneligibleReason: formState.isBonusEligible ? "" : formState.bonusReason
     };
@@ -392,7 +375,7 @@ const FinanceInput = () => {
   };
 
   const handleDeleteItem = async (id) => {
-    if (!canEdit) return alert("Access Denied");
+    if (!canEdit) return alert("Read-Only Access");
     if (window.confirm("Are you sure you want to PERMANENTLY DELETE this report?")) {
       try {
         await deleteDoc(doc(db, "reports", id));
@@ -404,8 +387,8 @@ const FinanceInput = () => {
     }
   };
 
-  if (loading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
-  if (accessDenied) return <div className="container"><div className="denied-box">⛔ ACCESS DENIED<br />You do not have permission to view this page.</div></div>;
+  if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading..." /></div>;
+  if (!canView) return null;
 
   return (
     <>
