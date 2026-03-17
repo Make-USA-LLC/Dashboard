@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; // <-- Added for manual check
+import { doc, getDoc } from 'firebase/firestore'; 
 import { db, auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
@@ -12,7 +12,7 @@ import DomainRouter from './components/DomainRouter';
 import LinksManager from './LinksManager';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
-import Loader from './components/Loader';
+import Loader from './components/loader';
 
 import HRApp from './HR/App'; 
 import TechApp from './Techs/App'; 
@@ -35,18 +35,18 @@ import WifiApp from './wifi/App';
 import Login from './Login'; 
 
 function SelectionGrid({ user }) {
-  const { checkAccess, loading } = useRole();
+  const { checkAccess, access, loading } = useRole();
   const [hasClientAccess, setHasClientAccess] = useState(false);
 
   // MANUALLY CHECK CLIENT ACCESS
   useEffect(() => {
     if (user?.email) {
       const email = user.email.toLowerCase();
-      // Master Admins get automatic access
-      if (email === 'daniel.s@makeit.buzz') {
+      // Master Admins & Global Read-Only get automatic access
+      if (email === 'daniel.s@makeit.buzz' || access?.master || access?.readOnly) {
           setHasClientAccess(true);
       } else {
-          // Check standard client_access whitelist and master list
+          // Check standard client_access whitelist
           Promise.all([
               getDoc(doc(db, "client_access", email)),
               getDoc(doc(db, "master_admin_access", email))
@@ -57,7 +57,7 @@ function SelectionGrid({ user }) {
           });
       }
     }
-  }, [user]);
+  }, [user, access]);
 
   if (loading) return <Loader message="Syncing Permissions..." />;
 
@@ -77,7 +77,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* --- Using Direct State for Client Management --- */}
+        {/* RESTORED CLIENT MANAGEMENT BUTTON */}
         {hasClientAccess && (
           <Link to="/clients" style={cardStyle}>
             <div style={{...iconBox, background: '#fef08a', color: '#ca8a04'}}><Briefcase size={32} /></div>
@@ -164,9 +164,7 @@ function ProtectedMainApp() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   
-  // Notice we pull 'loading' from useRole, but we don't strictly block rendering 
-  // on hasAnyAccess right away because our manual Client check happens asynchronously inside SelectionGrid
-  const { loading: roleLoading, hasAnyAccess } = useRole();
+  const { loading: roleLoading, hasAnyAccess, access } = useRole();
   const [clientAccessReady, setClientAccessReady] = useState(false);
   const [hasClientModAccess, setHasClientModAccess] = useState(false);
 
@@ -197,8 +195,11 @@ function ProtectedMainApp() {
 
   if (!user) return <Login />;
 
+  // Automatically allow Global Read-Only to pass this screen
+  const isGlobalReadOnly = access?.readOnly === true;
+
   // User is blocked ONLY if they have NO role in useRole AND no Client Access
-  if (!hasAnyAccess && !hasClientModAccess) {
+  if (!hasAnyAccess && !hasClientModAccess && !isGlobalReadOnly) {
     return (
       <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
         <div style={{background:'white', padding:'40px', borderRadius:'16px', textAlign:'center', boxShadow:'0 4px 20px rgba(0,0,0,0.08)', maxWidth:'400px'}}>
@@ -245,7 +246,6 @@ function ProtectedMainApp() {
         <Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
         <Route path="/wifi/*" element={<RoleRoute system="wifi" feature="portal"><WifiApp /></RoleRoute>} />
         
-        {/* --- Using a standard Route here because the Client Dashboard acts as its own gatekeeper --- */}
         <Route path="/clients/*" element={<ClientApp />} />
       </Routes>
     </div>

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
 import { doc, getDoc } from 'firebase/firestore';
-import { useRole } from '../hooks/useRole'; // <-- Connected to our global hook!
+import { useRole } from '../hooks/useRole'; 
 
-import Loader from '../components/Loader';
+import Loader from '../components/loader';
 import Generator from './Generator';
 import Logs from './Logs';
 import Admin from './Admin';
 
 export default function WifiApp() {
+    // FIX: Using access.readOnly directly from the hook!
     const { access, loading: roleLoading } = useRole();
     
     const [activeTab, setActiveTab] = useState('generate');
@@ -23,10 +24,9 @@ export default function WifiApp() {
             if (access.master) {
                 setPerms({ create: true, logs: true, revoke: true, admin: true });
             } 
-            // 2. Global Read-Only Check
+            // 2. Global Read-Only Check: Give them VIEW access to tabs, but NO revoke powers
             else if (access.readOnly) {
-                setPerms({ create: false, logs: true, revoke: false, admin: false });
-                setActiveTab('logs'); // Force them to logs since they can't generate
+                setPerms({ create: true, logs: true, revoke: false, admin: true });
             } 
             // 3. Standard Wi-Fi Role Check
             else if (access.wifi) {
@@ -36,7 +36,6 @@ export default function WifiApp() {
                         const rolePerms = configSnap.data()[access.wifi];
                         setPerms(rolePerms);
                         
-                        // Auto-route tab based on permissions
                         if (!rolePerms.create && (rolePerms.logs || rolePerms.revoke)) setActiveTab('logs');
                         else if (!rolePerms.create && !rolePerms.logs && rolePerms.admin) setActiveTab('admin');
                     }
@@ -89,9 +88,10 @@ export default function WifiApp() {
                 )}
             </div>
 
-            {activeTab === 'generate' && perms.create && <Generator />}
-            {activeTab === 'logs' && (perms.logs || perms.revoke) && <Logs canRevoke={perms.revoke} />}
-            {activeTab === 'admin' && perms.admin && <Admin />}
+            {/* We pass down access.readOnly so the child components lock their inputs! */}
+            {activeTab === 'generate' && perms.create && <Generator isReadOnly={access.readOnly} />}
+            {activeTab === 'logs' && (perms.logs || perms.revoke) && <Logs canRevoke={perms.revoke && !access.readOnly} />}
+            {activeTab === 'admin' && perms.admin && <Admin isReadOnly={access.readOnly} />}
         </div>
     );
 }

@@ -61,6 +61,7 @@ export default function ClientApp() {
         // 3. LIVE REAL-TIME LISTENERS
         let unsubAccess = () => {};
         let unsubRole = () => {};
+        let unsubReadOnly = () => {};
 
         const unsubMaster = onSnapshot(doc(db, "master_admin_access", email), (mSnap) => {
             if (mSnap.exists()) {
@@ -74,22 +75,41 @@ export default function ClientApp() {
                 });
                 setLoading(false);
             } else {
-                unsubAccess = onSnapshot(doc(db, "client_access", email), (aSnap) => {
-                    if (aSnap.exists()) {
-                        const role = aSnap.data().role;
-                        setUserRole(role);
-                        
-                        unsubRole = onSnapshot(doc(db, "client_roles", role), (rSnap) => {
-                            if (rSnap.exists()) {
-                                setPerms(rSnap.data()); 
-                            } else {
-                                setPerms({}); 
-                            }
-                            setLoading(false);
+                
+                // --- NEW: GLOBAL READ-ONLY INTERCEPT ---
+                unsubReadOnly = onSnapshot(doc(db, "readonly_admin_access", email), (roSnap) => {
+                    if (roSnap.exists()) {
+                        setUserRole('Global Read-Only');
+                        // Inject a strict View-Only permission payload
+                        setPerms({
+                            view_clients: true, edit_client_details: false,
+                            manage_client_status: false, view_w9: true, upload_w9: false,
+                            view_legal: true, upload_legal: false,
+                            view_samples: true, manage_samples: false,
+                            manage_settings: false, manage_permissions: false
                         });
-                    } else {
-                        setPerms(null); // Denied
                         setLoading(false);
+                    } else {
+                        
+                        // STANDARD CLIENT ROLES
+                        unsubAccess = onSnapshot(doc(db, "client_access", email), (aSnap) => {
+                            if (aSnap.exists()) {
+                                const role = aSnap.data().role;
+                                setUserRole(role);
+                                
+                                unsubRole = onSnapshot(doc(db, "client_roles", role), (rSnap) => {
+                                    if (rSnap.exists()) {
+                                        setPerms(rSnap.data()); 
+                                    } else {
+                                        setPerms({}); 
+                                    }
+                                    setLoading(false);
+                                });
+                            } else {
+                                setPerms(null); // Denied
+                                setLoading(false);
+                            }
+                        });
                     }
                 });
             }
@@ -97,6 +117,7 @@ export default function ClientApp() {
 
         return () => {
             unsubMaster();
+            unsubReadOnly();
             unsubAccess();
             unsubRole();
         };
@@ -117,9 +138,6 @@ export default function ClientApp() {
             </div>
         );
     }
-
-    // We no longer block the whole app if (accounts.length === 0)
-    // The login will be handled "on-demand" in ClientDetail.jsx
 
     return (
         <ClientPermsContext.Provider value={{ perms, userRole, accounts, instance }}>

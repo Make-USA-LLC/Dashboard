@@ -2,7 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
 import { collection, addDoc, serverTimestamp, onSnapshot, doc } from 'firebase/firestore';
 
-export default function Generator() {
+// Accept the isReadOnly prop
+export default function Generator({ isReadOnly = false }) {
     const [form, setForm] = useState({ 
         firstName: '', lastName: '', email: '', 
         durationSelection: '720', 
@@ -17,6 +18,8 @@ export default function Generator() {
 
     const handleGenerate = async (e) => {
         e.preventDefault();
+        if (isReadOnly) return alert("Read-Only Mode: You cannot generate codes.");
+
         setLoading(true); setError(''); setVoucher(null);
         
         try {
@@ -84,19 +87,25 @@ export default function Generator() {
     const durationText = getDurationText();
     const displayDevices = form.deviceSelection === 'custom' ? form.customDeviceValue : form.deviceSelection;
 
+    // Determine if inputs should be locked
+    const inputsLocked = loading || isReadOnly;
+
     return (
         <div style={{ background: 'white', padding: '30px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
             <style>{`@media print { body * { visibility: hidden; } #printable-voucher, #printable-voucher * { visibility: visible; } #printable-voucher { position: absolute; left: 0; top: 0; width: 100%; padding: 40px !important; margin: 0 !important; box-sizing: border-box; } .no-print { display: none !important; } } @media screen { .print-header { display: none; } }`}</style>
 
-            <h2 className="no-print" style={{ marginTop: 0 }}>Office Wi-Fi Generator</h2>
+            <div className="no-print" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h2 style={{ margin: 0 }}>Office Wi-Fi Generator</h2>
+                {isReadOnly && <span style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '13px' }}>Read-Only Mode</span>}
+            </div>
             
             {!voucher && (
-                <form className="no-print" onSubmit={handleGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '450px' }}>
+                <form className="no-print" onSubmit={handleGenerate} style={{ display: 'flex', flexDirection: 'column', gap: '18px', maxWidth: '450px', opacity: isReadOnly ? 0.7 : 1 }}>
                     <div style={{ display: 'flex', gap: '10px' }}>
-                        <input required placeholder="First Name" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} disabled={loading} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
-                        <input required placeholder="Last Name" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} disabled={loading} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                        <input required placeholder="First Name" value={form.firstName} onChange={e => setForm({...form, firstName: e.target.value})} disabled={inputsLocked} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                        <input required placeholder="Last Name" value={form.lastName} onChange={e => setForm({...form, lastName: e.target.value})} disabled={inputsLocked} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
                     </div>
-                    <input required type="email" placeholder="Guest Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} disabled={loading} style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                    <input required type="email" placeholder="Guest Email" value={form.email} onChange={e => setForm({...form, email: e.target.value})} disabled={inputsLocked} style={{ padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
                     
                     <div>
                         <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '8px' }}>Pass Duration</label>
@@ -109,10 +118,10 @@ export default function Generator() {
                                 { val: 'custom', label: 'Custom...' }
                             ].map(btn => (
                                 <button 
-                                    key={btn.val} type="button" disabled={loading}
+                                    key={btn.val} type="button" disabled={inputsLocked}
                                     onClick={() => setForm({...form, durationSelection: btn.val})}
                                     style={{ 
-                                        padding: '8px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold',
+                                        padding: '8px 14px', borderRadius: '6px', border: '1px solid #cbd5e1', cursor: inputsLocked ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 'bold',
                                         background: form.durationSelection === btn.val ? '#0f172a' : '#f8fafc',
                                         color: form.durationSelection === btn.val ? 'white' : '#475569',
                                         transition: 'all 0.2s'
@@ -126,11 +135,11 @@ export default function Generator() {
                             <div style={{ display: 'flex', gap: '10px', marginTop: '12px', background: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Amount</label>
-                                    <input type="number" min="1" required value={form.customValue} onChange={e => setForm({...form, customValue: e.target.value})} disabled={loading} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
+                                    <input type="number" min="1" required value={form.customValue} onChange={e => setForm({...form, customValue: e.target.value})} disabled={inputsLocked} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
                                 </div>
                                 <div style={{ flex: 1 }}>
                                     <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Format</label>
-                                    <select value={form.customUnit} onChange={e => setForm({...form, customUnit: e.target.value})} disabled={loading} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}>
+                                    <select value={form.customUnit} onChange={e => setForm({...form, customUnit: e.target.value})} disabled={inputsLocked} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }}>
                                         <option value="hours">Hours</option>
                                         <option value="days">Days</option>
                                     </select>
@@ -141,7 +150,7 @@ export default function Generator() {
 
                     <div>
                         <label style={{ fontSize: '12px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '8px' }}>Devices Allowed</label>
-                        <select value={form.deviceSelection} onChange={e => setForm({...form, deviceSelection: e.target.value})} disabled={loading} style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}>
+                        <select value={form.deviceSelection} onChange={e => setForm({...form, deviceSelection: e.target.value})} disabled={inputsLocked} style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}>
                             <option value="1">1 Device</option>
                             <option value="2">2 Devices</option>
                             <option value="3">3 Devices</option>
@@ -153,15 +162,15 @@ export default function Generator() {
                         {form.deviceSelection === 'custom' && (
                             <div style={{ marginTop: '12px', background: '#f1f5f9', padding: '12px', borderRadius: '8px', border: '1px solid #e2e8f0' }}>
                                 <label style={{ fontSize: '11px', fontWeight: 'bold', color: '#64748b', display: 'block', marginBottom: '4px' }}>Custom Number of Devices</label>
-                                <input type="number" min="1" required value={form.customDeviceValue} onChange={e => setForm({...form, customDeviceValue: e.target.value})} disabled={loading} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
+                                <input type="number" min="1" required value={form.customDeviceValue} onChange={e => setForm({...form, customDeviceValue: e.target.value})} disabled={inputsLocked} style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ccc', boxSizing: 'border-box' }} />
                             </div>
                         )}
                     </div>
 
                     {error && <div style={{ padding: '10px', background: '#fee2e2', border: '1px solid #ef4444', borderRadius: '5px', color: '#b91c1c', fontSize: '13px' }}><strong>⚠️ Error:</strong> {error}</div>}
 
-                    <button type="submit" disabled={loading} style={{ padding: '14px', background: '#10b981', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '15px', cursor: loading ? 'not-allowed' : 'pointer', marginTop: '5px', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)' }}>
-                        {loading ? 'Generating...' : `Generate ${durationText} Pass`}
+                    <button type="submit" disabled={inputsLocked} style={{ padding: '14px', background: isReadOnly ? '#94a3b8' : '#10b981', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', fontSize: '15px', cursor: inputsLocked ? 'not-allowed' : 'pointer', marginTop: '5px', boxShadow: '0 2px 4px rgba(16, 185, 129, 0.3)' }}>
+                        {loading ? 'Generating...' : isReadOnly ? 'Locked' : `Generate ${durationText} Pass`}
                     </button>
                 </form>
             )}

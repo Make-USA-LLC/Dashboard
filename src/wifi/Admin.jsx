@@ -3,15 +3,13 @@ import { db } from '../firebase_config';
 import { collection, doc, setDoc, deleteDoc, onSnapshot, updateDoc, deleteField } from 'firebase/firestore';
 import { ShieldAlert, Users, Plus, X } from 'lucide-react';
 
-export default function Admin() {
+export default function Admin({ isReadOnly = false }) {
     const [users, setUsers] = useState([]);
     const [roles, setRoles] = useState({}); 
     const [newUserEmail, setNewUserEmail] = useState('');
     
-    // New Role Form State
     const [newRoleName, setNewRoleName] = useState('');
     const [newRolePerms, setNewRolePerms] = useState({ create: true, logs: false, revoke: false, admin: false });
-    
     const [error, setError] = useState('');
 
     useEffect(() => {
@@ -30,9 +28,9 @@ export default function Admin() {
         return () => { unsubUsers(); unsubRoles(); };
     }, []);
 
-    // --- USER MANAGEMENT ---
     const handleAddUser = async (e) => {
         e.preventDefault();
+        if (isReadOnly) return alert("Read-Only Mode");
         if (!newUserEmail) return;
         try {
             await setDoc(doc(db, 'wifi_access', newUserEmail.toLowerCase()), { role: Object.keys(roles)[0] || 'Basic User' });
@@ -41,18 +39,20 @@ export default function Admin() {
     };
 
     const handleRemoveUser = async (email) => {
+        if (isReadOnly) return alert("Read-Only Mode");
         if (window.confirm(`Revoke access for ${email}?`)) {
             await deleteDoc(doc(db, 'wifi_access', email));
         }
     };
 
     const handleRoleChange = async (email, newRole) => {
+        if (isReadOnly) return alert("Read-Only Mode");
         await updateDoc(doc(db, 'wifi_access', email), { role: newRole });
     };
 
-    // --- ROLE MANAGEMENT ---
     const handleAddRole = async (e) => {
         e.preventDefault();
+        if (isReadOnly) return alert("Read-Only Mode");
         if (!newRoleName) return;
         try {
             await setDoc(doc(db, 'config', 'wifi_roles'), { [newRoleName]: newRolePerms }, { merge: true });
@@ -63,12 +63,14 @@ export default function Admin() {
     };
 
     const handleDeleteRole = async (roleName) => {
+        if (isReadOnly) return alert("Read-Only Mode");
         if (window.confirm(`Delete the role "${roleName}"?`)) {
             await updateDoc(doc(db, 'config', 'wifi_roles'), { [roleName]: deleteField() });
         }
     };
 
     const togglePerm = (perm) => {
+        if (isReadOnly) return;
         setNewRolePerms(prev => ({ ...prev, [perm]: !prev[perm] }));
     };
 
@@ -77,12 +79,15 @@ export default function Admin() {
             
             {/* USERS PANEL */}
             <div style={{ background: 'white', padding: '25px', borderRadius: '8px', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-                <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={20}/> Wi-Fi Staff</h3>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                    <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><Users size={20}/> Wi-Fi Staff</h3>
+                    {isReadOnly && <span style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '12px' }}>Read-Only</span>}
+                </div>
                 {error && <p style={{ color: 'red', fontSize: '12px' }}>{error}</p>}
                 
-                <form onSubmit={handleAddUser} style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-                    <input required type="email" placeholder="Staff Email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
-                    <button type="submit" style={{ padding: '10px 15px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>Add</button>
+                <form onSubmit={handleAddUser} style={{ display: 'flex', gap: '10px', marginBottom: '20px', opacity: isReadOnly ? 0.6 : 1 }}>
+                    <input required type="email" placeholder="Staff Email" value={newUserEmail} onChange={e => setNewUserEmail(e.target.value)} disabled={isReadOnly} style={{ flex: 1, padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                    <button type="submit" disabled={isReadOnly} style={{ padding: '10px 15px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '5px', cursor: isReadOnly ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}>Add</button>
                 </form>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -90,10 +95,10 @@ export default function Admin() {
                         <div key={u.email} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px', background: '#f8fafc', borderRadius: '5px', border: '1px solid #e2e8f0' }}>
                             <span style={{ fontWeight: 'bold', fontSize: '14px' }}>{u.email}</span>
                             <div style={{ display: 'flex', gap: '10px' }}>
-                                <select value={u.role || ''} onChange={e => handleRoleChange(u.email, e.target.value)} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}>
+                                <select value={u.role || ''} onChange={e => handleRoleChange(u.email, e.target.value)} disabled={isReadOnly} style={{ padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }}>
                                     {Object.keys(roles).map(r => <option key={r} value={r}>{r}</option>)}
                                 </select>
-                                <button onClick={() => handleRemoveUser(u.email)} style={{ background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', padding: '6px 10px' }}><X size={14}/></button>
+                                {!isReadOnly && <button onClick={() => handleRemoveUser(u.email)} style={{ background: '#fee2e2', color: '#b91c1c', border: 'none', borderRadius: '4px', cursor: 'pointer', padding: '6px 10px' }}><X size={14}/></button>}
                             </div>
                         </div>
                     ))}
@@ -105,25 +110,25 @@ export default function Admin() {
                 <h3 style={{ marginTop: 0, display: 'flex', alignItems: 'center', gap: '10px' }}><ShieldAlert size={20}/> Custom Roles</h3>
                 <p style={{ fontSize: '13px', color: '#64748b', marginBottom: '20px' }}>Define what different roles are allowed to access.</p>
                 
-                <form onSubmit={handleAddRole} style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px' }}>
-                    <input required placeholder="Role Name (e.g. IT Support)" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc', marginBottom: '15px', boxSizing: 'border-box' }} />
+                <form onSubmit={handleAddRole} style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', border: '1px solid #e2e8f0', marginBottom: '20px', opacity: isReadOnly ? 0.6 : 1 }}>
+                    <input required placeholder="Role Name (e.g. IT Support)" value={newRoleName} onChange={e => setNewRoleName(e.target.value)} disabled={isReadOnly} style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc', marginBottom: '15px', boxSizing: 'border-box' }} />
                     
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '15px' }}>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={newRolePerms.create} onChange={() => togglePerm('create')} /> Generate Codes
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: isReadOnly ? 'default' : 'pointer' }}>
+                            <input type="checkbox" checked={newRolePerms.create} onChange={() => togglePerm('create')} disabled={isReadOnly} /> Generate Codes
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
-                            <input type="checkbox" checked={newRolePerms.logs} onChange={() => togglePerm('logs')} /> View Access Logs
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: isReadOnly ? 'default' : 'pointer' }}>
+                            <input type="checkbox" checked={newRolePerms.logs} onChange={() => togglePerm('logs')} disabled={isReadOnly} /> View Access Logs
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer', color: '#b91c1c' }}>
-                            <input type="checkbox" checked={newRolePerms.revoke} onChange={() => togglePerm('revoke')} /> Use Kill Switch
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: isReadOnly ? 'default' : 'pointer', color: '#b91c1c' }}>
+                            <input type="checkbox" checked={newRolePerms.revoke} onChange={() => togglePerm('revoke')} disabled={isReadOnly} /> Use Kill Switch
                         </label>
-                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer', color: '#0f172a' }}>
-                            <input type="checkbox" checked={newRolePerms.admin} onChange={() => togglePerm('admin')} /> Admin Panel
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: isReadOnly ? 'default' : 'pointer', color: '#0f172a' }}>
+                            <input type="checkbox" checked={newRolePerms.admin} onChange={() => togglePerm('admin')} disabled={isReadOnly} /> Admin Panel
                         </label>
                     </div>
 
-                    <button type="submit" style={{ width: '100%', padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}><Plus size={16} style={{ verticalAlign: 'middle' }}/> Create Role</button>
+                    <button type="submit" disabled={isReadOnly} style={{ width: '100%', padding: '10px', background: '#10b981', color: 'white', border: 'none', borderRadius: '5px', cursor: isReadOnly ? 'not-allowed' : 'pointer', fontWeight: 'bold' }}><Plus size={16} style={{ verticalAlign: 'middle' }}/> Create Role</button>
                 </form>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -138,7 +143,7 @@ export default function Admin() {
                                     {perms.admin && <span style={{ background: '#f1f5f9', color: '#475569', padding: '2px 6px', borderRadius: '4px', border: '1px solid #cbd5e1' }}>ADMIN</span>}
                                 </div>
                             </div>
-                            <button onClick={() => handleDeleteRole(roleName)} style={{ background: 'transparent', color: '#94a3b8', border: 'none', cursor: 'pointer' }}><X size={18}/></button>
+                            {!isReadOnly && <button onClick={() => handleDeleteRole(roleName)} style={{ background: 'transparent', color: '#94a3b8', border: 'none', cursor: 'pointer' }}><X size={18}/></button>}
                         </div>
                     ))}
                 </div>
