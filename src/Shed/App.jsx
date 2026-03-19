@@ -47,7 +47,7 @@ const App = () => {
         const logsRef = collection(db, COLLECTION_ROOT, 'public', 'logs');
         const unsubscribeLogs = onSnapshot(logsRef, (snapshot) => {
             const loadedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            loadedLogs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+            loadedLogs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
             setLogs(loadedLogs);
         }, (err) => console.error("Logs Error:", err));
 
@@ -116,11 +116,30 @@ const App = () => {
     };
 
     const handleDelete = async (item) => {
-        if (!confirm(`Permanently remove ${item.name}?`)) return;
+        if (!confirm(`Move ${item.name} to Deleted Items?`)) return;
         try {
+            // 1. Move the data to the centralized Trash Bin
+            await addDoc(collection(db, "trash_bin"), {
+                originalSystem: "production", 
+                originalFeature: "shed",
+                type: "document",
+                collection: `${COLLECTION_ROOT}/public/items`,
+                originalId: item.id,
+                displayName: `Shed Item: ${item.name} (Qty: ${item.quantity})`,
+                data: item,
+                deletedAt: new Date().toISOString(),
+                deletedBy: user?.email || username
+            });
+
+            // 2. Perform the actual deletion from the active collection
             await deleteDoc(doc(db, COLLECTION_ROOT, 'public', 'items', item.id));
-            await addLog('Deleted Item', `${username} removed ${item.name}`);
-        } catch (e) { console.error("Delete failed", e); }
+            
+            await addLog('Deleted Item', `${username} removed ${item.name} to Deleted Items`);
+            closeModal();
+        } catch (e) { 
+            console.error("Soft delete failed", e); 
+            alert("Failed to delete item.");
+        }
     };
 
     // Modal Helpers
@@ -152,10 +171,18 @@ const App = () => {
             <div className="flex-1 overflow-y-auto bg-slate-950 p-4 pb-24 safe-bottom">
                 {currentView === 'inventory' ? (
                     <>
-                        <div className="relative mb-6">
-                            <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-400" />
-                            <input type="text" placeholder="Search..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full rounded-xl border border-slate-800 bg-slate-900 py-3 pl-12 pr-4 text-white placeholder-slate-500 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500" />
+                        {/* UPDATED SEARCH BAR LAYOUT */}
+                        <div className="flex items-center gap-3 mb-6">
+                            <Search className="h-5 w-5 text-slate-400 shrink-0" />
+                            <input 
+                                type="text" 
+                                placeholder="Search..." 
+                                value={searchTerm} 
+                                onChange={(e) => setSearchTerm(e.target.value)} 
+                                className="w-64 rounded-xl border border-slate-800 bg-slate-900 py-2 px-4 text-white placeholder-slate-500 shadow-sm focus:border-orange-500 focus:outline-none focus:ring-1 focus:ring-orange-500" 
+                            />
                         </div>
+
                         <div className="space-y-3">
                             {filteredItems.map((item) => (
                                 <div key={item.id} className="group relative flex items-center justify-between gap-4 rounded-xl border border-slate-800 bg-slate-900 p-4 shadow-sm transition-all hover:border-slate-700">
@@ -163,6 +190,7 @@ const App = () => {
                                         <h3 className="truncate text-lg font-semibold text-white">{item.name}</h3>
                                         <div className="flex items-center gap-4 text-sm text-slate-400 mt-1">
                                             {item.location && (<div className="flex items-center gap-1"><MapPin className="h-3 w-3" /><span className="truncate max-w-[100px]">{item.location}</span></div>)}
+                                            {/* Build safety entity used here */}
                                             {item.quantity <= 3 && <span className="text-red-400 font-bold text-xs">Low Stock</span>}
                                         </div>
                                     </div>

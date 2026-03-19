@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { collection, onSnapshot, addDoc, doc, deleteDoc, updateDoc, query, orderBy } from "firebase/firestore";
-import { db } from "../firebase_config";
+import { db, auth } from "../firebase_config";
 
 export default function Inventory() {
   const [items, setItems] = useState([]);
   const [lines, setLines] = useState([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
-  const [editingId, setEditingId] = useState(null); // NEW: Editing State
+  const [editingId, setEditingId] = useState(null); 
 
   // Form State
   const [form, setForm] = useState({
@@ -66,9 +66,31 @@ export default function Inventory() {
     closeModal();
   };
 
-  const handleDelete = async (id) => {
-    if(window.confirm("Remove this item from inventory?")) {
-      await deleteDoc(doc(db, "inventory", id));
+  // --- NEW SOFT DELETE LOGIC ---
+  const handleDelete = async (item) => {
+    if(window.confirm(`Move "${item.name}" to Deleted Items?`)) {
+      try {
+        const currentUser = auth.currentUser;
+        
+        // 1. Move to Recycle Bin
+        await addDoc(collection(db, "trash_bin"), {
+            originalSystem: "techs",
+            originalFeature: "inventory",
+            type: "document",
+            collection: "inventory",
+            originalId: item.id,
+            displayName: `Inventory: ${item.name} (${item.partNumber || 'No SKU'})`,
+            data: item,
+            deletedAt: new Date().toISOString(),
+            deletedBy: currentUser ? currentUser.email : "Unknown"
+        });
+
+        // 2. Delete from Active Inventory
+        await deleteDoc(doc(db, "inventory", item.id));
+
+      } catch (err) {
+        alert("Error deleting item: " + err.message);
+      }
     }
   };
 
@@ -119,7 +141,7 @@ export default function Inventory() {
                 </div>
                 <div style={{display:'flex', gap: 5}}>
                     <button onClick={() => handleEdit(item)} className="edit-btn">✏️</button>
-                    <button onClick={() => handleDelete(item.id)} className="delete-x">×</button>
+                    <button onClick={() => handleDelete(item)} className="delete-x">×</button>
                 </div>
               </div>
 
@@ -138,7 +160,6 @@ export default function Inventory() {
                 
                 {item.notes && <div className="inv-notes">{item.notes}</div>}
 
-                {/* Reorder Link Button */}
                 {item.reorderLink && (
                   <a href={item.reorderLink} target="_blank" rel="noreferrer" className="link-btn" style={{marginTop: '10px', display:'block', textAlign:'center', background:'#f0f9ff', padding:'6px', borderRadius:'6px'}}>
                     🛒 Order from Supplier
@@ -191,7 +212,6 @@ export default function Inventory() {
                 <input placeholder="Supplier Name" value={form.supplier} onChange={e => setForm({...form, supplier: e.target.value})} />
               </div>
 
-              {/* NEW REORDER LINK INPUT */}
               <input 
                 placeholder="Reorder Link (https://...)" 
                 value={form.reorderLink} 

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase'; // <-- Added auth import
 import { logAudit } from '../utils/logger'; 
 import { useRole } from '../hooks/useRole'; 
 
@@ -76,7 +76,7 @@ export default function Keys() {
         });
     }
     await batch.commit();
-    logAudit("Create Keys", formData.name, `Added ${formData.quantity} copies`); // LOGGED
+    logAudit("Create Keys", formData.name, `Added ${formData.quantity} copies`); 
     setIsAddModalOpen(false);
     resetForm();
   };
@@ -87,22 +87,43 @@ export default function Keys() {
       setManageQty(1);
   };
 
+  // --- NEW SOFT DELETE LOGIC (BULK REMOVE) ---
   const handleManageSubmit = async (e) => {
       e.preventDefault();
       if (!canEdit) return;
       const { groupName, mode } = manageModal;
       const batch = writeBatch(db);
+      const currentUser = auth.currentUser;
 
       if (mode === "add") {
           for (let i = 0; i < manageQty; i++) {
               const newRef = doc(collection(db, "keys"));
               batch.set(newRef, { name: groupName, keyTag: "", status: "Available", holderId: null, holderName: "", createdAt: Date.now() });
           }
-          logAudit("Manage Keys", groupName, `Added ${manageQty} extra copies`); // LOGGED
+          logAudit("Manage Keys", groupName, `Added ${manageQty} extra copies`); 
       } else if (mode === "remove") {
           const availableToDelete = inventory[groupName].availableInstances.slice(0, manageQty);
-          availableToDelete.forEach(key => { const ref = doc(db, "keys", key.id); batch.delete(ref); });
-          logAudit("Manage Keys", groupName, `Deleted ${manageQty} copies`); // LOGGED
+          
+          availableToDelete.forEach(key => { 
+              // 1. Delete from active keys
+              const ref = doc(db, "keys", key.id); 
+              batch.delete(ref); 
+              
+              // 2. Add to Trash Bin
+              const trashRef = doc(collection(db, "trash_bin"));
+              batch.set(trashRef, {
+                  originalSystem: "hr",
+                  originalFeature: "assets_keys",
+                  type: "document",
+                  collection: "keys",
+                  originalId: key.id,
+                  displayName: `Key Copy: ${key.name} (Bulk Removed)`,
+                  data: key,
+                  deletedAt: new Date().toISOString(),
+                  deletedBy: currentUser ? currentUser.email : "Unknown"
+              });
+          });
+          logAudit("Manage Keys", groupName, `Moved ${manageQty} copies to Recycle Bin`); 
       }
       await batch.commit();
       setManageModal({ isOpen: false, groupName: "", mode: "add", maxRemove: 0 });
@@ -121,16 +142,42 @@ export default function Keys() {
       const updates = { name: formData.name, keyTag: formData.keyTag, status: formData.status };
       if (updates.status !== "Assigned") { updates.holderId = null; updates.holderName = ""; }
       await updateDoc(doc(db, "keys", editingId), updates);
-      logAudit("Edit Key", formData.name, `Updated status to ${formData.status}, Tag: ${formData.keyTag}`); // LOGGED
+      logAudit("Edit Key", formData.name, `Updated status to ${formData.status}, Tag: ${formData.keyTag}`);
       setIsEditModalOpen(false);
       resetForm();
   };
 
+  // --- NEW SOFT DELETE LOGIC (SINGLE ITEM) ---
   const deleteKey = async (keyId) => {
     if (!canEdit) return;
-    if(!confirm("Permanently delete this specific key copy?")) return;
-    await deleteDoc(doc(db, "keys", keyId));
-    logAudit("Delete Key", keyId, "Permanently deleted single key copy"); // LOGGED
+    
+    const keyToDelete = keys.find(k => k.id === keyId);
+    if (!keyToDelete) return;
+
+    if(confirm("Move this specific key copy to Deleted Items?")) {
+        try {
+            const currentUser = auth.currentUser;
+            
+            // 1. Move to Trash Bin
+            await addDoc(collection(db, "trash_bin"), {
+                originalSystem: "hr",
+                originalFeature: "assets_keys",
+                type: "document",
+                collection: "keys",
+                originalId: keyId,
+                displayName: `Key Copy: ${keyToDelete.name} ${keyToDelete.keyTag ? `(${keyToDelete.keyTag})` : ''}`,
+                data: keyToDelete,
+                deletedAt: new Date().toISOString(),
+                deletedBy: currentUser ? currentUser.email : "Unknown"
+            });
+
+            // 2. Delete from Active Keys
+            await deleteDoc(doc(db, "keys", keyId));
+            logAudit("Delete Key", keyId, "Moved key copy to Recycle Bin"); 
+        } catch (e) {
+            alert("Error moving item to trash: " + e.message);
+        }
+    }
   };
 
   const openAssignModal = (keyType, availableInstances) => {
@@ -147,7 +194,7 @@ export default function Keys() {
           holderName: emp.firstName ? `${emp.firstName} ${emp.lastName}` : emp.name,
           status: "Assigned"
       });
-      logAudit("Assign Key", keyToAssign.name, `Assigned copy to ${emp.firstName} ${emp.lastName}`); // LOGGED
+      logAudit("Assign Key", keyToAssign.name, `Assigned copy to ${emp.firstName} ${emp.lastName}`); 
       setAssignModal({ isOpen: false, keyType: "", availableKeys: [] });
   };
 
@@ -156,12 +203,12 @@ export default function Keys() {
       const isGood = confirm(`Return "${key.name}" from ${key.holderName}?\n\nOK = Good Condition\nCancel = Mark Lost/Broken`);
       if (isGood) {
           await updateDoc(doc(db, "keys", key.id), { holderId: null, holderName: "", status: "Available" });
-          logAudit("Return Key", key.name, `Returned from ${key.holderName} (Good)`); // LOGGED
+          logAudit("Return Key", key.name, `Returned from ${key.holderName} (Good)`); 
       } else {
           const isLost = confirm("Is the key LOST?\n\nOK = Yes, Lost\nCancel = No, just Broken");
           const newStatus = isLost ? "Lost" : "Broken";
           await updateDoc(doc(db, "keys", key.id), { holderId: null, holderName: "", status: newStatus });
-          logAudit("Return Key (Incident)", key.name, `Returned from ${key.holderName} as ${newStatus}`); // LOGGED
+          logAudit("Return Key (Incident)", key.name, `Returned from ${key.holderName} as ${newStatus}`); 
       }
   };
 
@@ -238,7 +285,7 @@ export default function Keys() {
                     <input type="number" min="1" max={manageModal.mode === 'remove' ? manageModal.maxRemove : 50} value={manageQty} onChange={e => setManageQty(e.target.value)} required />
                     <div style={{marginTop: 20, display:'flex', gap: 10}}>
                         <button type="button" onClick={() => setManageModal({...manageModal, isOpen:false})} style={{flex:1}}>Cancel</button>
-                        <button type="submit" className="primary" style={{flex:1}}>{manageModal.mode === 'add' ? 'Create Keys' : 'Delete Keys'}</button>
+                        <button type="submit" className="primary" style={{flex:1}}>{manageModal.mode === 'add' ? 'Create Keys' : 'Move to Trash'}</button>
                     </div>
                 </form>
             </div>

@@ -8,13 +8,22 @@ export function RoleProvider({ children }) {
   const [access, setAccess] = useState({ 
       ipad: null, hr: null, tech: false, shed: false, 
       master: false, shipment: null, production: false, qc: false,
-      blending: false, reports: null, wifi: null, readOnly: false 
+      blending: false, reports: null, wifi: null, readOnly: false,
+      deletedItems: false // <-- New Recycle Bin Permission
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let timeoutId;
+
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
+        // Failsafe for fleet devices (anonymous iPads with no email)
+        if (!user.email) {
+            setLoading(false);
+            return;
+        }
+
         const email = user.email.toLowerCase();
 
         // --- EMERGENCY BYPASS ---
@@ -22,7 +31,8 @@ export function RoleProvider({ children }) {
           setAccess({ 
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
               master: true, shipment: 'Admin', production: true, qc: true,
-              blending: true, reports: 'Both_Finance', wifi: 'Master Admin', readOnly: false
+              blending: true, reports: 'Both_Finance', wifi: 'Master Admin', readOnly: false,
+              deletedItems: true 
           });
           setLoading(false);
           return;
@@ -32,17 +42,26 @@ export function RoleProvider({ children }) {
         const trackers = { 
             ipad: false, hr: false, tech: false, shed: false, 
             shipment: false, prod: false, qc: false, blending: false, 
-            reports: false, master: false, wifi: false, readOnly: false 
+            reports: false, master: false, wifi: false, readOnly: false,
+            deletedItems: false 
         };
 
         const markLoaded = (key) => {
             trackers[key] = true;
             if (Object.values(trackers).every(v => v === true)) {
                 setLoading(false);
+                if (timeoutId) clearTimeout(timeoutId);
             }
         };
 
-        // Fetch all roles simultaneously
+        // --- FAILSAFE TIMEOUT ---
+        // If Firebase hangs silently, force the loading screen down after 3 seconds
+        timeoutId = setTimeout(() => {
+            console.warn("Permission sync timed out. Forcing app to load.");
+            setLoading(false);
+        }, 3000);
+
+        // Fetch all roles simultaneously 
         const unsubs = [
           onSnapshot(doc(db, "users", email), (s) => { setAccess(v => ({ ...v, ipad: s.data()?.role })); markLoaded('ipad'); }, () => markLoaded('ipad')),
           onSnapshot(doc(db, "authorized_users", email), (s) => { setAccess(v => ({ ...v, hr: s.data()?.role })); markLoaded('hr'); }, () => markLoaded('hr')),
@@ -55,35 +74,44 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "machine_access", email), (s) => { setAccess(v => ({ ...v, reports: s.data()?.role })); markLoaded('reports'); }, () => markLoaded('reports')),
           onSnapshot(doc(db, "master_admin_access", email), (s) => { setAccess(v => ({ ...v, master: s.exists() })); markLoaded('master'); }, () => markLoaded('master')),
           onSnapshot(doc(db, "wifi_access", email), (s) => { setAccess(v => ({ ...v, wifi: s.data()?.role })); markLoaded('wifi'); }, () => markLoaded('wifi')),
-          onSnapshot(doc(db, "readonly_admin_access", email), (s) => { setAccess(v => ({ ...v, readOnly: s.exists() })); markLoaded('readOnly'); }, () => markLoaded('readOnly'))
+          onSnapshot(doc(db, "readonly_admin_access", email), (s) => { setAccess(v => ({ ...v, readOnly: s.exists() })); markLoaded('readOnly'); }, () => markLoaded('readOnly')),
+          onSnapshot(doc(db, "deleted_items_access", email), (s) => { setAccess(v => ({ ...v, deletedItems: s.exists() })); markLoaded('deletedItems'); }, () => markLoaded('deletedItems'))
         ];
 
-        return () => unsubs.forEach(fn => fn());
+        return () => {
+            unsubs.forEach(fn => fn());
+            clearTimeout(timeoutId);
+        };
       } else {
         setAccess({ 
             ipad: null, hr: null, tech: false, shed: false, master: false, 
             shipment: null, production: false, qc: false, blending: false, 
-            reports: null, wifi: null, readOnly: false 
+            reports: null, wifi: null, readOnly: false, deletedItems: false 
         });
         setLoading(false);
       }
     });
-    return () => unsubscribeAuth();
+    
+    return () => {
+        unsubscribeAuth();
+        if (timeoutId) clearTimeout(timeoutId);
+    }
   }, []);
 
-  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly;
+  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly || access.deletedItems;
 
   const checkAccess = (system, feature, action = 'view') => {
     if (access.master) return true;
 
-    // GLOBAL READ-ONLY INTERCEPT 
     if (access.readOnly) {
         if (action === 'view') return true; 
         if (action === 'edit') return false; 
     }
 
     switch (system) {
-      case 'admin': return access.master;
+      case 'admin': 
+          if (feature === 'deleted_items') return access.deletedItems;
+          return access.master;
       case 'hr': return !!access.hr;
       case 'techs': return access.tech;
       case 'ipad': return !!access.ipad;

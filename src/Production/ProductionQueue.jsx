@@ -15,16 +15,13 @@ const ProductionQueue = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const [uploadingId, setUploadingId] = useState(null);
 
-    // Edit State
     const [editingId, setEditingId] = useState(null);
 
-    // Added startDate and workerCount to form state
     const [form, setForm] = useState({ 
         company: '', project: '', category: '', size: '', 
         quantity: '', price: '', notes: '', startDate: '', workerCount: '' 
     });
     
-    // Simplified Blending State
     const [requiresBlending, setRequiresBlending] = useState(false);
     const [ingredients, setIngredients] = useState([
         { name: 'B40 190 Proof', percentage: '' },
@@ -118,7 +115,6 @@ const ProductionQueue = () => {
     const handleCreate = async () => {
         if (!form.company || !form.project) return alert("Company and Project Name are required.");
         
-        // Ensure numeric workerCount
         const finalPayload = { 
             ...form,
             workerCount: form.workerCount ? parseInt(form.workerCount, 10) : 0
@@ -215,10 +211,30 @@ const ProductionQueue = () => {
         setIsFormOpen(false);
     };
 
-    const handleDelete = async (id) => {
-        if (confirm("Remove job from the pipeline?")) {
-            if (editingId === id) handleCancel();
-            await deleteDoc(doc(db, "production_pipeline", id));
+    // --- NEW SOFT DELETE LOGIC ---
+    const handleDelete = async (job) => {
+        if (confirm("Move job to Deleted Items?")) {
+            if (editingId === job.id) handleCancel();
+            try {
+                // 1. Move to Recycle Bin
+                await addDoc(collection(db, "trash_bin"), {
+                    originalSystem: "production",
+                    originalFeature: "management",
+                    type: "document",
+                    collection: "production_pipeline",
+                    originalId: job.id,
+                    displayName: `Production Job: ${job.project} (${job.company})`,
+                    data: job,
+                    deletedAt: new Date().toISOString(),
+                    deletedBy: user ? user.email : "Unknown"
+                });
+
+                // 2. Remove from active pipeline
+                await deleteDoc(doc(db, "production_pipeline", job.id));
+
+            } catch (err) {
+                alert("Error deleting job: " + err.message);
+            }
         }
     };
 
@@ -259,7 +275,6 @@ const ProductionQueue = () => {
                         <div><label style={styles.label}>Quantity</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
                         <div><label style={styles.label}>Price per Unit</label><input type="number" step="0.01" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
                         
-                        {/* NEW FIELDS */}
                         <div><label style={styles.label}>Start Date</label><input type="date" style={styles.input} value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
                         <div><label style={styles.label}>Employees Required</label><input type="number" style={styles.input} value={form.workerCount} onChange={e=>setForm({...form, workerCount:e.target.value})} /></div>
                     </div>
@@ -345,7 +360,8 @@ const ProductionQueue = () => {
                             <button onClick={() => updateDoc(doc(db, "production_pipeline", job.id), { componentsArrived: !job.componentsArrived })} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>{job.componentsArrived ? "Mark Pending" : "Mark Arrived"}</button>
                             <button onClick={() => sendToQC(job)} disabled={!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')} style={{...styles.btn, background: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#eee' : '#8e44ad', color: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#999' : 'white'}}>Send to QC &rarr;</button>
                             <button onClick={() => handleEdit(job)} style={{...styles.btn, background: '#f39c12', color: 'white'}}>Edit</button>
-                            <button onClick={() => handleDelete(job.id)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
+                            {/* Updated deletion onClick */}
+                            <button onClick={() => handleDelete(job)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
                         </div>
                     </div>
                 </div>

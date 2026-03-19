@@ -251,11 +251,34 @@ export default function Reviews() {
       setApproveModal({ isOpen: false, review: null, salary: "", note: "" });
   };
 
+  // --- NEW SOFT DELETE LOGIC ---
   const handleDelete = async (id) => { 
       if(!canEdit) return;
-      if(confirm("Permanently delete this review?")) { 
-          await deleteDoc(doc(db, "reviews", id)); 
-          logAudit("Delete Review", id, "Review deleted"); 
+      
+      const reviewToDelete = reviews.find(r => r.id === id);
+      if (!reviewToDelete) return;
+
+      if(confirm("Move this review to Deleted Items?")) { 
+          try {
+              // 1. Move to Trash Bin
+              await addDoc(collection(db, "trash_bin"), {
+                  originalSystem: "hr",
+                  originalFeature: "reviews",
+                  type: "document",
+                  collection: "reviews",
+                  originalId: id,
+                  displayName: `Performance Review: ${reviewToDelete.employeeName} (${reviewToDelete.date})`,
+                  data: reviewToDelete,
+                  deletedAt: new Date().toISOString(),
+                  deletedBy: currentUserEmail || "Unknown"
+              });
+
+              // 2. Delete Active Review
+              await deleteDoc(doc(db, "reviews", id)); 
+              logAudit("Delete Review", id, "Moved review to Recycle Bin"); 
+          } catch (e) {
+              alert("Error moving item to trash: " + e.message);
+          }
       } 
   };
 
@@ -270,7 +293,7 @@ export default function Reviews() {
     }, {})
   ).sort((a, b) => (b.results?.totalScore || 0) - (a.results?.totalScore || 0)); // Sort table by score highest to lowest
 
-  if (!canView) return <div style={{padding:20}}>⛔ Access Denied</div>;
+  if (!canView) return <div style={{padding:20}}>🚫 Access Denied</div>;
 
   return (
     <div>
@@ -405,7 +428,7 @@ export default function Reviews() {
                                 )
                             )}
                             {canEdit && (
-                                <button onClick={() => handleDelete(r.id)} style={{width: 60, background:'white', color:'#ef4444', border:'none', cursor:'pointer', fontWeight:'bold'}}>🗑</button>
+                                <button onClick={() => handleDelete(r.id)} style={{width: 60, background:'white', color:'#ef4444', border:'none', cursor:'pointer', fontWeight:'bold', fontSize:'16px'}}>🗑️</button>
                             )}
                         </div>
                     </div>

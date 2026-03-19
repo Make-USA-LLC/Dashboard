@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { collection, addDoc, onSnapshot, deleteDoc, doc, updateDoc, getDoc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db, auth } from '../firebase'; // Imported auth here
 import { logAudit } from '../utils/logger'; 
 import { useRole } from '../hooks/useRole'; 
 
@@ -117,11 +117,38 @@ export default function Assets() {
       resetForm();
   };
 
+  // --- NEW SOFT DELETE LOGIC ---
   const handleDelete = async (id) => {
       if (!canEdit) return;
-      if(confirm("Permanently delete this asset?")) {
-          await deleteDoc(doc(db, "assets", id));
-          logAudit("Delete Asset", id, "Permanently deleted asset");
+      
+      // Look up the asset from local state before we delete it
+      const assetToDelete = assets.find(a => a.id === id);
+      if (!assetToDelete) return;
+
+      if(confirm("Move this asset to Deleted Items?")) {
+          try {
+              const currentUser = auth.currentUser;
+              
+              // 1. Move to Recycle Bin
+              await addDoc(collection(db, "trash_bin"), {
+                  originalSystem: "hr",
+                  originalFeature: "assets_hardware",
+                  type: "document",
+                  collection: "assets",
+                  originalId: assetToDelete.id,
+                  displayName: `Asset: ${assetToDelete.name} (${assetToDelete.assetTag || 'No Tag'})`,
+                  data: assetToDelete,
+                  deletedAt: new Date().toISOString(),
+                  deletedBy: currentUser ? currentUser.email : "Unknown"
+              });
+
+              // 2. Delete from Active Assets
+              await deleteDoc(doc(db, "assets", id));
+              logAudit("Delete Asset", id, "Moved asset to Recycle Bin");
+
+          } catch (e) {
+              alert("Error moving item to trash: " + e.message);
+          }
       }
   };
 
@@ -168,7 +195,6 @@ export default function Assets() {
               <div key={category} className="card" style={{padding:0, overflow:'hidden', border:'1px solid #e2e8f0'}}>
                   <div style={{padding: 20, background: '#f8fafc', borderBottom:'1px solid #e2e8f0', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                       <div>
-                          {/* FIX: Only append 's' if word doesn't already end in 's' */}
                           <h3 style={{margin:0}}>{category.endsWith('s') ? category : category + 's'}</h3>
                           <span style={{fontSize:'12px', color:'#64748b'}}>{data.available} ready / {data.total} total</span>
                       </div>

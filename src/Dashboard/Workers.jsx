@@ -2,31 +2,27 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Workers.css';
 import Loader from '../components/loader';
-import { db } from './firebase_config.jsx';
-import { collection, onSnapshot, setDoc, deleteDoc, doc } from 'firebase/firestore';
-import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
+import { db, auth } from './firebase_config.jsx'; // Added auth
+import { collection, onSnapshot, setDoc, deleteDoc, doc, addDoc } from 'firebase/firestore'; // Added addDoc
+import { useRole } from './hooks/useRole'; 
 
 const Workers = () => {
     const navigate = useNavigate();
     
-    // --- 1. USE THE HOOK ---
     const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
     const canView = hasPerm('workers', 'view') || hasPerm('admin', 'view') || isReadOnly;
     const canEdit = (hasPerm('workers', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
 
     const [pageLoading, setPageLoading] = useState(true);
     
-    // Data State
     const [allWorkers, setAllWorkers] = useState([]);
     const [filteredWorkers, setFilteredWorkers] = useState([]);
     const [searchText, setSearchText] = useState('');
 
-    // Form State
     const [newId, setNewId] = useState('');
     const [newName, setNewName] = useState('');
     const idInputRef = useRef(null);
 
-    // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
         if (roleLoading) return;
 
@@ -45,7 +41,6 @@ const Workers = () => {
             snapshot.forEach(doc => {
                 list.push({ id: doc.id, ...doc.data() });
             });
-            // Sort Alphabetically
             list.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
             setAllWorkers(list);
             setFilteredWorkers(prev => searchText ? prev : list); 
@@ -54,7 +49,6 @@ const Workers = () => {
         return unsub; 
     };
 
-    // Filter Logic
     useEffect(() => {
         const term = searchText.toLowerCase();
         const filtered = allWorkers.filter(w => 
@@ -76,16 +70,41 @@ const Workers = () => {
             await setDoc(doc(db, "workers", id), { name: name });
             setNewId('');
             setNewName('');
-            idInputRef.current.focus(); // Focus back for rapid entry
+            idInputRef.current.focus(); 
         } catch (e) {
             alert("Error adding worker: " + e.message);
         }
     };
 
+    // --- NEW SOFT DELETE LOGIC ---
     const handleDelete = async (id) => {
         if (!canEdit) return alert("Read-Only Access: Cannot delete workers.");
-        if (window.confirm(`Are you sure you want to delete worker ID: ${id}?`)) {
-            await deleteDoc(doc(db, "workers", id));
+        
+        const workerToDelete = allWorkers.find(w => w.id === id);
+        if (!workerToDelete) return;
+
+        if (window.confirm(`Move worker "${workerToDelete.name}" to Deleted Items?`)) {
+            try {
+                const currentUser = auth.currentUser;
+
+                // 1. Move to Trash Bin
+                await addDoc(collection(db, "trash_bin"), {
+                    originalSystem: "ipad",
+                    originalFeature: "workers",
+                    type: "document",
+                    collection: "workers",
+                    originalId: id,
+                    displayName: `Worker: ${workerToDelete.name} (Card: ${id})`,
+                    data: workerToDelete,
+                    deletedAt: new Date().toISOString(),
+                    deletedBy: currentUser ? currentUser.email : "Unknown"
+                });
+
+                // 2. Remove from active workers
+                await deleteDoc(doc(db, "workers", id));
+            } catch (e) {
+                alert("Error deleting worker: " + e.message);
+            }
         }
     };
 
@@ -105,7 +124,6 @@ const Workers = () => {
                     
                     {canEdit && (
                         <div className="wm-add-box">
-                            {/* Card ID - Small Group */}
                             <div className="wm-group-small">
                                 <label className="wm-input-label">RFID Card ID</label>
                                 <input 
@@ -118,7 +136,6 @@ const Workers = () => {
                                 />
                             </div>
                             
-                            {/* Name - Large Group (Fills space) */}
                             <div className="wm-group-large">
                                 <label className="wm-input-label">Employee Name</label>
                                 <input 

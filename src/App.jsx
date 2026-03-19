@@ -5,7 +5,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
-  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase
+  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -28,6 +28,8 @@ import ProductionApp from './Production/App';
 import QCApp from './QC/App';                 
 import BlendingApp from './Blending/App';
 import ClientApp from './Client/App'; 
+import DeletedItems from './Deleted/Dashboard'; 
+import PurgeHistory from './Deleted/PurgeHistory';
 
 import GuestAccess from './wifi/GuestAccess';
 import WifiApp from './wifi/App'; 
@@ -46,7 +48,7 @@ function SelectionGrid({ user }) {
       if (email === 'daniel.s@makeit.buzz' || access?.master || access?.readOnly) {
           setHasClientAccess(true);
       } else {
-          // Check standard client_access whitelist
+          // Wrapped in try-catch so permission errors don't freeze the app
           Promise.all([
               getDoc(doc(db, "client_access", email)),
               getDoc(doc(db, "master_admin_access", email))
@@ -54,12 +56,15 @@ function SelectionGrid({ user }) {
               if (clientSnap.exists() || masterSnap.exists()) {
                   setHasClientAccess(true);
               }
-          });
+          }).catch(err => console.log("Client access read error (Ignored):", err));
       }
     }
   }, [user, access]);
 
   if (loading) return <Loader message="Syncing Permissions..." />;
+
+  // Local Master Admin check for the new button
+  const isMasterAdminLocal = user?.email?.toLowerCase() === 'daniel.s@makeit.buzz' || access?.master === true;
 
   return (
     <div style={{ padding: '40px', maxWidth: 1200, margin: '0 auto' }}>
@@ -77,7 +82,6 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* RESTORED CLIENT MANAGEMENT BUTTON */}
         {hasClientAccess && (
           <Link to="/clients" style={cardStyle}>
             <div style={{...iconBox, background: '#fef08a', color: '#ca8a04'}}><Briefcase size={32} /></div>
@@ -148,6 +152,14 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
+        {/* NEW DELETED ITEMS APP BUTTON - Bypass useRole strict check manually so button shows up */}
+        {(isMasterAdminLocal || checkAccess('admin', 'deleted_items', 'view')) && (
+          <Link to="/deleted" style={cardStyle}>
+            <div style={{...iconBox, background: '#fef2f2', color: '#ef4444'}}><Trash2 size={32} /></div>
+            <div><div style={titleStyle}>Deleted Items</div></div>
+          </Link>
+        )}
+
         {checkAccess('admin', 'panel', 'view') && (
           <Link to="/admin" style={{...cardStyle, border: '2px solid #0f172a'}}>
             <div style={{...iconBox, background: '#0f172a', color: 'white'}}><ShieldAlert size={32} /></div>
@@ -176,11 +188,15 @@ function ProtectedMainApp() {
           if (email === 'daniel.s@makeit.buzz') {
              setHasClientModAccess(true);
           } else {
-             const [clientSnap, masterSnap] = await Promise.all([
-                 getDoc(doc(db, "client_access", email)),
-                 getDoc(doc(db, "master_admin_access", email))
-             ]);
-             if (clientSnap.exists() || masterSnap.exists()) setHasClientModAccess(true);
+             try {
+                 const [clientSnap, masterSnap] = await Promise.all([
+                     getDoc(doc(db, "client_access", email)),
+                     getDoc(doc(db, "master_admin_access", email))
+                 ]);
+                 if (clientSnap.exists() || masterSnap.exists()) setHasClientModAccess(true);
+             } catch(err) {
+                 console.log("Permission sync error (Ignored):", err);
+             }
           }
       }
       setClientAccessReady(true);
@@ -195,10 +211,8 @@ function ProtectedMainApp() {
 
   if (!user) return <Login />;
 
-  // Automatically allow Global Read-Only to pass this screen
   const isGlobalReadOnly = access?.readOnly === true;
 
-  // User is blocked ONLY if they have NO role in useRole AND no Client Access
   if (!hasAnyAccess && !hasClientModAccess && !isGlobalReadOnly) {
     return (
       <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
@@ -245,6 +259,10 @@ function ProtectedMainApp() {
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
         <Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
         <Route path="/wifi/*" element={<RoleRoute system="wifi" feature="portal"><WifiApp /></RoleRoute>} />
+        
+        {/* NEW DELETED ITEMS ROUTE */}
+        <Route path="/deleted/*" element={<DeletedItems />} />
+	<Route path="/deleted/history" element={<PurgeHistory />} />
         
         <Route path="/clients/*" element={<ClientApp />} />
       </Routes>

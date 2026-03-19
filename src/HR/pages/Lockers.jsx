@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom'; 
-import { collection, doc, updateDoc, deleteDoc, onSnapshot, getDoc, writeBatch } from 'firebase/firestore';
-import { db } from '../firebase';
-import { logAudit } from '../utils/logger'; // <--- IMPORT
+import { collection, doc, updateDoc, deleteDoc, onSnapshot, getDoc, writeBatch, addDoc } from 'firebase/firestore';
+import { db, auth } from '../firebase'; // Added auth import
+import { logAudit } from '../utils/logger'; 
 import { useRole } from '../hooks/useRole'; 
 
 export default function Lockers() {
@@ -99,7 +99,7 @@ export default function Lockers() {
             }
         });
         await batch.commit();
-        logAudit("Locker Layout", "Move Bank", `Moved Bank ${sourceCol+1} to ${targetColumnIndex+1}`); // LOGGED
+        logAudit("Locker Layout", "Move Bank", `Moved Bank ${sourceCol+1} to ${targetColumnIndex+1}`);
         return;
     }
 
@@ -112,7 +112,7 @@ export default function Lockers() {
         const targetColumnLockers = lockers.filter(l => l.side === activeTab && l.column === targetColumnIndex);
         const newOrderList = [...targetColumnLockers, draggedLocker];
         await saveBatchOrder(newOrderList, targetColumnIndex);
-        logAudit("Locker Layout", "Move Locker", `Moved Locker #${draggedLocker.id} to Bank ${targetColumnIndex+1}`); // LOGGED
+        logAudit("Locker Layout", "Move Locker", `Moved Locker #${draggedLocker.id} to Bank ${targetColumnIndex+1}`);
     }
   };
 
@@ -131,7 +131,7 @@ export default function Lockers() {
     filteredColumn.splice(targetIndex, 0, draggedLocker);
     
     await saveBatchOrder(filteredColumn, targetLocker.column);
-    logAudit("Locker Layout", "Reorder Locker", `Reordered Locker #${draggedLocker.id} in Bank ${targetLocker.column+1}`); // LOGGED
+    logAudit("Locker Layout", "Reorder Locker", `Reordered Locker #${draggedLocker.id} in Bank ${targetLocker.column+1}`); 
   };
 
   const saveBatchOrder = async (lockerList, columnIndex) => {
@@ -167,7 +167,7 @@ export default function Lockers() {
         batch.set(ref, { side: formData.side, size: formData.size, column: targetColumn, order: currentOrder + i, isOccupied: false, isOutOfOrder: false, assignedToName: "", assignedToId: null, });
     }
     await batch.commit();
-    logAudit("Locker Layout", "Add Lockers", `Added ${qty} lockers to Bank ${targetColumn+1}`); // LOGGED
+    logAudit("Locker Layout", "Add Lockers", `Added ${qty} lockers to Bank ${targetColumn+1}`); 
     setIsAddModalOpen(false);
   };
 
@@ -176,7 +176,7 @@ export default function Lockers() {
     if (locker.isOutOfOrder) {
         if(confirm(`Locker #${locker.id} is marked broken. Mark as Fixed?`)) {
             updateDoc(doc(db, "lockers", locker.id), { isOutOfOrder: false });
-            logAudit("Locker Repair", locker.id, "Marked Fixed"); // LOGGED
+            logAudit("Locker Repair", locker.id, "Marked Fixed"); 
         }
     } else if (locker.isOccupied) {
       if(confirm(`Unassign Locker #${locker.id} from ${locker.assignedToName}?`)) performUnassign(locker);
@@ -190,7 +190,7 @@ export default function Lockers() {
     const lockerId = assignModal.lockerId;
     if(confirm(`Mark Locker #${lockerId} as Out Of Order?`)) {
         await updateDoc(doc(db, "lockers", lockerId), { isOutOfOrder: true, isOccupied: false, assignedToName: "", assignedToId: null });
-        logAudit("Locker Broken", lockerId, "Marked Out of Order"); // LOGGED
+        logAudit("Locker Broken", lockerId, "Marked Out of Order"); 
         setAssignModal({ isOpen: false, lockerId: null });
     }
   };
@@ -202,7 +202,7 @@ export default function Lockers() {
     const empName = emp.firstName ? `${emp.firstName} ${emp.lastName}` : emp.name;
     await updateDoc(doc(db, "lockers", lockerId), { isOccupied: true, assignedToName: empName, assignedToId: emp.id });
     await updateDoc(doc(db, "employees", emp.id), { assignedLockerId: lockerId });
-    logAudit("Assign Locker", lockerId, `Assigned to ${empName}`); // LOGGED
+    logAudit("Assign Locker", lockerId, `Assigned to ${empName}`); 
     setAssignModal({ isOpen: false, lockerId: null });
   };
 
@@ -210,15 +210,40 @@ export default function Lockers() {
     if (!canEdit) return;
     await updateDoc(doc(db, "lockers", locker.id), { isOccupied: false, assignedToName: "", assignedToId: null });
     if (locker.assignedToId) { await updateDoc(doc(db, "employees", locker.assignedToId), { assignedLockerId: null }); }
-    logAudit("Unassign Locker", locker.id, `Removed ${locker.assignedToName}`); // LOGGED
+    logAudit("Unassign Locker", locker.id, `Removed ${locker.assignedToName}`); 
   };
 
+  // --- NEW SOFT DELETE LOGIC ---
   const deleteLocker = async (e, id) => {
     e.stopPropagation();
     if (!canEdit) return;
-    if(confirm("Delete this locker permanently?")) {
-        await deleteDoc(doc(db, "lockers", id));
-        logAudit("Delete Locker", id, "Permanently deleted"); // LOGGED
+    
+    const lockerToDelete = lockers.find(l => l.id === id);
+    if (!lockerToDelete) return;
+
+    if(confirm(`Move Locker #${id} to Deleted Items?`)) {
+        try {
+            const currentUser = auth.currentUser;
+
+            // 1. Move to Trash Bin
+            await addDoc(collection(db, "trash_bin"), {
+                originalSystem: "hr",
+                originalFeature: "assets_lockers",
+                type: "document",
+                collection: "lockers",
+                originalId: id,
+                displayName: `Locker #${id} (${lockerToDelete.side} Wall, Bank ${lockerToDelete.column + 1})`,
+                data: lockerToDelete,
+                deletedAt: new Date().toISOString(),
+                deletedBy: currentUser ? currentUser.email : "Unknown"
+            });
+
+            // 2. Remove active locker
+            await deleteDoc(doc(db, "lockers", id));
+            logAudit("Delete Locker", id, "Moved to Recycle Bin"); 
+        } catch (err) {
+            alert("Error moving locker to trash: " + err.message);
+        }
     }
   };
 

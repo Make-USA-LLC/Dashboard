@@ -13,12 +13,12 @@ const MasterAdmin = () => {
     const [lists, setLists] = useState({ 
         ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
         production: [], qc: [], blending: [], wifi: [], admin: [], 
-        client: [], clientRoles: [], readOnlyAdmin: [] // <-- Added readOnlyAdmin
+        client: [], clientRoles: [], readOnlyAdmin: [], deletedItems: [] 
     });
     
     const [inputs, setInputs] = useState({ 
         ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
-        production: '', qc: '', blending: '', wifi: '', admin: '', client: '', readOnlyAdmin: '' // <-- Added readOnlyAdmin
+        production: '', qc: '', blending: '', wifi: '', admin: '', client: '', readOnlyAdmin: '', deletedItems: '' 
     });
     
     const [roles, setRoles] = useState({ ipad: [], hr: [], wifi: [] });
@@ -63,7 +63,8 @@ const MasterAdmin = () => {
         listen("wifi_access", "wifi", d => ({email: d.id, ...d.data()})); 
         listen("master_admin_access", "admin", d => ({email: d.id}));
         listen("client_access", "client", d => ({email: d.id, ...d.data()})); 
-        listen("readonly_admin_access", "readOnlyAdmin", d => ({email: d.id})); // <-- Added listener
+        listen("readonly_admin_access", "readOnlyAdmin", d => ({email: d.id})); 
+        listen("deleted_items_access", "deletedItems", d => ({email: d.id, ...d.data()}));
         
         // Listen for custom Client Roles
         onSnapshot(collection(db, "client_roles"), (s) => {
@@ -121,6 +122,7 @@ const MasterAdmin = () => {
                 <button onClick={() => navigate('/')} className="btn-exit">Exit</button>
             </div>
 
+            {/* ROW 1: iPad & HR */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header">iPad Command Center</h3>
@@ -163,6 +165,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
+            {/* ROW 2: Production & QC */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header" style={{borderLeft: '5px solid #16a34a'}}>Production Mgmt</h3>
@@ -197,6 +200,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
+            {/* ROW 3: Blending Lab & Technician */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header" style={{borderLeft: '5px solid #8b5cf6'}}>Blending Lab</h3>
@@ -231,6 +235,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
+            {/* ROW 4: Shed Inventory & Shipment Billing */}
             <div className="admin-grid-row">
                 <div className="admin-card">
                     <h3 className="admin-card-header">Shed Inventory Access</h3>
@@ -248,8 +253,8 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
-                <div className="admin-card">
-                    <h3 className="admin-card-header" style={{borderLeft: '5px solid #0ea5e9'}}>Shipment Billing</h3>
+                <div className="admin-card" style={{ borderLeft: '5px solid #0ea5e9' }}>
+                    <h3 className="admin-card-header">Shipment Billing</h3>
                     <div className="admin-add-row">
                         <input value={inputs.shipment} onChange={e => setInputs({...inputs, shipment: e.target.value})} placeholder="Email" className="admin-input" />
                         <button onClick={() => handleAddUser("shipment", "shipment_access", { role: 'Input' })} className="btn-add">Add</button>
@@ -270,6 +275,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
+            {/* ROW 5: Wi-Fi & Client Management */}
             <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #059669' }}>
                     <h3 className="admin-card-header">Wi-Fi Management</h3>
@@ -312,6 +318,7 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
+            {/* ROW 6: Machine & QC + Recycle Bin */}
             <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #ef4444' }}>
                     <h3 className="admin-card-header">Machine & QC Reports</h3>
@@ -337,7 +344,25 @@ const MasterAdmin = () => {
                     </div>
                 </div>
 
-                {/* NEW READ-ONLY ADMIN CARD */}
+                <div className="admin-card" style={{ borderLeft: '5px solid #a855f7' }}>
+                    <h3 className="admin-card-header">Recycle Bin Access</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.deletedItems} onChange={e => setInputs({...inputs, deletedItems: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAddUser("deletedItems", "deleted_items_access")} className="btn-add">Grant</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.deletedItems.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <button onClick={() => handleRemoveUser("deleted_items_access", u.email)} className="btn-remove">Revoke</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* ROW 7: Global Read-Only & Master Admin */}
+            <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #6366f1' }}>
                     <h3 className="admin-card-header">Global Read-Only Admin</h3>
                     <div className="admin-add-row">
@@ -353,10 +378,7 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
-            </div>
 
-            {/* MOVED MASTER ADMIN TO ITS OWN ROW */}
-            <div className="admin-grid-row">
                 <div className="admin-card master-card">
                     <h3 className="admin-card-header">Master Admin</h3>
                     <div className="admin-add-row">
