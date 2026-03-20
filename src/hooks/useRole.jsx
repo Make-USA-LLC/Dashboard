@@ -9,7 +9,7 @@ export function RoleProvider({ children }) {
       ipad: null, hr: null, tech: false, shed: false, 
       master: false, shipment: null, production: false, qc: false,
       blending: false, reports: null, wifi: null, readOnly: false,
-      deletedItems: false // <-- New Recycle Bin Permission
+      deletedItems: false, client: false 
   });
   const [loading, setLoading] = useState(true);
 
@@ -18,7 +18,6 @@ export function RoleProvider({ children }) {
 
     const unsubscribeAuth = auth.onAuthStateChanged((user) => {
       if (user) {
-        // Failsafe for fleet devices (anonymous iPads with no email)
         if (!user.email) {
             setLoading(false);
             return;
@@ -26,24 +25,23 @@ export function RoleProvider({ children }) {
 
         const email = user.email.toLowerCase();
 
-        // --- EMERGENCY BYPASS ---
+        // --- CENTRALIZED EMERGENCY BYPASS ---
         if (email === 'daniel.s@makeit.buzz') {
           setAccess({ 
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
               master: true, shipment: 'Admin', production: true, qc: true,
               blending: true, reports: 'Both_Finance', wifi: 'Master Admin', readOnly: false,
-              deletedItems: true 
+              deletedItems: true, client: true 
           });
           setLoading(false);
           return;
         }
 
-        // Tracker to ensure all permission docs are loaded before rendering
         const trackers = { 
             ipad: false, hr: false, tech: false, shed: false, 
             shipment: false, prod: false, qc: false, blending: false, 
             reports: false, master: false, wifi: false, readOnly: false,
-            deletedItems: false 
+            deletedItems: false, client: false
         };
 
         const markLoaded = (key) => {
@@ -54,14 +52,12 @@ export function RoleProvider({ children }) {
             }
         };
 
-        // --- FAILSAFE TIMEOUT ---
-        // If Firebase hangs silently, force the loading screen down after 3 seconds
         timeoutId = setTimeout(() => {
             console.warn("Permission sync timed out. Forcing app to load.");
             setLoading(false);
         }, 3000);
 
-        // Fetch all roles simultaneously 
+        // Fetch all roles simultaneously, including Client
         const unsubs = [
           onSnapshot(doc(db, "users", email), (s) => { setAccess(v => ({ ...v, ipad: s.data()?.role })); markLoaded('ipad'); }, () => markLoaded('ipad')),
           onSnapshot(doc(db, "authorized_users", email), (s) => { setAccess(v => ({ ...v, hr: s.data()?.role })); markLoaded('hr'); }, () => markLoaded('hr')),
@@ -75,7 +71,8 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "master_admin_access", email), (s) => { setAccess(v => ({ ...v, master: s.exists() })); markLoaded('master'); }, () => markLoaded('master')),
           onSnapshot(doc(db, "wifi_access", email), (s) => { setAccess(v => ({ ...v, wifi: s.data()?.role })); markLoaded('wifi'); }, () => markLoaded('wifi')),
           onSnapshot(doc(db, "readonly_admin_access", email), (s) => { setAccess(v => ({ ...v, readOnly: s.exists() })); markLoaded('readOnly'); }, () => markLoaded('readOnly')),
-          onSnapshot(doc(db, "deleted_items_access", email), (s) => { setAccess(v => ({ ...v, deletedItems: s.exists() })); markLoaded('deletedItems'); }, () => markLoaded('deletedItems'))
+          onSnapshot(doc(db, "deleted_items_access", email), (s) => { setAccess(v => ({ ...v, deletedItems: s.exists() })); markLoaded('deletedItems'); }, () => markLoaded('deletedItems')),
+          onSnapshot(doc(db, "client_access", email), (s) => { setAccess(v => ({ ...v, client: s.exists() })); markLoaded('client'); }, () => markLoaded('client'))
         ];
 
         return () => {
@@ -86,7 +83,7 @@ export function RoleProvider({ children }) {
         setAccess({ 
             ipad: null, hr: null, tech: false, shed: false, master: false, 
             shipment: null, production: false, qc: false, blending: false, 
-            reports: null, wifi: null, readOnly: false, deletedItems: false 
+            reports: null, wifi: null, readOnly: false, deletedItems: false, client: false 
         });
         setLoading(false);
       }
@@ -98,7 +95,7 @@ export function RoleProvider({ children }) {
     }
   }, []);
 
-  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly || access.deletedItems;
+  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly || access.deletedItems || access.client;
 
   const checkAccess = (system, feature, action = 'view') => {
     if (access.master) return true;
@@ -123,6 +120,7 @@ export function RoleProvider({ children }) {
       case 'blending': return access.blending;
       case 'reports': return !!access.reports;
       case 'wifi': return !!access.wifi;
+      case 'client': return access.client;
       default: return false;
     }
   };

@@ -115,9 +115,7 @@ const MasterAdmin = () => {
             <div className="admin-header-row">
                 <div className="admin-title-group">
                     <h2>System Access Console</h2>
-                    <button onClick={() => navigate('/admin/links')} className="btn-links">
-                        <Globe size={16} /> Manage Links
-                    </button>
+                   
                 </div>
                 <button onClick={() => navigate('/')} className="btn-exit">Exit</button>
             </div>

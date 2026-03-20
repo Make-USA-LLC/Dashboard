@@ -1,48 +1,67 @@
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { collection, getDocs } from 'firebase/firestore';
-import { db } from '../firebase_config';
+
+const domainMap = {
+  // Agent Portal
+  "agent.makeit.buzz": "/agent-portal",
+  "agent.makeusa.us": "/agent-portal",
+  
+  // HR
+  "hr.makeit.buzz": "/hr",
+  "hr.makeusa.us": "/hr",
+  
+  // Inventory/Shed
+  "inventory.makeit.buzz": "/shed",
+  "inventory.makeusa.us": "/shed",
+  
+  // Employee Portal
+  "portal.makeit.buzz": "/dashboard/employee-portal",
+  "portal.makeusa.us": "/dashboard/employee-portal",
+  
+  // QC
+  "qc.makeit.buzz": "/qc",
+  "qc.makeusa.us": "/qc",
+  
+  // Shipments
+  "shipment.makeit.buzz": "/shipments",
+  "shipment.makeusa.us": "/shipments",
+  "shipments.makeit.buzz": "/shipments",
+  "shipments.makeusa.us": "/shipments",
+  
+  // Techs
+  "tech.makeit.buzz": "/techs",
+  "tech.makeusa.us": "/techs",
+  
+  // Guest WiFi
+  "wifi.makeit.buzz": "/guest-wifi",
+  "wifi.makeusa.us": "/guest-wifi",
+
+  // Specific Path Overrides
+  "makeusa.us/kiosk": "/dashboard/kiosk",
+  "makeusa.us/kiosk.html": "/dashboard/kiosk"
+};
 
 const DomainRouter = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
   useEffect(() => {
-    const checkRouting = async () => {
-      try {
-        // 1. Get current URL parts
-        const currentHost = window.location.hostname.toLowerCase();
-        const currentPath = window.location.pathname.toLowerCase();
-        
-        const cleanPath = currentPath.endsWith('/') && currentPath.length > 1 ? currentPath.slice(0, -1) : currentPath;
-        
-        // Construct "Host + Path"
-        const fullSource = (currentHost + cleanPath);
+    const currentHost = window.location.hostname.toLowerCase();
+    const currentPath = window.location.pathname.toLowerCase();
+    
+    // Clean up trailing slashes for safer matching
+    const cleanPath = currentPath.endsWith('/') && currentPath.length > 1 ? currentPath.slice(0, -1) : currentPath;
+    const fullSource = currentHost + cleanPath;
 
-        const routesSnapshot = await getDocs(collection(db, "config_routing"));
-        
-        routesSnapshot.forEach(doc => {
-          const rule = doc.data();
-          const ruleSource = rule.source.toLowerCase().replace(/\/$/, ''); 
+    // Check full path first (e.g. makeusa.us/kiosk), fallback to just domain matching
+    const targetPath = domainMap[fullSource] || domainMap[currentHost];
 
-          if (currentHost === ruleSource || fullSource === ruleSource) {
-            
-            // 3. Prevent Loop: Only redirect if we aren't already at the target
-            // Note: Since we only run on mount now, this simply sets the "Default Entry" for the domain
-            if (!location.pathname.startsWith(rule.destination)) {
-              console.log(`[DomainRouter] Redirecting ${ruleSource} -> ${rule.destination}`);
-              navigate(rule.destination);
-            }
-          }
-        });
-      } catch (error) {
-        console.error("Routing check error:", error);
-      }
-    };
-
-    checkRouting();
-    // CHANGED: Empty dependency array ensures this only runs on initial site load.
-    // This allows the user to navigate away (e.g. to "/") without being forced back.
+    // Only redirect if a mapping exists AND we aren't already at the target
+    if (targetPath && !location.pathname.startsWith(targetPath)) {
+      console.log(`[DomainRouter] Redirecting to ${targetPath}`);
+      navigate(targetPath, { replace: true });
+    }
+    // Empty dependency array ensures this ONLY fires on the initial site load.
   }, []); 
 
   return null;

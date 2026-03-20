@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore'; 
-import { db, auth } from './firebase_config';
+import { auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
   Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
-import LinksManager from './LinksManager';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
 import Loader from './components/loader';
@@ -37,34 +35,9 @@ import WifiApp from './wifi/App';
 import Login from './Login'; 
 
 function SelectionGrid({ user }) {
-  const { checkAccess, access, loading } = useRole();
-  const [hasClientAccess, setHasClientAccess] = useState(false);
-
-  // MANUALLY CHECK CLIENT ACCESS
-  useEffect(() => {
-    if (user?.email) {
-      const email = user.email.toLowerCase();
-      // Master Admins & Global Read-Only get automatic access
-      if (email === 'daniel.s@makeit.buzz' || access?.master || access?.readOnly) {
-          setHasClientAccess(true);
-      } else {
-          // Wrapped in try-catch so permission errors don't freeze the app
-          Promise.all([
-              getDoc(doc(db, "client_access", email)),
-              getDoc(doc(db, "master_admin_access", email))
-          ]).then(([clientSnap, masterSnap]) => {
-              if (clientSnap.exists() || masterSnap.exists()) {
-                  setHasClientAccess(true);
-              }
-          }).catch(err => console.log("Client access read error (Ignored):", err));
-      }
-    }
-  }, [user, access]);
+  const { checkAccess, loading } = useRole();
 
   if (loading) return <Loader message="Syncing Permissions..." />;
-
-  // Local Master Admin check for the new button
-  const isMasterAdminLocal = user?.email?.toLowerCase() === 'daniel.s@makeit.buzz' || access?.master === true;
 
   return (
     <div style={{ padding: '40px', maxWidth: 1200, margin: '0 auto' }}>
@@ -82,7 +55,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {hasClientAccess && (
+        {checkAccess('client', 'management', 'view') && (
           <Link to="/clients" style={cardStyle}>
             <div style={{...iconBox, background: '#fef08a', color: '#ca8a04'}}><Briefcase size={32} /></div>
             <div><div style={titleStyle}>Client Management</div></div>
@@ -152,8 +125,7 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* NEW DELETED ITEMS APP BUTTON - Bypass useRole strict check manually so button shows up */}
-        {(isMasterAdminLocal || checkAccess('admin', 'deleted_items', 'view')) && (
+        {checkAccess('admin', 'deleted_items', 'view') && (
           <Link to="/deleted" style={cardStyle}>
             <div style={{...iconBox, background: '#fef2f2', color: '#ef4444'}}><Trash2 size={32} /></div>
             <div><div style={titleStyle}>Deleted Items</div></div>
@@ -176,44 +148,23 @@ function ProtectedMainApp() {
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
   
-  const { loading: roleLoading, hasAnyAccess, access } = useRole();
-  const [clientAccessReady, setClientAccessReady] = useState(false);
-  const [hasClientModAccess, setHasClientModAccess] = useState(false);
+  const { loading: roleLoading, hasAnyAccess } = useRole();
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);
-      if (currentUser?.email) {
-          const email = currentUser.email.toLowerCase();
-          if (email === 'daniel.s@makeit.buzz') {
-             setHasClientModAccess(true);
-          } else {
-             try {
-                 const [clientSnap, masterSnap] = await Promise.all([
-                     getDoc(doc(db, "client_access", email)),
-                     getDoc(doc(db, "master_admin_access", email))
-                 ]);
-                 if (clientSnap.exists() || masterSnap.exists()) setHasClientModAccess(true);
-             } catch(err) {
-                 console.log("Permission sync error (Ignored):", err);
-             }
-          }
-      }
-      setClientAccessReady(true);
       setAuthLoading(false);
     });
     return () => unsubscribe();
   }, []);
 
-  if (authLoading || (user && roleLoading) || !clientAccessReady) {
+  if (authLoading || (user && roleLoading)) {
     return <div style={{height: '100vh', display: 'flex', alignItems: 'center'}}><Loader message="Syncing Secure Profile..." /></div>;
   }  
 
   if (!user) return <Login />;
 
-  const isGlobalReadOnly = access?.readOnly === true;
-
-  if (!hasAnyAccess && !hasClientModAccess && !isGlobalReadOnly) {
+  if (!hasAnyAccess) {
     return (
       <div style={{height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#f8fafc', fontFamily: 'Segoe UI, sans-serif'}}>
         <div style={{background:'white', padding:'40px', borderRadius:'16px', textAlign:'center', boxShadow:'0 4px 20px rgba(0,0,0,0.08)', maxWidth:'400px'}}>
@@ -248,7 +199,6 @@ function ProtectedMainApp() {
         <Route path="/" element={<SelectionGrid user={user} />} />
         
         <Route path="/admin" element={<RoleRoute system="admin" feature="panel"><MasterAdmin /></RoleRoute>} />
-        <Route path="/admin/links" element={<RoleRoute system="admin" feature="panel"><LinksManager /></RoleRoute>} />
         <Route path="/hr/*" element={<RoleRoute system="hr" feature="dashboard"><HRApp /></RoleRoute>} />
         <Route path="/techs/*" element={<RoleRoute system="techs" feature="inventory"><TechApp /></RoleRoute>} />
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
@@ -260,11 +210,11 @@ function ProtectedMainApp() {
         <Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
         <Route path="/wifi/*" element={<RoleRoute system="wifi" feature="portal"><WifiApp /></RoleRoute>} />
         
-        {/* NEW DELETED ITEMS ROUTE */}
-        <Route path="/deleted/*" element={<DeletedItems />} />
-	<Route path="/deleted/history" element={<PurgeHistory />} />
+        {/* DELETED ITEMS ROUTE */}
+        <Route path="/deleted/*" element={<RoleRoute system="admin" feature="deleted_items"><DeletedItems /></RoleRoute>} />
+	      <Route path="/deleted/history" element={<RoleRoute system="admin" feature="deleted_items"><PurgeHistory /></RoleRoute>} />
         
-        <Route path="/clients/*" element={<ClientApp />} />
+        <Route path="/clients/*" element={<RoleRoute system="client" feature="management"><ClientApp /></RoleRoute>} />
       </Routes>
     </div>
   );
