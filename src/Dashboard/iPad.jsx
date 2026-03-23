@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import './iPad.css'; 
 import Loader from '../components/loader';
 import { db } from './firebase_config.jsx';
-import { doc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs, Timestamp } from 'firebase/firestore';
+// ADDED writeBatch for the transfer tool
+import { doc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs, Timestamp, writeBatch } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const IPad = () => {
@@ -53,6 +54,11 @@ const IPad = () => {
     const [manualForm, setManualForm] = useState({
         company: '', project: '', category: '', size: '', h: 0, m: 0, s: 0
     });
+
+    // --- NEW: Transfer Tool State ---
+    const [availableIpads, setAvailableIpads] = useState([]);
+    const [transferTargetId, setTransferTargetId] = useState("");
+    const [isTransferring, setIsTransferring] = useState(false);
 
     // --- 2. STREAMLINED INITIALIZATION ---
     useEffect(() => {
@@ -105,6 +111,14 @@ const IPad = () => {
             wMap[d.id] = name; 
         });
         setWorkersMap(wMap);
+
+        // Fetch Available iPads for Transfer Dropdown
+        const ipadsSnap = await getDocs(collection(db, "ipads"));
+        const ipadsList = [];
+        ipadsSnap.forEach(doc => {
+            if (doc.id !== id) ipadsList.push(doc.id);
+        });
+        setAvailableIpads(ipadsList.sort());
 
         return () => { 
             unsubIpad(); 
@@ -281,6 +295,57 @@ const IPad = () => {
         }
     };
 
+    // --- NEW: Emergency Transfer Execution ---
+    const executeTransfer = async () => {
+        if (!transferTargetId) return alert("Please select a destination iPad.");
+        if (!window.confirm(`Are you sure you want to transfer everything to ${transferTargetId}?`)) return;
+
+        setIsTransferring(true);
+        try {
+            const batch = writeBatch(db);
+
+            // 1. Clone EXACT state to the Target iPad (Including units, price, queue details)
+            const targetRef = doc(db, "ipads", transferTargetId);
+            batch.set(targetRef, { ...ipadData });
+
+            // 2. Reset THIS iPad back to a clean state
+            const sourceRef = doc(db, "ipads", id);
+            batch.set(sourceRef, {
+                projectName: "No Project Loaded",
+                companyName: "",
+                category: "",
+                projectSize: "",
+                secondsRemaining: 0,
+                originalSeconds: 0,
+                isPaused: true,
+                activeWorkers: [],
+                scanHistory: [],
+                projectEvents: [],
+                workerBankedMinutes: {},
+                lastUpdateTime: serverTimestamp()
+            });
+
+            // 3. Re-link active workers so they clock out on the new iPad
+            const activeWorkers = ipadData.activeWorkers || [];
+            activeWorkers.forEach(workerId => {
+                const workerLockRef = doc(db, "global_active_workers", workerId);
+                batch.set(workerLockRef, {
+                    fleetId: transferTargetId,
+                    timestamp: serverTimestamp() 
+                }, { merge: true });
+            });
+
+            await batch.commit();
+            alert("Transfer Complete! Redirecting...");
+            navigate(`/dashboard/ipad-control/${transferTargetId}`); 
+        } catch (error) {
+            console.error("Transfer error:", error);
+            alert("Transfer failed: " + error.message);
+        } finally {
+            setIsTransferring(false);
+        }
+    };
+
     // --- SETUP ---
     const initFromQueue = async () => {
         if (!selectedQueueIdx) return alert("Select a job");
@@ -441,13 +506,22 @@ const IPad = () => {
                                     TECH ISSUE
                                 </button>
 
+                                {/* --- NEW: NO BONUS PROMPT --- */}
                                 <button 
                                     className="ipc-ctrl-btn" 
                                     style={{background:'#e74c3c', color:'white', fontSize:'11px', fontWeight:'bold'}} 
-                                    onClick={() => {
-                                        if(window.confirm("Are you sure you want to DISQUALIFY this project from the bonus?")) {
-                                            sendCommand('CANCEL_BONUS');
+                                    onClick={async () => {
+                                        const reason = window.prompt("Please type the reason for denying this bonus:");
+                                        if (reason === null || reason.trim() === "") {
+                                            alert("A reason is required to process a No Bonus.");
+                                            return;
                                         }
+                                        await updateDoc(doc(db, "ipads", id), {
+                                            remoteCommand: 'CANCEL_BONUS',
+                                            bonusIneligibleReason: reason.trim(), // Save the reason directly to the database
+                                            commandTimestamp: serverTimestamp()
+                                        });
+                                        alert("Bonus Disqualified.");
                                     }}
                                 >
                                     NO BONUS
@@ -571,6 +645,43 @@ const IPad = () => {
                     <div>
                         <div className={`ipc-card ${!perms.settings ? 'disabled-overlay' : ''}`}>
                             <div style={{fontSize:'18px', fontWeight:'bold', marginBottom:'20px', borderBottom:'1px solid #eee', paddingBottom:'10px'}}>Project Configuration</div>
+                            
+                            {/* --- NEW: EMERGENCY TRANSFER UI --- */}
+                            {(ipadData?.projectName && ipadData?.projectName !== "No Project Loaded") && perms.fleet && (
+                                <div className="settings-section transfer-section" style={{ padding: '15px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffe69c', marginBottom: '20px' }}>
+                                    <h3 style={{ color: '#856404', marginTop: 0 }}>🚨 Emergency Project Transfer</h3>
+                                    <p style={{ fontSize: '14px', color: '#664d03', marginBottom: '15px' }}>
+                                        If this iPad has crashed or lost connectivity, move this active project and all clocked-in workers to another iPad. Data tracking (units, prices) will carry over automatically.
+                                    </p>
+                                    <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                        <select 
+                                            value={transferTargetId} 
+                                            onChange={(e) => setTransferTargetId(e.target.value)}
+                                            style={{ padding: '8px', borderRadius: '4px', border: '1px solid #ccc', flex: 1 }}
+                                        >
+                                            <option value="">-- Select Destination iPad --</option>
+                                            {availableIpads.map(ipadId => (
+                                                <option key={ipadId} value={ipadId}>{ipadId}</option>
+                                            ))}
+                                        </select>
+                                        <button 
+                                            onClick={executeTransfer} 
+                                            disabled={!transferTargetId || isTransferring}
+                                            style={{ 
+                                                padding: '8px 16px', 
+                                                background: '#dc3545', 
+                                                color: 'white', 
+                                                border: 'none', 
+                                                borderRadius: '4px', 
+                                                cursor: (!transferTargetId || isTransferring) ? 'not-allowed' : 'pointer' 
+                                            }}
+                                        >
+                                            {isTransferring ? 'Moving...' : 'Transfer Now'}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
                             {isActive && (
                                 <div className="locked-msg">
                                     <span className="material-icons" style={{fontSize:'16px', verticalAlign:'middle', marginRight:'5px'}}>lock</span> 

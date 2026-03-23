@@ -47,7 +47,7 @@ const App = () => {
         const logsRef = collection(db, COLLECTION_ROOT, 'public', 'logs');
         const unsubscribeLogs = onSnapshot(logsRef, (snapshot) => {
             const loadedLogs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            loadedLogs.sort((a, b) => (a.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
+            loadedLogs.sort((a, b) => (b.timestamp?.toMillis() || 0) - (a.timestamp?.toMillis() || 0));
             setLogs(loadedLogs);
         }, (err) => console.error("Logs Error:", err));
 

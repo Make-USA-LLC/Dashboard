@@ -83,6 +83,7 @@ const BillingFinance = ({ canEdit = true }) => {
           status: 'Billed',
           billedDate: serverTimestamp(),
           billedBy: auth.currentUser.email,
+          billedByName: auth.currentUser.displayName || auth.currentUser.email, // Saves the name for PastBills
           billedMonth: new Date().toISOString().slice(0, 7),
           billingInvoiceNumber: billingInvoice.trim()
         });
@@ -199,6 +200,7 @@ const BillingFinance = ({ canEdit = true }) => {
                 <th style={{ padding: '15px' }}>Date</th>
                 <th style={{ padding: '15px' }}>Vendor</th>
                 <th style={{ padding: '15px' }}>Reference</th>
+                <th style={{ padding: '15px' }}>Description</th>
                 <th style={{ padding: '15px' }}>Duties</th>
                 <th style={{ padding: '15px' }}>Shipping</th>
                 <th style={{ padding: '15px' }}>Entered By</th>
@@ -207,7 +209,7 @@ const BillingFinance = ({ canEdit = true }) => {
             </thead>
             <tbody>
                 {filteredShipments.length === 0 ? (
-                    <tr><td colSpan="8" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No items ready for billing.</td></tr>
+                    <tr><td colSpan="9" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No items ready for billing.</td></tr>
                 ) : filteredShipments.map(s => (
                 <tr key={s.id} style={{ borderBottom: '1px solid #f1f5f9', background: selected.includes(s.id) ? '#f0fdf4' : 'white' }}>
                     <td style={{ padding: '15px' }}><input type="checkbox" checked={selected.includes(s.id)} onChange={() => handleSelect(s.id)} disabled={!canEdit} /></td>
@@ -229,6 +231,11 @@ const BillingFinance = ({ canEdit = true }) => {
                         <div style={{fontWeight: '500'}}>{s.carrier}</div>
                         <div style={{fontSize:'12px', color:'#94a3b8'}}>{s.invoiceNumber || s.trackingNumber}</div>
                     </td>
+                    <td 
+                        style={{ padding: '15px', color: '#64748b', fontSize: '13px', whiteSpace: 'normal', wordBreak: 'break-word', minWidth: '150px' }} 
+                    >
+                        {s.description || s.notes || '-'}
+                    </td>
                     <td style={{ padding: '15px', color: '#d97706', fontWeight: '600' }}>${(s.dutiesAmount || 0).toFixed(2)}</td>
                     <td style={{ padding: '15px', color: '#059669', fontWeight: '600' }}>${(s.shippingCost || 0).toFixed(2)}</td>
                     <td style={{ padding: '15px', fontSize:'12px', color:'#64748b' }}>{s.createdByName}</td>
@@ -243,7 +250,7 @@ const BillingFinance = ({ canEdit = true }) => {
             {filteredShipments.length > 0 && (
                 <tfoot>
                     <tr style={{ background: '#f1f5f9', fontWeight: 'bold', borderTop: '2px solid #cbd5e1' }}>
-                        <td colSpan="4" style={{ padding: '15px', textAlign: 'right', color:'#1e293b' }}>
+                        <td colSpan="5" style={{ padding: '15px', textAlign: 'right', color:'#1e293b' }}>
                             Totals {vendorFilter !== 'ALL' && `(${vendorFilter})`}:
                         </td>
                         <td style={{ padding: '15px', color: '#d97706' }}>${totalDuties.toFixed(2)}</td>

@@ -58,15 +58,17 @@ const PastBills = ({ canEdit = true }) => {
                         <th style={{ padding: '15px' }}>Billed Date</th>
                         <th style={{ padding: '15px' }}>Vendor</th>
                         <th style={{ padding: '15px' }}>Invoice</th>
+                        <th style={{ padding: '15px' }}>Description</th>
                         <th style={{ padding: '15px' }}>Duties</th>
                         <th style={{ padding: '15px' }}>Shipping</th>
+                        <th style={{ padding: '15px' }}>Entered By</th>
                         <th style={{ padding: '15px' }}>Billed By</th>
                         <th style={{ padding: '15px', textAlign: 'center' }}>ID</th>
                     </tr>
                 </thead>
                 <tbody>
                     {history.length === 0 ? (
-                        <tr><td colSpan="7" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No history found.</td></tr>
+                        <tr><td colSpan="9" style={{padding:'40px', textAlign:'center', color: '#94a3b8'}}>No history found.</td></tr>
                     ) : history.map(h => (
                         <tr key={h.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                             <td style={{ padding: '15px' }}>
@@ -76,9 +78,24 @@ const PastBills = ({ canEdit = true }) => {
                             <td style={{ padding: '15px', fontWeight: '600', color: '#3b82f6' }}>
                                 {h.billingInvoiceNumber || '-'}
                             </td>
+                            <td 
+                                style={{ padding: '15px', color: '#64748b', fontSize: '13px', whiteSpace: 'normal', wordBreak: 'break-word', minWidth: '150px' }} 
+                            >
+                                {h.description || h.notes || '-'}
+                            </td>
                             <td style={{ padding: '15px' }}>${(h.dutiesAmount || 0).toFixed(2)}</td>
                             <td style={{ padding: '15px' }}>${(h.shippingCost || 0).toFixed(2)}</td>
-                            <td style={{ padding: '15px', color: '#64748b' }}>{h.billedBy}</td>
+                            
+                            {/* Shows the Name of the person who created the record (falls back to email if name isn't found) */}
+                            <td style={{ padding: '15px', fontSize:'12px', color:'#64748b' }}>
+                                {h.createdByName || h.createdBy || '-'}
+                            </td>
+
+                            {/* Shows the Name of the person who billed the record (falls back to email for historical bills) */}
+                            <td style={{ padding: '15px', fontSize:'12px', color:'#64748b' }}>
+                                {h.billedByName || h.billedBy || '-'}
+                            </td>
+
                             <td style={{ padding: '15px', textAlign: 'center' }}>
                                 <button onClick={() => viewId(h.id)} style={{background:'none', border:'none', cursor:'pointer', color:'#94a3b8'}}>
                                     <FileText size={16} />
