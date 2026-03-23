@@ -21,7 +21,9 @@ export const getClientFiles = async (clientName, token = null) => {
 
     try {
         const path = `/Documents/Make USA LLC/Clients_Dashboard/${clientName}`;
-        const endpoint = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${path}:/children`;
+        // Safely encode the path to handle spaces
+        const encodedPath = encodeURI(path);
+        const endpoint = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${encodedPath}:/children`;
         
         const res = await fetch(endpoint, {
             headers: { 'Authorization': `Bearer ${token}` }
@@ -49,8 +51,11 @@ export const uploadToSharePoint = async (clientName, folderType, file, token, sa
         path = `/Documents/Make USA LLC/Clients_Dashboard/${clientName}/Samples/${sampleName}/${file.name}`;
     }
 
+    // Safely encode the path to handle spaces in folderType (like "Legal Terms") and file names
+    const encodedPath = encodeURI(path);
+
     // Fully qualified endpoint matching Production's logic
-    const graphEndpoint = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${path}:/content?@microsoft.graph.conflictBehavior=rename`;
+    const graphEndpoint = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${encodedPath}:/content?@microsoft.graph.conflictBehavior=rename`;
 
     const uploadRes = await fetch(graphEndpoint, {
         method: 'PUT',
@@ -68,5 +73,7 @@ export const uploadToSharePoint = async (clientName, folderType, file, token, sa
     }
     
     const data = await uploadRes.json();
+    
+    // Return the URL so the calling function can save it to Firebase
     return data.webUrl; 
 };
