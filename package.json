@@ -3,15 +3,15 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-"scripts": {
+  "scripts": {
     "dev": "vite",
     "demo": "vite --mode demo",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "deploy:prod": "vite build && firebase deploy -P default --only hosting",
-  "deploy:demo": "vite build --mode demo && firebase deploy -P demo --only hosting",
-  "deploy:all": "npm run deploy:prod && npm run deploy:demo"
+    "deploy:demo": "vite build --mode demo && firebase deploy -P demo --only hosting",
+    "deploy:all": "npm run deploy:prod && npm run deploy:demo"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.0.2",
@@ -34,6 +34,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@faker-js/faker": "^10.4.0",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
