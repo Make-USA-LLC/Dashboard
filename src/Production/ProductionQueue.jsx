@@ -347,7 +347,7 @@ const ProductionQueue = () => {
                             <div style={{marginTop:'10px'}}>
                                 <span style={{...styles.badge, background: job.techSheetUploaded ? '#dcfce7' : '#fee2e2', color: job.techSheetUploaded ? '#166534' : '#991b1b'}}>{job.techSheetUploaded ? "✓ Tech Sheet" : "✗ No Sheet"}</span>
                                 <span style={{...styles.badge, marginLeft:'10px', background: job.componentsArrived ? '#dcfce7' : '#f3f4f6', color: job.componentsArrived ? '#166534' : '#666'}}>{job.componentsArrived ? "✓ Arrived" : "Waiting for Components"}</span>
-                                {job.requiresBlending && ( <span style={{...styles.badge, marginLeft:'10px', background: job.blendingStatus === 'completed' ? '#dcfce7' : '#fef08a', color: '#333'}}>{job.blendingStatus === 'completed' ? "✓ Blended" : "⚖️ Blending Pending"}</span> )}
+                                
                             </div>
                         </div>
 
@@ -358,7 +358,16 @@ const ProductionQueue = () => {
                             </div>
 
                             <button onClick={() => updateDoc(doc(db, "production_pipeline", job.id), { componentsArrived: !job.componentsArrived })} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>{job.componentsArrived ? "Mark Pending" : "Mark Arrived"}</button>
-                            <button onClick={() => sendToQC(job)} disabled={!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')} style={{...styles.btn, background: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#eee' : '#8e44ad', color: (!job.techSheetUploaded || !job.componentsArrived || (job.requiresBlending && job.blendingStatus !== 'completed')) ? '#999' : 'white'}}>Send to QC &rarr;</button>
+                            <button 
+    onClick={() => sendToQC(job)} 
+    disabled={!job.techSheetUploaded || !job.componentsArrived} 
+    style={{
+        ...styles.btn, 
+        background: (!job.techSheetUploaded || !job.componentsArrived) ? '#eee' : '#8e44ad', 
+        color: (!job.techSheetUploaded || !job.componentsArrived) ? '#999' : 'white'
+    }}>
+    Send to QC &rarr;
+</button>
                             <button onClick={() => handleEdit(job)} style={{...styles.btn, background: '#f39c12', color: 'white'}}>Edit</button>
                             {/* Updated deletion onClick */}
                             <button onClick={() => handleDelete(job)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
