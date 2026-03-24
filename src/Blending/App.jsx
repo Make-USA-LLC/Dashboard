@@ -1,7 +1,7 @@
 import React, { useState, useCallback } from 'react';
 import ExcelJS from 'exceljs'; // <-- SWITCHED TO EXCELJS FOR STYLING
 import { db, functions } from '../firebase_config'; 
-import { updateDoc, doc, serverTimestamp, setDoc, deleteDoc, getDoc } from 'firebase/firestore';
+import { updateDoc, doc, serverTimestamp, setDoc, deleteDoc, getDoc, addDoc, collection } from 'firebase/firestore'; // <-- Added addDoc and collection
 import { httpsCallable } from 'firebase/functions';
 import { useMsal } from "@azure/msal-react";
 import { InteractionStatus } from "@azure/msal-browser";
@@ -190,22 +190,40 @@ export default function BlendingApp() {
         }
     };
 
+    // --- UPDATED SOFT DELETE LOGIC ---
     const deleteBlend = async (item) => {
-        if (!window.confirm(`Are you sure you want to delete ${item.project || item.name}? This action cannot be undone.`)) return;
+        if (!window.confirm(`Are you sure you want to move ${item.project || item.name} to Deleted Items?`)) return;
 
         try {
+            // Determine which collection this item currently lives in
+            let originalCollection = "blending_queue";
             if (item.type === 'sample') {
-                await deleteDoc(doc(db, "blending_samples", item.id));
-            } else {
-                if (item.blendingStatus === 'completed' || item.completedAt) {
-                    await deleteDoc(doc(db, "blending_production", item.id));
-                } else {
-                    await deleteDoc(doc(db, "blending_queue", item.id));
-                }
+                originalCollection = "blending_samples";
+            } else if (item.blendingStatus === 'completed' || item.completedAt) {
+                originalCollection = "blending_production";
             }
+
+            // 1. Move to Recycle Bin (Soft Delete)
+            await addDoc(collection(db, "trash_bin"), {
+                originalSystem: "blending",
+                originalFeature: "management",
+                type: "document",
+                collection: originalCollection,
+                originalId: item.id,
+                displayName: `Blend: ${item.project || item.name} (${item.company || 'Unknown'})`,
+                data: item,
+                deletedAt: new Date().toISOString(),
+                deletedBy: accounts[0]?.username || "Unknown" // Logs who deleted it via MSAL if available
+            });
+
+            // 2. Remove from active queues/finished lists
+            await deleteDoc(doc(db, originalCollection, item.id));
+
+            // 3. Clear UI state if the deleted item was currently open
             if (viewingItem?.id === item.id) setViewingItem(null);
             if (processingItem?.id === item.id) setProcessingItem(null);
-            alert("Blend deleted successfully.");
+            
+            alert("Blend moved to deleted items successfully.");
         } catch (error) {
             console.error("Error deleting blend:", error);
             alert("An error occurred while trying to delete the blend.");
