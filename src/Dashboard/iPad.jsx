@@ -55,6 +55,13 @@ const IPad = () => {
         company: '', project: '', category: '', size: '', h: 0, m: 0, s: 0
     });
 
+    // --- NEW: Manual Clock State ---
+    const [showManualClock, setShowManualClock] = useState(false);
+    const [mcWorker, setMcWorker] = useState("");
+    const [mcAction, setMcAction] = useState("in");
+    const [mcTimeMode, setMcTimeMode] = useState("now");
+    const [mcCustomTime, setMcCustomTime] = useState("");
+
     // --- NEW: Transfer Tool State ---
     const [availableIpads, setAvailableIpads] = useState([]);
     const [transferTargetId, setTransferTargetId] = useState("");
@@ -346,6 +353,64 @@ const IPad = () => {
         }
     };
 
+    // --- MANUAL CLOCK IN/OUT LOGIC ---
+    const handleManualClockSubmit = async () => {
+        if (!perms.timer) return alert("Permission Denied");
+        if (!mcWorker) return alert("Please select a worker.");
+        if (mcTimeMode === 'custom' && !mcCustomTime) return alert("Please specify the custom time.");
+
+        const timestamp = mcTimeMode === 'custom' 
+            ? Timestamp.fromDate(new Date(mcCustomTime)) 
+            : Timestamp.now();
+
+        const isClockIn = mcAction === 'in';
+        const actionText = isClockIn ? "Clock In" : "Clock Out";
+
+        try {
+            const batch = writeBatch(db);
+            const ipadRef = doc(db, "ipads", id);
+            const globalWorkerRef = doc(db, "global_active_workers", mcWorker);
+
+            // 1. Create the new scan entry
+            const scanEntry = {
+                action: actionText,
+                cardID: mcWorker,
+                timestamp: timestamp
+            };
+
+            // 2. Adjust active workers list
+            let updatedWorkers = [...(ipadData.activeWorkers || [])];
+            
+            if (isClockIn) {
+                if (!updatedWorkers.includes(mcWorker)) updatedWorkers.push(mcWorker);
+                // Lock them to this iPad globally
+                batch.set(globalWorkerRef, { fleetId: id, timestamp }, { merge: true });
+            } else {
+                updatedWorkers = updatedWorkers.filter(w => w !== mcWorker);
+                // Remove their global lock
+                batch.delete(globalWorkerRef);
+            }
+
+            // 3. Update the iPad document
+            batch.update(ipadRef, {
+                scanHistory: [...(ipadData.scanHistory || []), scanEntry],
+                activeWorkers: updatedWorkers,
+                lastUpdateTime: serverTimestamp() // Triggers the timer UI to recalculate
+            });
+
+            await batch.commit();
+            
+            // Reset and close modal
+            setShowManualClock(false);
+            setMcWorker("");
+            setMcCustomTime("");
+            setMcTimeMode("now");
+        } catch (error) {
+            console.error("Manual clock error:", error);
+            alert("Failed to submit manual clock: " + error.message);
+        }
+    };
+
     // --- SETUP ---
     const initFromQueue = async () => {
         if (!selectedQueueIdx) return alert("Select a job");
@@ -506,7 +571,6 @@ const IPad = () => {
                                     TECH ISSUE
                                 </button>
 
-                                {/* --- NEW: NO BONUS PROMPT --- */}
                                 <button 
                                     className="ipc-ctrl-btn" 
                                     style={{background:'#e74c3c', color:'white', fontSize:'11px', fontWeight:'bold'}} 
@@ -532,8 +596,18 @@ const IPad = () => {
                         </div>
 
                         <div className="ipc-card">
-                            <div style={{fontSize:'16px', fontWeight:'bold', marginBottom:'25px'}}>
-                                Active Personnel <span style={{background:'#3498db', color:'white', fontSize:'12px', padding:'2px 8px', borderRadius:'10px'}}>{activeWorkers.length}</span>
+                            <div style={{fontSize:'16px', fontWeight:'bold', marginBottom:'25px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+                                <div>
+                                    Active Personnel <span style={{background:'#3498db', color:'white', fontSize:'12px', padding:'2px 8px', borderRadius:'10px'}}>{activeWorkers.length}</span>
+                                </div>
+                                {perms.timer && (
+                                    <button 
+                                        onClick={() => setShowManualClock(true)}
+                                        style={{background: '#2ecc71', color: 'white', border: 'none', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold'}}
+                                    >
+                                        + Manual Clock In/Out
+                                    </button>
+                                )}
                             </div>
                             <table className="ipc-table">
                                 <thead>
@@ -800,6 +874,68 @@ const IPad = () => {
                                 style={{flex:1, padding:'12px', background:'#e74c3c', color:'white', border:'none', borderRadius:'4px', fontWeight:'bold', cursor: !selectedMachine ? 'not-allowed' : 'pointer', opacity: !selectedMachine ? 0.5 : 1}}
                             >
                                 CONFIRM STOP
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- MANUAL CLOCK MODAL --- */}
+            {showManualClock && (
+                <div style={{
+                    position:'fixed', top:0, left:0, right:0, bottom:0, 
+                    background:'rgba(0,0,0,0.8)', display:'flex', justifyContent:'center', alignItems:'center', zIndex:9999
+                }}>
+                    <div style={{background:'white', padding:'25px', borderRadius:'8px', width:'400px', boxShadow: '0 4px 10px rgba(0,0,0,0.3)'}}>
+                        <h3 style={{marginTop:0, color:'#2c3e50'}}>Manual Clock In / Out</h3>
+                        
+                        <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', color:'#333'}}>Worker</label>
+                        <select 
+                            style={{width:'100%', padding:'10px', marginBottom:'15px', borderRadius:'4px', border:'1px solid #ccc', fontSize: '14px'}}
+                            value={mcWorker} 
+                            onChange={(e) => setMcWorker(e.target.value)}
+                        >
+                            <option value="">-- Select Worker --</option>
+                            {Object.entries(workersMap)
+                                .sort((a, b) => a[1].localeCompare(b[1]))
+                                .map(([wId, wName]) => (
+                                    <option key={wId} value={wId}>{wName} ({wId})</option>
+                            ))}
+                        </select>
+
+                        <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', color:'#333'}}>Action</label>
+                        <div style={{display:'flex', gap:'15px', marginBottom:'15px'}}>
+                            <label style={{cursor: 'pointer'}}><input type="radio" value="in" checked={mcAction === 'in'} onChange={(e) => setMcAction(e.target.value)} /> Clock In</label>
+                            <label style={{cursor: 'pointer'}}><input type="radio" value="out" checked={mcAction === 'out'} onChange={(e) => setMcAction(e.target.value)} /> Clock Out</label>
+                        </div>
+
+                        <label style={{display:'block', marginBottom:'5px', fontWeight:'bold', color:'#333'}}>Time</label>
+                        <div style={{display:'flex', gap:'15px', marginBottom:'10px'}}>
+                            <label style={{cursor: 'pointer'}}><input type="radio" value="now" checked={mcTimeMode === 'now'} onChange={(e) => setMcTimeMode(e.target.value)} /> Right Now</label>
+                            <label style={{cursor: 'pointer'}}><input type="radio" value="custom" checked={mcTimeMode === 'custom'} onChange={(e) => setMcTimeMode(e.target.value)} /> Custom Time</label>
+                        </div>
+
+                        {mcTimeMode === 'custom' && (
+                            <input 
+                                type="datetime-local" 
+                                style={{width:'100%', padding:'10px', marginBottom:'15px', borderRadius:'4px', border:'1px solid #ccc', boxSizing: 'border-box'}}
+                                value={mcCustomTime}
+                                onChange={(e) => setMcCustomTime(e.target.value)}
+                            />
+                        )}
+                        
+                        <div style={{display:'flex', gap:'10px', marginTop: '20px'}}>
+                            <button 
+                                onClick={() => { setShowManualClock(false); setMcWorker(""); setMcCustomTime(""); setMcTimeMode("now"); }}
+                                style={{flex:1, padding:'12px', background:'#ecf0f1', color:'#333', border:'none', borderRadius:'4px', cursor:'pointer', fontWeight:'bold'}}
+                            >
+                                Cancel
+                            </button>
+                            <button 
+                                onClick={handleManualClockSubmit}
+                                style={{flex:1, padding:'12px', background:'#2ecc71', color:'white', border:'none', borderRadius:'4px', fontWeight:'bold', cursor: 'pointer'}}
+                            >
+                                Submit
                             </button>
                         </div>
                     </div>

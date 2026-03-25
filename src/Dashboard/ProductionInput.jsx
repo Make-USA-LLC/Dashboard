@@ -6,7 +6,8 @@ import { db } from './firebase_config.jsx';
 import { collection, query, orderBy, limit, getDocs, doc, getDoc, updateDoc, deleteDoc, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
-const ReportCard = ({ data, projectTypes, onRefresh, canEdit }) => {
+// --- UPDATED: Added user prop to capture who is deleting the item ---
+const ReportCard = ({ data, projectTypes, onRefresh, canEdit, user }) => {
     const [plNumber, setPlNumber] = useState(data.plNumber ? data.plNumber.replace(/^(PL-|PL)/i, '').trim() : '');
     const [projectType, setProjectType] = useState(data.projectType || '');
     
@@ -25,10 +26,25 @@ const ReportCard = ({ data, projectTypes, onRefresh, canEdit }) => {
     const scannedHrs = (scannedSecs / 3600).toFixed(2);
     const dateStr = data.completedAt ? new Date(data.completedAt.seconds * 1000).toLocaleString() : 'Unknown';
 
+    // --- UPDATED: Send to Trash Bin instead of permanent deletion ---
     const handleDelete = async () => {
         if (!canEdit) return alert("Read-Only Access");
-        if(!window.confirm("PERMANENTLY DELETE report? This cannot be undone.")) return;
+        if(!window.confirm("Move this report to the Trash Bin?")) return;
         try {
+            // 1. Add to trash bin
+            await addDoc(collection(db, "trash_bin"), {
+                type: 'document',
+                collection: 'reports',
+                originalId: data.id,
+                data: data,
+                displayName: `Production Report: ${data.project} (${data.company})`,
+                originalSystem: 'dashboard',
+                originalFeature: 'prod_input',
+                deletedBy: user?.email || user?.name || "Unknown User",
+                deletedAt: new Date().toISOString()
+            });
+
+            // 2. Remove from active reports
             await deleteDoc(doc(db, "reports", data.id));
             onRefresh();
         } catch(e) { alert("Error: " + e.message); }
@@ -308,6 +324,7 @@ const ProductionInput = () => {
                                 projectTypes={projectTypes} 
                                 onRefresh={fetchData} 
                                 canEdit={canEdit}
+                                user={user} // <-- UPDATED: Passing the user down to log the deletion
                             />
                         ))}
                         <div style={{textAlign:'center', marginTop:'20px', fontSize:'12px', color:'#aaa'}}>
