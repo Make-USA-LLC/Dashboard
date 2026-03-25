@@ -4,7 +4,7 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
-  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2
+  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2, Receipt
 } from 'lucide-react'; 
 
 import DomainRouter from './components/DomainRouter';
@@ -28,6 +28,7 @@ import BlendingApp from './Blending/App';
 import ClientApp from './Client/App'; 
 import DeletedItems from './Deleted/Dashboard'; 
 import PurgeHistory from './Deleted/PurgeHistory';
+import WarehouseApp from './WarehouseBilling/App'; // <-- Added Import
 
 import GuestAccess from './wifi/GuestAccess';
 import WifiApp from './wifi/App'; 
@@ -108,6 +109,14 @@ function SelectionGrid({ user }) {
           <Link to="/shipments" style={cardStyle}>
             <div style={{...iconBox, background: '#e0f2fe', color: '#0284c7'}}><Package size={32} /></div>
             <div><div style={titleStyle}>Shipment Billing</div></div>
+          </Link>
+        )}
+
+        {/* NEW WAREHOUSE BILLING LINK */}
+        {checkAccess('warehouse', 'billing', 'view') && (
+          <Link to="/warehousebilling" style={cardStyle}>
+            <div style={{...iconBox, background: '#fef3c7', color: '#d97706'}}><Receipt size={32} /></div>
+            <div><div style={titleStyle}>Warehouse Billing</div></div>
           </Link>
         )}
 
@@ -204,6 +213,7 @@ function ProtectedMainApp() {
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
         <Route path="/shipments/*" element={<RoleRoute system="shipment" feature="app"><ShipmentApp /></RoleRoute>} />
+        <Route path="/warehousebilling/*" element={<RoleRoute system="warehouse" feature="billing"><WarehouseApp /></RoleRoute>} /> {/* <-- Added Route */}
         <Route path="/production/*" element={<RoleRoute system="production" feature="management"><ProductionApp /></RoleRoute>} />
         <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> 
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />

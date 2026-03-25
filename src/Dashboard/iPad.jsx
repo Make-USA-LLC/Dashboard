@@ -3,9 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import './iPad.css'; 
 import Loader from '../components/loader';
 import { db } from './firebase_config.jsx';
-// ADDED writeBatch for the transfer tool
 import { doc, getDoc, updateDoc, deleteDoc, collection, query, orderBy, onSnapshot, serverTimestamp, getDocs, Timestamp, writeBatch } from 'firebase/firestore';
-import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
+import { useRole } from './hooks/useRole'; 
 
 const IPad = () => {
     const { id } = useParams();
@@ -55,14 +54,14 @@ const IPad = () => {
         company: '', project: '', category: '', size: '', h: 0, m: 0, s: 0
     });
 
-    // --- NEW: Manual Clock State ---
+    // Manual Clock State
     const [showManualClock, setShowManualClock] = useState(false);
     const [mcWorker, setMcWorker] = useState("");
     const [mcAction, setMcAction] = useState("in");
     const [mcTimeMode, setMcTimeMode] = useState("now");
     const [mcCustomTime, setMcCustomTime] = useState("");
 
-    // --- NEW: Transfer Tool State ---
+    // Transfer Tool State
     const [availableIpads, setAvailableIpads] = useState([]);
     const [transferTargetId, setTransferTargetId] = useState("");
     const [isTransferring, setIsTransferring] = useState(false);
@@ -302,7 +301,7 @@ const IPad = () => {
         }
     };
 
-    // --- NEW: Emergency Transfer Execution ---
+    // --- Emergency Transfer Execution ---
     const executeTransfer = async () => {
         if (!transferTargetId) return alert("Please select a destination iPad.");
         if (!window.confirm(`Are you sure you want to transfer everything to ${transferTargetId}?`)) return;
@@ -311,7 +310,7 @@ const IPad = () => {
         try {
             const batch = writeBatch(db);
 
-            // 1. Clone EXACT state to the Target iPad (Including units, price, queue details)
+            // 1. Clone EXACT state to the Target iPad
             const targetRef = doc(db, "ipads", transferTargetId);
             batch.set(targetRef, { ...ipadData });
 
@@ -353,13 +352,14 @@ const IPad = () => {
         }
     };
 
-    // --- MANUAL CLOCK IN/OUT LOGIC ---
+    // --- MANUAL CLOCK IN/OUT LOGIC (WITH PAUSE AWARENESS) ---
     const handleManualClockSubmit = async () => {
         if (!perms.timer) return alert("Permission Denied");
         if (!mcWorker) return alert("Please select a worker.");
         if (mcTimeMode === 'custom' && !mcCustomTime) return alert("Please specify the custom time.");
 
-        const timestamp = mcTimeMode === 'custom' 
+        const isCustom = mcTimeMode === 'custom';
+        const timestamp = isCustom 
             ? Timestamp.fromDate(new Date(mcCustomTime)) 
             : Timestamp.now();
 
@@ -370,6 +370,60 @@ const IPad = () => {
             const batch = writeBatch(db);
             const ipadRef = doc(db, "ipads", id);
             const globalWorkerRef = doc(db, "global_active_workers", mcWorker);
+
+            // --- PROJECT TIMER MATH ADJUSTMENT ---
+            let currentSecondsRemaining = ipadData.secondsRemaining || 0;
+            
+            if (isCustom) {
+                const nowSec = Math.floor(Date.now() / 1000);
+                const customSec = Math.floor(new Date(mcCustomTime).getTime() / 1000);
+                const diffSec = nowSec - customSec; 
+
+                if (diffSec > 0) {
+                    // Calculate how much of this specific time window was actually PAUSED
+                    let pausedSec = 0;
+                    let pStart = null;
+                    
+                    // Map out the history chronologically
+                    const evs = [...(ipadData.projectEvents || [])].map(e => ({
+                        type: e.type?.toUpperCase() || '',
+                        sec: e.timestamp?.seconds || 0
+                    })).sort((a,b) => a.sec - b.sec);
+
+                    // Find overlaps between pauses and our custom timeframe
+                    evs.forEach(ev => {
+                        const isPause = ['PAUSE', 'LUNCH', 'TECH_PAUSE', 'QC_PAUSE_CREW', 'QC_PAUSE_COMP'].includes(ev.type);
+                        if (isPause && !pStart) pStart = ev.sec;
+                        else if (ev.type === 'RESUME' && pStart) {
+                            const oStart = Math.max(pStart, customSec);
+                            const oEnd = Math.min(ev.sec, nowSec);
+                            if (oEnd > oStart) pausedSec += (oEnd - oStart);
+                            pStart = null; // Close the pause window
+                        }
+                    });
+
+                    // If it is currently paused right now (open-ended pause)
+                    if (ipadData.isPaused && pStart) {
+                        const oStart = Math.max(pStart, customSec);
+                        const oEnd = Math.min(nowSec, nowSec);
+                        if (oEnd > oStart) pausedSec += (oEnd - oStart);
+                    } else if (ipadData.isPaused && !pStart) {
+                        // Edge case fallback: It is paused but there was no history event
+                        pausedSec = diffSec; 
+                    }
+
+                    // The actual time they were actively burning the timer
+                    const activeSec = diffSec - pausedSec;
+
+                    if (activeSec > 0) {
+                        if (isClockIn) {
+                            currentSecondsRemaining -= activeSec; // Deduct the hours they retroactively worked
+                        } else {
+                            currentSecondsRemaining += activeSec; // Refund the hours they shouldn't have been clocked in for
+                        }
+                    }
+                }
+            }
 
             // 1. Create the new scan entry
             const scanEntry = {
@@ -383,11 +437,9 @@ const IPad = () => {
             
             if (isClockIn) {
                 if (!updatedWorkers.includes(mcWorker)) updatedWorkers.push(mcWorker);
-                // Lock them to this iPad globally
                 batch.set(globalWorkerRef, { fleetId: id, timestamp }, { merge: true });
             } else {
                 updatedWorkers = updatedWorkers.filter(w => w !== mcWorker);
-                // Remove their global lock
                 batch.delete(globalWorkerRef);
             }
 
@@ -395,7 +447,8 @@ const IPad = () => {
             batch.update(ipadRef, {
                 scanHistory: [...(ipadData.scanHistory || []), scanEntry],
                 activeWorkers: updatedWorkers,
-                lastUpdateTime: serverTimestamp() // Triggers the timer UI to recalculate
+                secondsRemaining: currentSecondsRemaining, // <-- Pushes the pause-aware adjusted math
+                lastUpdateTime: serverTimestamp() 
             });
 
             await batch.commit();
@@ -720,7 +773,6 @@ const IPad = () => {
                         <div className={`ipc-card ${!perms.settings ? 'disabled-overlay' : ''}`}>
                             <div style={{fontSize:'18px', fontWeight:'bold', marginBottom:'20px', borderBottom:'1px solid #eee', paddingBottom:'10px'}}>Project Configuration</div>
                             
-                            {/* --- NEW: EMERGENCY TRANSFER UI --- */}
                             {(ipadData?.projectName && ipadData?.projectName !== "No Project Loaded") && perms.fleet && (
                                 <div className="settings-section transfer-section" style={{ padding: '15px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffe69c', marginBottom: '20px' }}>
                                     <h3 style={{ color: '#856404', marginTop: 0 }}>🚨 Emergency Project Transfer</h3>

@@ -11,13 +11,13 @@ const MasterAdmin = () => {
     const [loading, setLoading] = useState(true);
     
     const [lists, setLists] = useState({ 
-        ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], 
+        ipad: [], hr: [], tech: [], shed: [], machine: [], shipment: [], warehouse: [],
         production: [], qc: [], blending: [], wifi: [], admin: [], 
         client: [], clientRoles: [], readOnlyAdmin: [], deletedItems: [] 
     });
     
     const [inputs, setInputs] = useState({ 
-        ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', 
+        ipad: '', hr: '', tech: '', shed: '', machine: '', shipment: '', warehouse: '',
         production: '', qc: '', blending: '', wifi: '', admin: '', client: '', readOnlyAdmin: '', deletedItems: '' 
     });
     
@@ -56,6 +56,7 @@ const MasterAdmin = () => {
         listen("tech_access", "tech", d => ({email: d.id}));
         listen("shed_access", "shed", d => ({email: d.id}));
         listen("shipment_access", "shipment", d => ({email: d.id, ...d.data()}));
+        listen("warehouse_billing_access", "warehouse", d => ({email: d.id, ...d.data()}));
         listen("production_access", "production", d => ({email: d.id}));
         listen("qc_access", "qc", d => ({email: d.id}));
         listen("blending_access", "blending", d => ({email: d.id}));
@@ -66,7 +67,6 @@ const MasterAdmin = () => {
         listen("readonly_admin_access", "readOnlyAdmin", d => ({email: d.id})); 
         listen("deleted_items_access", "deletedItems", d => ({email: d.id, ...d.data()}));
         
-        // Listen for custom Client Roles
         onSnapshot(collection(db, "client_roles"), (s) => {
             setLists(prev => ({ ...prev, clientRoles: s.docs.map(d => d.id) }));
         });
@@ -115,7 +115,6 @@ const MasterAdmin = () => {
             <div className="admin-header-row">
                 <div className="admin-title-group">
                     <h2>System Access Console</h2>
-                   
                 </div>
                 <button onClick={() => navigate('/')} className="btn-exit">Exit</button>
             </div>
@@ -236,7 +235,7 @@ const MasterAdmin = () => {
             {/* ROW 4: Shed Inventory & Shipment Billing */}
             <div className="admin-grid-row">
                 <div className="admin-card">
-                    <h3 className="admin-card-header">Shed Inventory Access</h3>
+                    <h3 className="admin-card-header">Shed Inventory</h3>
                     <div className="admin-add-row">
                         <input value={inputs.shed} onChange={e => setInputs({...inputs, shed: e.target.value})} placeholder="Email" className="admin-input" />
                         <button onClick={() => handleAddUser("shed", "shed_access")} className="btn-add">Grant</button>
@@ -273,8 +272,29 @@ const MasterAdmin = () => {
                 </div>
             </div>
 
-            {/* ROW 5: Wi-Fi & Client Management */}
+            {/* ROW 5: Warehouse Billing & Wi-Fi */}
             <div className="admin-grid-row">
+                <div className="admin-card" style={{ borderLeft: '5px solid #d97706' }}>
+                    <h3 className="admin-card-header">Warehouse Billing</h3>
+                    <div className="admin-add-row">
+                        <input value={inputs.warehouse} onChange={e => setInputs({...inputs, warehouse: e.target.value})} placeholder="Email" className="admin-input" />
+                        <button onClick={() => handleAddUser("warehouse", "warehouse_billing_access", { role: 'Input' })} className="btn-add">Add</button>
+                    </div>
+                    <div className="admin-scroll-box">
+                        {lists.warehouse.map(u => (
+                            <div key={u.email} className="admin-list-item">
+                                <span>{u.email}</span>
+                                <select value={u.role || 'Input'} onChange={e => updateRole("warehouse_billing_access", u.email, e.target.value)} className="admin-role-select">
+                                    <option value="Input">Input Only</option>
+                                    <option value="Finance">Finance</option>
+                                    <option value="Admin">Admin</option>
+                                </select>
+                                <button onClick={() => handleRemoveUser("warehouse_billing_access", u.email)} className="btn-remove">×</button>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
                 <div className="admin-card" style={{ borderLeft: '5px solid #059669' }}>
                     <h3 className="admin-card-header">Wi-Fi Management</h3>
                     <div className="admin-add-row">
@@ -294,7 +314,10 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
+            </div>
 
+            {/* ROW 6: Client Management & Machine/QC */}
+            <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #ca8a04' }}>
                     <h3 className="admin-card-header">Client Management</h3>
                     <div className="admin-add-row">
@@ -314,10 +337,7 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
-            </div>
 
-            {/* ROW 6: Machine & QC + Recycle Bin */}
-            <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #ef4444' }}>
                     <h3 className="admin-card-header">Machine & QC Reports</h3>
                     <div className="admin-add-row">
@@ -341,7 +361,10 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
+            </div>
 
+            {/* ROW 7: Recycle Bin (Empty block on the right keeps it structurally 2 columns) */}
+            <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #a855f7' }}>
                     <h3 className="admin-card-header">Recycle Bin Access</h3>
                     <div className="admin-add-row">
@@ -357,9 +380,10 @@ const MasterAdmin = () => {
                         ))}
                     </div>
                 </div>
+                <div></div>
             </div>
 
-            {/* ROW 7: Global Read-Only & Master Admin */}
+            {/* ROW 8: Global Read-Only & Master Admin */}
             <div className="admin-grid-row">
                 <div className="admin-card" style={{ borderLeft: '5px solid #6366f1' }}>
                     <h3 className="admin-card-header">Global Read-Only Admin</h3>

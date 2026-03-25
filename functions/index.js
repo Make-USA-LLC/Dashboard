@@ -603,3 +603,89 @@ exports.onShipmentReadyToBill = onDocumentWritten("shipments/{shipmentId}", asyn
     }
     return null;
 });
+
+// ==================================================================
+// 9. WAREHOUSE BILLING EMAIL NOTIFICATION
+// ==================================================================
+exports.sendWarehouseBillingEmail = onDocumentCreated('warehouse_billing/{docId}', async (event) => {
+    const snap = event.data;
+    if (!snap) return;
+    const data = snap.data();
+
+    // Use the existing shipment billing email env variable, or fallback to SMTP
+    const targetEmail = process.env.SHIPMENT_BILLING_EMAIL || process.env.SMTP_EMAIL;
+
+    // Calculate total hours
+    const totalLaborHours = ((parseFloat(data.hoursSpent) || 0) * (parseFloat(data.peopleCount) || 0)).toFixed(2);
+    const formattedRate = (parseFloat(data.hourlyRate) || 0).toFixed(2);
+    const formattedTotal = (parseFloat(data.totalAmount) || 0).toFixed(2);
+
+    const mailOptions = {
+        from: `"MakeUSA Warehouse" <${process.env.SMTP_EMAIL}>`,
+        to: `"MakeUSA Finance" <${targetEmail}>`,
+        subject: `New Warehouse Labor Entry: ${data.client}`,
+        html: `
+            <div style="font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 600px; margin: 0 auto; background-color: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                
+                <div style="background-color: #1e293b; color: white; padding: 15px 20px; border-radius: 8px 8px 0 0; margin: -20px -20px 20px -20px;">
+                    <h2 style="margin: 0; font-size: 20px;">Warehouse Labor Entry</h2>
+                </div>
+                
+                <div style="background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                    
+                    <table style="width: 100%; border-collapse: collapse; font-size: 15px;">
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b; width: 40%;"><strong>Client</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a; font-weight: bold; font-size: 16px;">${data.client}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;"><strong>Date Performed</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${data.date}</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;"><strong>Time Logged</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${data.hoursSpent} hrs</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;"><strong>Workers Assigned</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${data.peopleCount} people</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;"><strong>Total Billable Labor</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a;">${totalLaborHours} hrs</td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #64748b;"><strong>Applied Rate</strong></td>
+                            <td style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; color: #0f172a;">$${formattedRate} / hr</td>
+                        </tr>
+                    </table>
+
+                    <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 15px; margin-top: 20px; border-radius: 4px;">
+                        <span style="color: #166534; font-size: 13px; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px;">Bill Amount</span><br/>
+                        <span style="color: #15803d; font-size: 26px; font-weight: bold;">$${formattedTotal}</span>
+                    </div>
+
+                    <div style="margin-top: 25px;">
+                        <h4 style="margin: 0 0 8px 0; color: #475569; font-size: 13px; text-transform: uppercase;">Description of Work</h4>
+                        <div style="color: #334155; background: #f8fafc; padding: 15px; border-radius: 6px; font-size: 14px; line-height: 1.5; border: 1px solid #f1f5f9;">
+                            ${data.description ? data.description.replace(/\n/g, '<br/>') : '<em style="color: #94a3b8;">No description provided.</em>'}
+                        </div>
+                    </div>
+                </div>
+                
+                <div style="text-align: center; margin-top: 20px; color: #94a3b8; font-size: 12px;">
+                    Entered by: <strong style="color: #64748b;">${data.createdByName || data.createdBy || 'Unknown'}</strong><br/>
+                    <span style="display: inline-block; margin-top: 5px;">MakeUSA Command Center</span>
+                </div>
+
+            </div>
+        `
+    };
+
+    try {
+        await transporter.sendMail(mailOptions);
+        console.log('Warehouse Billing notification email sent successfully.');
+    } catch (error) {
+        console.error('Error sending Warehouse Billing email:', error);
+    }
+});

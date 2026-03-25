@@ -2,10 +2,16 @@ import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase_config';
 import { collection, addDoc, serverTimestamp, doc, getDoc } from 'firebase/firestore';
 import { Save } from 'lucide-react';
+import { useRole } from '../hooks/useRole'; // <-- Imported the role hook
 
 const Input = ({ canEdit = true }) => {
   const [loading, setLoading] = useState(false);
   const [hourlyRate, setHourlyRate] = useState(0);
+  
+  const { roleData } = useRole(); // <-- Get the user's role data
+  
+  // Determine if the user is an Admin or Master Admin
+  const isAdmin = roleData?.warehouse === 'Admin' || roleData?.master === true;
   
   const [formData, setFormData] = useState({
     client: '',
@@ -77,7 +83,10 @@ const Input = ({ canEdit = true }) => {
       <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', background: '#f8fafc', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
           <h3 style={{ margin: 0, color: '#1e293b' }}>New Warehouse Labor Entry</h3>
-          <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>Current applied rate: <strong>${hourlyRate}/hr</strong></p>
+          {/* ONLY SHOW RATE IF ADMIN */}
+          {isAdmin && (
+            <p style={{ margin: '4px 0 0', fontSize: '13px', color: '#64748b' }}>Current applied rate: <strong>${hourlyRate}/hr</strong></p>
+          )}
         </div>
         {!canEdit && <span style={{fontSize:'12px', color:'#ef4444', fontWeight:'bold'}}>Read-Only</span>}
       </div>

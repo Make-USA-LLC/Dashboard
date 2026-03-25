@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-router-dom';
+import React from 'react';
+import { Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { useRole } from '../hooks/useRole';
 import { PlusCircle, DollarSign, History, Shield, Settings } from 'lucide-react';
 
@@ -7,7 +7,7 @@ import Loader from '../components/loader';
 import Input from './Input';
 import BillingFinance from './BillingFinance';
 import PastBills from './PastBills';
-import WarehouseSettings from './Settings';
+import WarehouseSettings from './settings';
 
 const WarehouseApp = () => {
   const location = useLocation();
@@ -25,13 +25,18 @@ const WarehouseApp = () => {
     };
   };
 
-  // Assuming you use 'warehouse' or 'shipment' role logic. Adjust if you have a specific warehouse role.
-  const isReadOnly = roleData?.readOnly === true;
+  // Explicitly pull the warehouse role assigned in MasterAdmin
+  const myRole = roleData?.warehouse || 'Input'; 
   const isMaster = roleData?.master === true;
-  const myRole = roleData?.warehouse || roleData?.shipment || 'Input'; 
+  const isReadOnly = roleData?.readOnly === true;
 
+  // STRICT ROLE DEFINITIONS
+  const canEnterData = (myRole === 'Admin' || myRole === 'Input' || isMaster) && !isReadOnly;
+  const canBill = (myRole === 'Admin' || myRole === 'Finance' || isMaster) && !isReadOnly;
   const canViewBilling = myRole === 'Admin' || myRole === 'Finance' || isMaster || isReadOnly;
-  const canEdit = (myRole === 'Admin' || myRole === 'Finance' || myRole === 'Input' || isMaster) && !isReadOnly;
+  
+  // UPDATED: Added 'Finance' to the allowed list for Settings
+  const canViewSettings = (myRole === 'Admin' || myRole === 'Finance' || isMaster) && !isReadOnly;
 
   if (loading) return <Loader message="Loading Warehouse Billing..." />;
 
@@ -57,9 +62,12 @@ const WarehouseApp = () => {
         </div>
 
         <nav style={{ display: 'flex', gap: '5px' }}>
-          <Link to="/warehousebilling" style={navItemClass('/warehousebilling')}>
-            <PlusCircle size={18} /> Entry
-          </Link>
+          {/* Hide Entry tab from Finance entirely */}
+          {canEnterData && (
+            <Link to="/warehousebilling" style={navItemClass('/warehousebilling')}>
+              <PlusCircle size={18} /> Entry
+            </Link>
+          )}
           
           {canViewBilling && (
             <Link to="/warehousebilling/billing" style={navItemClass('/warehousebilling/billing')}>
@@ -71,7 +79,7 @@ const WarehouseApp = () => {
             <History size={18} /> History
           </Link>
 
-          {canViewBilling && canEdit && (
+          {canViewSettings && (
             <Link to="/warehousebilling/settings" style={navItemClass('/warehousebilling/settings')}>
               <Settings size={18} /> Settings
             </Link>
@@ -81,11 +89,13 @@ const WarehouseApp = () => {
 
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <Routes>
-          <Route path="/" element={<Input canEdit={canEdit} />} />
-          <Route path="/billing" element={canViewBilling ? <BillingFinance canEdit={canEdit} /> : <Navigate to="/warehousebilling" />} />
-          <Route path="/history" element={<PastBills canEdit={canEdit} />} />
-          <Route path="/settings" element={canViewBilling && canEdit ? <WarehouseSettings /> : <Navigate to="/warehousebilling" />} />
-          <Route path="*" element={<Navigate to="/warehousebilling" />} />
+          {/* If Finance tries to hit the root route, auto-redirect them to billing */}
+          <Route path="/" element={canEnterData ? <Input canEdit={canEnterData} /> : <Navigate to="/warehousebilling/billing" replace />} />
+          
+          <Route path="/billing" element={canViewBilling ? <BillingFinance canBill={canBill} /> : <Navigate to="/warehousebilling" replace />} />
+          <Route path="/history" element={<PastBills />} />
+          <Route path="/settings" element={canViewSettings ? <WarehouseSettings /> : <Navigate to="/warehousebilling" replace />} />
+          <Route path="*" element={<Navigate to="/warehousebilling" replace />} />
         </Routes>
       </div>
     </div>
