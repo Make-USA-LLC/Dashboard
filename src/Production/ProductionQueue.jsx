@@ -19,9 +19,12 @@ const ProductionQueue = () => {
 
     const [form, setForm] = useState({ 
         company: '', project: '', category: '', size: '', 
-        quantity: '', price: '', notes: '', startDate: '', workerCount: '' 
+        quantity: '', price: '', notes: '', startDate: '', workerCount: ''
     });
     
+    // Components State
+    const [components, setComponents] = useState([]);
+
     const [requiresBlending, setRequiresBlending] = useState(false);
     const [ingredients, setIngredients] = useState([
         { name: 'B40 190 Proof', percentage: '' },
@@ -94,13 +97,19 @@ const ProductionQueue = () => {
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
             const uploadPromises = files.map(async (file) => {
-                const filePath = `/sites/${SITE_ID}/drive/root:${folderPath}/TechSheet_${file.name}:/content?@microsoft.graph.conflictBehavior=rename`;
+                // Sanitize the filename to remove #, %, &, and other URL-breaking characters
+                const safeFileName = file.name.replace(/[#%&{}\\<>*?/$!'":@+`|=]/g, "_");
+                
+                // Also use encodeURIComponent to be perfectly safe for the HTTP request
+                const filePath = `/sites/${SITE_ID}/drive/root:${folderPath}/TechSheet_${encodeURIComponent(safeFileName)}:/content?@microsoft.graph.conflictBehavior=rename`;
+                
                 const response = await fetch(`https://graph.microsoft.com/v1.0${filePath}`, {
                     method: "PUT", headers: { "Authorization": `Bearer ${token}`, "Content-Type": file.type }, body: file
                 });
                 if (!response.ok) throw new Error(`Failed to upload ${file.name}`);
                 const data = await response.json();
-                return { name: file.name, url: data.webUrl };
+                
+                return { name: safeFileName, url: data.webUrl };
             });
 
             const uploadedDocs = await Promise.all(uploadPromises);
@@ -130,25 +139,33 @@ const ProductionQueue = () => {
             }
         }
 
+        const finalComponents = components.filter(c => c.name.trim() !== '');
+
         try {
             if (editingId) {
                 await updateDoc(doc(db, "production_pipeline", editingId), {
                     ...finalPayload,
                     requiresBlending,
-                    ingredients: requiresBlending ? finalIngredients : []
+                    ingredients: requiresBlending ? finalIngredients : [],
+                    requiredComponents: finalComponents
                 });
                 alert("Job updated!");
             } else {
+                const baseJob = {
+                    ...finalPayload,
+                    status: "production",
+                    techSheetUploaded: false,
+                    techSheets: [],
+                    componentsArrived: false,
+                    requiredComponents: finalComponents,
+                    createdAt: serverTimestamp()
+                };
+
                 if (requiresBlending) {
                     const prodRef = await addDoc(collection(db, "production_pipeline"), {
-                        ...finalPayload,
-                        status: "production",
+                        ...baseJob,
                         requiresBlending: true,
                         blendingStatus: "pending",
-                        techSheetUploaded: false,
-                        techSheets: [],
-                        componentsArrived: false,
-                        createdAt: serverTimestamp()
                     });
 
                     await addDoc(collection(db, "blending_queue"), {
@@ -161,15 +178,10 @@ const ProductionQueue = () => {
                     });
                 } else {
                     await addDoc(collection(db, "production_pipeline"), {
-                        ...finalPayload,
-                        status: "production",
+                        ...baseJob,
                         requiresBlending: false,
                         blendingStatus: "not_required",
                         ingredients: [],
-                        techSheetUploaded: false,
-                        techSheets: [],
-                        componentsArrived: false,
-                        createdAt: serverTimestamp()
                     });
                 }
             }
@@ -193,6 +205,7 @@ const ProductionQueue = () => {
             startDate: job.startDate || '',
             workerCount: job.workerCount || ''
         });
+        setComponents(job.requiredComponents || []);
         setRequiresBlending(job.requiresBlending || false);
         setIngredients(job.ingredients?.length > 0 ? job.ingredients : [
             { name: 'B40 190 Proof', percentage: '' },
@@ -207,16 +220,15 @@ const ProductionQueue = () => {
         setEditingId(null);
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '', notes: '', startDate: '', workerCount: '' });
         setRequiresBlending(false);
+        setComponents([]);
         setIngredients([{ name: 'B40 190 Proof', percentage: '' }, { name: 'DI Water', percentage: '' }, { name: 'Fragrance Oil', percentage: '', isOil: true }]);
         setIsFormOpen(false);
     };
 
-    // --- NEW SOFT DELETE LOGIC ---
     const handleDelete = async (job) => {
         if (confirm("Move job to Deleted Items?")) {
             if (editingId === job.id) handleCancel();
             try {
-                // 1. Move to Recycle Bin
                 await addDoc(collection(db, "trash_bin"), {
                     originalSystem: "production",
                     originalFeature: "management",
@@ -228,10 +240,7 @@ const ProductionQueue = () => {
                     deletedAt: new Date().toISOString(),
                     deletedBy: user ? user.email : "Unknown"
                 });
-
-                // 2. Remove from active pipeline
                 await deleteDoc(doc(db, "production_pipeline", job.id));
-
             } catch (err) {
                 alert("Error deleting job: " + err.message);
             }
@@ -274,9 +283,20 @@ const ProductionQueue = () => {
                         </div>
                         <div><label style={styles.label}>Quantity</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
                         <div><label style={styles.label}>Price per Unit</label><input type="number" step="0.01" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
-                        
                         <div><label style={styles.label}>Start Date</label><input type="date" style={styles.input} value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
                         <div><label style={styles.label}>Employees Required</label><input type="number" style={styles.input} value={form.workerCount} onChange={e=>setForm({...form, workerCount:e.target.value})} /></div>
+                        
+                        {/* Components Array List */}
+                        <div style={{gridColumn: '1 / -1', background: '#fff', padding: '15px', borderRadius: '5px', border: '1px solid #cbd5e1', marginTop: '10px'}}>
+                            <h4 style={{margin: '0 0 10px 0', color: '#333'}}>📦 Required Components List</h4>
+                            {components.map((comp, idx) => (
+                                <div key={idx} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center' }}>
+                                    <input style={styles.input} placeholder="e.g. 2oz Amber Glass Bottle" value={comp.name} onChange={(e) => { const newC = [...components]; newC[idx].name = e.target.value; setComponents(newC); }} />
+                                    <button onClick={() => setComponents(components.filter((_, i) => i !== idx))} style={{ background: 'none', border: 'none', color: 'red', cursor: 'pointer', fontSize: '16px' }}>✖</button>
+                                </div>
+                            ))}
+                            <button onClick={() => setComponents([...components, { name: '', arrived: false }])} style={{ ...styles.btn, background: '#e2e8f0', color: '#333', fontSize: '12px', padding: '6px 12px' }}>+ Add Required Component</button>
+                        </div>
                     </div>
 
                     <div style={{ borderTop: '1px solid #ccc', paddingTop: '15px', marginTop: '15px' }}>
@@ -346,8 +366,42 @@ const ProductionQueue = () => {
 
                             <div style={{marginTop:'10px'}}>
                                 <span style={{...styles.badge, background: job.techSheetUploaded ? '#dcfce7' : '#fee2e2', color: job.techSheetUploaded ? '#166534' : '#991b1b'}}>{job.techSheetUploaded ? "✓ Tech Sheet" : "✗ No Sheet"}</span>
-                                <span style={{...styles.badge, marginLeft:'10px', background: job.componentsArrived ? '#dcfce7' : '#f3f4f6', color: job.componentsArrived ? '#166534' : '#666'}}>{job.componentsArrived ? "✓ Arrived" : "Waiting for Components"}</span>
+                                <span style={{...styles.badge, marginLeft:'10px', background: job.componentsArrived ? '#dcfce7' : '#fef3c7', color: job.componentsArrived ? '#166534' : '#92400e'}}>{job.componentsArrived ? "✓ All Components Arrived" : "Waiting for Components"}</span>
                                 
+                                {/* Interactive Components Checklist */}
+                                {job.requiredComponents && job.requiredComponents.length > 0 && (
+                                    <div style={{ marginTop: '12px', background: '#f8fafc', padding: '10px 15px', borderRadius: '6px', border: '1px solid #e2e8f0' }}>
+                                        <strong style={{ fontSize: '13px', display: 'block', marginBottom: '8px', color: '#334155' }}>📦 Component Checklist:</strong>
+                                        {job.requiredComponents.map((comp, idx) => (
+                                            <label key={idx} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', marginBottom: '6px', cursor: 'pointer' }}>
+                                                <input 
+                                                    type="checkbox" 
+                                                    checked={comp.arrived} 
+                                                    style={{ width: '16px', height: '16px', cursor: 'pointer' }}
+                                                    onChange={(e) => {
+                                                        const updatedList = [...job.requiredComponents];
+                                                        updatedList[idx].arrived = e.target.checked;
+                                                        
+                                                        // Automatically mark main status 'arrived' if all boxes get checked
+                                                        const allArrived = updatedList.every(c => c.arrived);
+                                                        
+                                                        updateDoc(doc(db, "production_pipeline", job.id), { 
+                                                            requiredComponents: updatedList,
+                                                            componentsArrived: allArrived
+                                                        });
+                                                    }}
+                                                />
+                                                <span style={{ 
+                                                    textDecoration: comp.arrived ? 'line-through' : 'none', 
+                                                    color: comp.arrived ? '#94a3b8' : '#0f172a',
+                                                    fontWeight: comp.arrived ? 'normal' : '500'
+                                                }}>
+                                                    {comp.name}
+                                                </span>
+                                            </label>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -357,19 +411,29 @@ const ProductionQueue = () => {
                                 <label htmlFor={`file-${job.id}`} style={{fontSize:'12px', color: isDemo ? '#9ca3af' : '#2563eb', cursor: isDemo ? 'not-allowed' : 'pointer', textDecoration: isDemo ? 'none' : 'underline', display: 'block', marginBottom: '5px'}}>{uploadingId === job.id ? "Uploading..." : (isDemo ? "Uploads Disabled (Demo)" : "+ Add Tech Sheet(s)")}</label>
                             </div>
 
-                            <button onClick={() => updateDoc(doc(db, "production_pipeline", job.id), { componentsArrived: !job.componentsArrived })} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>{job.componentsArrived ? "Mark Pending" : "Mark Arrived"}</button>
+                            <button onClick={() => {
+                                // Smart toggle: checks/unchecks all sub-components automatically
+                                const isNowArrived = !job.componentsArrived;
+                                const updatedList = (job.requiredComponents || []).map(c => ({...c, arrived: isNowArrived}));
+                                updateDoc(doc(db, "production_pipeline", job.id), { 
+                                    componentsArrived: isNowArrived,
+                                    requiredComponents: updatedList
+                                });
+                            }} style={{...styles.btn, background: job.componentsArrived ? '#dcfce7' : '#fff', border: '1px solid #ccc', color: '#333'}}>
+                                {job.componentsArrived ? "Mark Pending" : "Mark All Arrived"}
+                            </button>
+                            
                             <button 
-    onClick={() => sendToQC(job)} 
-    disabled={!job.techSheetUploaded || !job.componentsArrived} 
-    style={{
-        ...styles.btn, 
-        background: (!job.techSheetUploaded || !job.componentsArrived) ? '#eee' : '#8e44ad', 
-        color: (!job.techSheetUploaded || !job.componentsArrived) ? '#999' : 'white'
-    }}>
-    Send to QC &rarr;
-</button>
+                                onClick={() => sendToQC(job)} 
+                                disabled={!job.techSheetUploaded || !job.componentsArrived} 
+                                style={{
+                                    ...styles.btn, 
+                                    background: (!job.techSheetUploaded || !job.componentsArrived) ? '#eee' : '#8e44ad', 
+                                    color: (!job.techSheetUploaded || !job.componentsArrived) ? '#999' : 'white'
+                                }}>
+                                Send to QC &rarr;
+                            </button>
                             <button onClick={() => handleEdit(job)} style={{...styles.btn, background: '#f39c12', color: 'white'}}>Edit</button>
-                            {/* Updated deletion onClick */}
                             <button onClick={() => handleDelete(job)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
                         </div>
                     </div>
