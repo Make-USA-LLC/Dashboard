@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { db, collection, doc, getDoc, getDocs, updateDoc, deleteDoc, query, orderBy, limit } from './firebase_config'; 
 import './FinanceInput.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit }) => {
