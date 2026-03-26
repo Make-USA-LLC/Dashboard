@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './AgentReports.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db } from './firebase_config'; 
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
