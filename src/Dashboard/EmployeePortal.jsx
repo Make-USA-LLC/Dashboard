@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './EmployeePortal.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { calculateBonuses, getPayDate } from './calculations/bonuses';
 import { db, auth } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
