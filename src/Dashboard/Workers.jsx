@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Workers.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db, auth } from './firebase_config.jsx'; // Added auth
 import { collection, onSnapshot, setDoc, deleteDoc, doc, addDoc } from 'firebase/firestore'; // Added addDoc
 import { useRole } from './hooks/useRole'; 
