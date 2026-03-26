@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './ProjectOptions.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db } from './firebase_config.jsx';
 import { doc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported hook
