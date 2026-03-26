@@ -9,7 +9,7 @@ import {
   ShieldAlert, SlidersHorizontal, ArrowRightLeft,
   ClipboardList, BarChart3
 } from 'lucide-react';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 
 import ItemMaster        from './ItemMaster';
 import StockLedger       from './StockLedger';
