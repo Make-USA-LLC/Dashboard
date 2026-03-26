@@ -5,7 +5,7 @@ import { doc, getDoc } from 'firebase/firestore';
 import { useRole } from '../hooks/useRole';
 import { PlusCircle, DollarSign, History, Shield, Settings, ShieldAlert } from 'lucide-react';
 
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import Input from './Input';
 import BillingFinance from './BillingFinance';
 import PastBills from './PastBills';
