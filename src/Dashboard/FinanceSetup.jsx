@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './FinanceSetup.css';
 import { db } from './firebase_config.jsx';
 import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
-import Loader from '../components/loader'; 
+import Loader from '../components/Loader'; 
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const FinanceSetup = () => {
