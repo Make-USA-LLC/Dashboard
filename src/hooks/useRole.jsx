@@ -9,7 +9,8 @@ export function RoleProvider({ children }) {
       ipad: null, hr: null, tech: false, shed: false, 
       master: false, shipment: null, production: false, qc: false,
       blending: false, reports: null, wifi: null, readOnly: false,
-      deletedItems: false, client: false, warehouse: null // <-- Added warehouse
+      deletedItems: false, client: false, warehouse: null, tpl: null,
+      inventory: null // <-- Added Inventory
   });
   const [loading, setLoading] = useState(true);
 
@@ -31,7 +32,8 @@ export function RoleProvider({ children }) {
               ipad: 'admin', hr: 'Admin', tech: true, shed: true, 
               master: true, shipment: 'Admin', production: true, qc: true,
               blending: true, reports: 'Both_Finance', wifi: 'Master Admin', readOnly: false,
-              deletedItems: true, client: true, warehouse: 'Admin' // <-- Added warehouse
+              deletedItems: true, client: true, warehouse: 'Admin', tpl: 'Admin',
+              inventory: 'Admin' // <-- Added Inventory
           });
           setLoading(false);
           return;
@@ -41,7 +43,8 @@ export function RoleProvider({ children }) {
             ipad: false, hr: false, tech: false, shed: false, 
             shipment: false, prod: false, qc: false, blending: false, 
             reports: false, master: false, wifi: false, readOnly: false,
-            deletedItems: false, client: false, warehouse: false // <-- Added warehouse
+            deletedItems: false, client: false, warehouse: false, tpl: false,
+            inventory: false // <-- Added Inventory
         };
 
         const markLoaded = (key) => {
@@ -57,7 +60,7 @@ export function RoleProvider({ children }) {
             setLoading(false);
         }, 3000);
 
-        // Fetch all roles simultaneously, including Warehouse
+        // Fetch all roles simultaneously
         const unsubs = [
           onSnapshot(doc(db, "users", email), (s) => { setAccess(v => ({ ...v, ipad: s.data()?.role })); markLoaded('ipad'); }, () => markLoaded('ipad')),
           onSnapshot(doc(db, "authorized_users", email), (s) => { setAccess(v => ({ ...v, hr: s.data()?.role })); markLoaded('hr'); }, () => markLoaded('hr')),
@@ -73,7 +76,9 @@ export function RoleProvider({ children }) {
           onSnapshot(doc(db, "readonly_admin_access", email), (s) => { setAccess(v => ({ ...v, readOnly: s.exists() })); markLoaded('readOnly'); }, () => markLoaded('readOnly')),
           onSnapshot(doc(db, "deleted_items_access", email), (s) => { setAccess(v => ({ ...v, deletedItems: s.exists() })); markLoaded('deletedItems'); }, () => markLoaded('deletedItems')),
           onSnapshot(doc(db, "client_access", email), (s) => { setAccess(v => ({ ...v, client: s.exists() })); markLoaded('client'); }, () => markLoaded('client')),
-          onSnapshot(doc(db, "warehouse_billing_access", email), (s) => { setAccess(v => ({ ...v, warehouse: s.data()?.role })); markLoaded('warehouse'); }, () => markLoaded('warehouse')) // <-- Added listener
+          onSnapshot(doc(db, "warehouse_billing_access", email), (s) => { setAccess(v => ({ ...v, warehouse: s.data()?.role })); markLoaded('warehouse'); }, () => markLoaded('warehouse')),
+          onSnapshot(doc(db, "tpl_billing_access", email), (s) => { setAccess(v => ({ ...v, tpl: s.data()?.role })); markLoaded('tpl'); }, () => markLoaded('tpl')),
+          onSnapshot(doc(db, "inventory_access", email), (s) => { setAccess(v => ({ ...v, inventory: s.data()?.role })); markLoaded('inventory'); }, () => markLoaded('inventory')) // <-- Added Inventory
         ];
 
         return () => {
@@ -84,7 +89,7 @@ export function RoleProvider({ children }) {
         setAccess({ 
             ipad: null, hr: null, tech: false, shed: false, master: false, 
             shipment: null, production: false, qc: false, blending: false, 
-            reports: null, wifi: null, readOnly: false, deletedItems: false, client: false, warehouse: null
+            reports: null, wifi: null, readOnly: false, deletedItems: false, client: false, warehouse: null, tpl: null, inventory: null
         });
         setLoading(false);
       }
@@ -96,7 +101,7 @@ export function RoleProvider({ children }) {
     }
   }, []);
 
-  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly || access.deletedItems || access.client || !!access.warehouse; // <-- Added to hasAnyAccess
+  const hasAnyAccess = !!access.ipad || !!access.hr || access.tech || access.shed || access.master || !!access.shipment || access.production || access.qc || access.blending || !!access.reports || !!access.wifi || access.readOnly || access.deletedItems || access.client || !!access.warehouse || !!access.tpl || !!access.inventory; 
 
   const checkAccess = (system, feature, action = 'view') => {
     if (access.master) return true;
@@ -122,7 +127,9 @@ export function RoleProvider({ children }) {
       case 'reports': return !!access.reports;
       case 'wifi': return !!access.wifi;
       case 'client': return access.client;
-      case 'warehouse': return !!access.warehouse; // <-- Added to switch
+      case 'warehouse': return !!access.warehouse;
+      case 'tpl': return !!access.tpl;
+      case 'inventory': return !!access.inventory; // <-- Added Inventory
       default: return false;
     }
   };

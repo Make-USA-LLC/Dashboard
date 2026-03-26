@@ -1,0 +1,6 @@
+@media print {
+    body * { visibility: hidden; }
+    .printable-packing-list, .printable-packing-list * { visibility: visible; }
+    .printable-packing-list { position: absolute; left: 0; top: 0; width: 100%; padding: 0 !important; }
+    .no-print { display: none !important; }
+}

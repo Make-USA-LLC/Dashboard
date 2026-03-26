@@ -4,8 +4,8 @@ import { onAuthStateChanged, signOut } from 'firebase/auth';
 import { auth } from './firebase_config';
 import { 
   Users, Wrench, Tablet, Warehouse, ShieldAlert, LogOut,
-  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2, Receipt
-} from 'lucide-react'; 
+  Activity, Package, Factory, ClipboardCheck, FlaskConical, Wifi, Briefcase, Trash2, Receipt, Archive, Boxes
+} from 'lucide-react'; // <-- Added Boxes for Inventory
 
 import DomainRouter from './components/DomainRouter';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
@@ -28,7 +28,9 @@ import BlendingApp from './Blending/App';
 import ClientApp from './Client/App'; 
 import DeletedItems from './Deleted/Dashboard'; 
 import PurgeHistory from './Deleted/PurgeHistory';
-import WarehouseApp from './WarehouseBilling/App'; // <-- Added Import
+import WarehouseApp from './WarehouseBilling/App'; 
+import TPLApp from './3PL/App'; 
+import InventoryApp from './inventory/App'; // <-- Added Inventory Import
 
 import GuestAccess from './wifi/GuestAccess';
 import WifiApp from './wifi/App'; 
@@ -60,6 +62,14 @@ function SelectionGrid({ user }) {
           <Link to="/clients" style={cardStyle}>
             <div style={{...iconBox, background: '#fef08a', color: '#ca8a04'}}><Briefcase size={32} /></div>
             <div><div style={titleStyle}>Client Management</div></div>
+          </Link>
+        )}
+        
+        {/* NEW MASTER INVENTORY LINK */}
+        {checkAccess('inventory', 'system', 'view') && (
+          <Link to="/inventory" style={cardStyle}>
+            <div style={{...iconBox, background: '#dbeafe', color: '#2563eb'}}><Boxes size={32} /></div>
+            <div><div style={titleStyle}>Master Inventory</div></div>
           </Link>
         )}
         
@@ -112,11 +122,17 @@ function SelectionGrid({ user }) {
           </Link>
         )}
 
-        {/* NEW WAREHOUSE BILLING LINK */}
         {checkAccess('warehouse', 'billing', 'view') && (
           <Link to="/warehousebilling" style={cardStyle}>
             <div style={{...iconBox, background: '#fef3c7', color: '#d97706'}}><Receipt size={32} /></div>
             <div><div style={titleStyle}>Warehouse Billing</div></div>
+          </Link>
+        )}
+
+        {checkAccess('tpl', 'billing', 'view') && (
+          <Link to="/3pl" style={cardStyle}>
+            <div style={{...iconBox, background: '#ffedd5', color: '#ea580c'}}><Archive size={32} /></div>
+            <div><div style={titleStyle}>3PL Order Fulfillment</div></div>
           </Link>
         )}
 
@@ -213,17 +229,19 @@ function ProtectedMainApp() {
         <Route path="/dashboard/*" element={<RoleRoute system="ipad" feature="fleet"><DashboardApp /></RoleRoute>} />
         <Route path="/shed/*" element={<RoleRoute system="production" feature="shed"><ShedApp /></RoleRoute>} />
         <Route path="/shipments/*" element={<RoleRoute system="shipment" feature="app"><ShipmentApp /></RoleRoute>} />
-        <Route path="/warehousebilling/*" element={<RoleRoute system="warehouse" feature="billing"><WarehouseApp /></RoleRoute>} /> {/* <-- Added Route */}
+        <Route path="/warehousebilling/*" element={<RoleRoute system="warehouse" feature="billing"><WarehouseApp /></RoleRoute>} />
+        <Route path="/3pl/*" element={<RoleRoute system="tpl" feature="billing"><TPLApp /></RoleRoute>} /> 
+        
+        {/* ADDED INVENTORY ROUTE */}
+        <Route path="/inventory/*" element={<RoleRoute system="inventory" feature="system"><InventoryApp /></RoleRoute>} /> 
+
         <Route path="/production/*" element={<RoleRoute system="production" feature="management"><ProductionApp /></RoleRoute>} />
         <Route path="/blending/*" element={<RoleRoute system="blending" feature="lab"><BlendingApp /></RoleRoute>} /> 
         <Route path="/qc/*" element={<RoleRoute system="qc" feature="module"><QCApp /></RoleRoute>} />
         <Route path="/reports/*" element={<RoleRoute system="reports" feature="analytics"><ReportsApp /></RoleRoute>} />
         <Route path="/wifi/*" element={<RoleRoute system="wifi" feature="portal"><WifiApp /></RoleRoute>} />
-        
-        {/* DELETED ITEMS ROUTE */}
         <Route path="/deleted/*" element={<RoleRoute system="admin" feature="deleted_items"><DeletedItems /></RoleRoute>} />
-	      <Route path="/deleted/history" element={<RoleRoute system="admin" feature="deleted_items"><PurgeHistory /></RoleRoute>} />
-        
+        <Route path="/deleted/history" element={<RoleRoute system="admin" feature="deleted_items"><PurgeHistory /></RoleRoute>} />
         <Route path="/clients/*" element={<RoleRoute system="client" feature="management"><ClientApp /></RoleRoute>} />
       </Routes>
     </div>

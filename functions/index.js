@@ -689,3 +689,85 @@ exports.sendWarehouseBillingEmail = onDocumentCreated('warehouse_billing/{docId}
         console.error('Error sending Warehouse Billing email:', error);
     }
 });
+// =================================
+// 10. 3PL Monthly
+// =================================
+
+
+exports.tplMonthlyDigest = onSchedule({
+    schedule: "0 9 1 * *", // 1st of every month at 9am
+    timeZone: "America/New_York"
+}, async (event) => {
+    const db = admin.firestore();
+    const today = new Date();
+    // Get previous month bounds
+    const prevMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const endOfPrevMonth = new Date(today.getFullYear(), today.getMonth(), 0, 23, 59, 59);
+
+    const snapshot = await db.collection("tpl_billing_history")
+        .where("createdAt", ">=", prevMonth)
+        .where("createdAt", "<=", endOfPrevMonth)
+        .get();
+
+    if (snapshot.empty) return;
+
+    let clientData = {}; // { clientName: { totalItems: 0, totalCost: 0, byWeek: {} } }
+
+    snapshot.forEach(doc => {
+        const data = doc.data();
+        const client = data.client || 'Unknown Client';
+        const cost = parseFloat(data.totalPrice) || 0;
+        const qty = parseFloat(data.totalQuantity) || 0;
+        const dateObj = data.createdAt.toDate();
+        const weekNum = Math.ceil(dateObj.getDate() / 7);
+
+        if (!clientData[client]) {
+            clientData[client] = { totalItems: 0, totalCost: 0, byWeek: {} };
+        }
+
+        clientData[client].totalItems += qty;
+        clientData[client].totalCost += cost;
+
+        if (!clientData[client].byWeek[`Week ${weekNum}`]) {
+            clientData[client].byWeek[`Week ${weekNum}`] = { items: 0, cost: 0 };
+        }
+        clientData[client].byWeek[`Week ${weekNum}`].items += qty;
+        clientData[client].byWeek[`Week ${weekNum}`].cost += cost;
+    });
+
+    let htmlBody = `<div style="font-family: Arial, sans-serif;">
+        <h2 style="color: #2c3e50;">3PL Fulfillment Digest - ${prevMonth.toLocaleString('default', { month: 'long', year: 'numeric' })}</h2>`;
+
+    for (const [client, info] of Object.entries(clientData)) {
+        htmlBody += `<div style="margin-bottom: 20px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 15px;">
+            <h3 style="margin-top: 0; color: #d97706;">${client}</h3>
+            <p><strong>Total Billed:</strong> $${info.totalCost.toFixed(2)}</p>
+            <p><strong>Total Qty Processed:</strong> ${info.totalItems}</p>
+            <table style="width: 100%; border-collapse: collapse; margin-top: 10px;">
+                <tr style="background: #f8fafc;">
+                    <th style="padding: 8px; text-align: left; border-bottom: 2px solid #cbd5e1;">Week</th>
+                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #cbd5e1;">Qty</th>
+                    <th style="padding: 8px; text-align: right; border-bottom: 2px solid #cbd5e1;">Cost</th>
+                </tr>`;
+        
+        for (const [week, stats] of Object.entries(info.byWeek)) {
+            htmlBody += `<tr>
+                <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${week}</td>
+                <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e2e8f0;">${stats.items}</td>
+                <td style="padding: 8px; text-align: right; border-bottom: 1px solid #e2e8f0;">$${stats.cost.toFixed(2)}</td>
+            </tr>`;
+        }
+        htmlBody += `</table></div>`;
+    }
+
+    htmlBody += `</div>`;
+
+    const mailOptions = {
+        from: `"MakeUSA 3PL" <${process.env.SMTP_EMAIL}>`,
+        to: `"MakeUSA Finance" <${process.env.SHIPMENT_BILLING_EMAIL || process.env.SMTP_EMAIL}>`,
+        subject: `Monthly 3PL Billing Digest - ${prevMonth.toLocaleString('default', { month: 'long' })}`,
+        html: htmlBody
+    };
+
+    await transporter.sendMail(mailOptions);
+});
