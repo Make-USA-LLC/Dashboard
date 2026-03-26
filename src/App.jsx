@@ -30,7 +30,7 @@ import DeletedItems from './Deleted/Dashboard';
 import PurgeHistory from './Deleted/PurgeHistory';
 import WarehouseApp from './WarehouseBilling/App'; 
 import TPLApp from './3PL/App'; 
-import InventoryApp from './inventory/App'; // <-- Added Inventory Import
+import InventoryApp from './Inventory/App.jsx';
 
 import GuestAccess from './wifi/GuestAccess';
 import WifiApp from './wifi/App'; 
