@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './AgentPortal.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db, auth } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
 import { 
