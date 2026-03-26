@@ -30,7 +30,7 @@ import UpcomingProjects from './UpcomingProjects';
 import Workers from './Workers';
 
 // Context & Loaders
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { RoleProvider, useRole } from './hooks/useRole';
 
 const DashboardGuard = ({ children }) => {
