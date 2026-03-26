@@ -3,7 +3,7 @@ import { db } from '../firebase_config';
 import { doc, getDoc } from 'firebase/firestore';
 import { useRole } from '../hooks/useRole'; 
 
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import Generator from './Generator';
 import Logs from './Logs';
 import Admin from './Admin';
