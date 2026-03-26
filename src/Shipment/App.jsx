@@ -3,7 +3,7 @@ import { Routes, Route, Link, useNavigate, useLocation, Navigate } from 'react-r
 import { useRole } from '../hooks/useRole';
 import { LogOut, PlusCircle, DollarSign, History, Shield } from 'lucide-react';
 
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import ShipmentInput from './ShipmentInput';
 import BillingFinance from './BillingFinance';
 import PastBills from './PastBills';
