@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './AgentManagement.css';
 import { db } from './firebase_config.jsx';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
-import Loader from '../components/loader'; 
+import Loader from '../components/Loader'; 
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const AgentManagement = () => {
