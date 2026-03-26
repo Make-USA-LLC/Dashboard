@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import './ArchiveUpload.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db } from './firebase_config.jsx';
 import { collection, writeBatch, doc } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
