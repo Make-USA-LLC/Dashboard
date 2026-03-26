@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import './Dashboard.css';
 import Sortable from 'sortablejs';
 import { useNavigate } from 'react-router-dom'; 
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db, newIpadDefaults } from './firebase_config'; 
 import { doc, collection, onSnapshot, serverTimestamp, setDoc, deleteDoc } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
