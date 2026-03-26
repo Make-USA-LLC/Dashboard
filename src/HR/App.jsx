@@ -2,7 +2,7 @@ import React from 'react';
 import { Routes, Route, Link, Navigate, useNavigate } from 'react-router-dom';
 import { useRole, RoleProvider } from './hooks/useRole'; 
 import './HR.css'; 
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 
 // Page Imports
 import Dashboard from './pages/Dashboard';
