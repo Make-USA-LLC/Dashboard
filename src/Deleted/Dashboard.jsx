@@ -4,7 +4,7 @@ import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, arrayUnion, 
 import { db } from '../firebase_config';
 import { useRole } from '../hooks/useRole';
 import { Trash2, RefreshCcw, AlertTriangle, ShieldAlert, History } from 'lucide-react';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 
 export default function DeletedItems() {
     const navigate = useNavigate();
