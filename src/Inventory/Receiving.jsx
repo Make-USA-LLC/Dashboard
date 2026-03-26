@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db, auth } from '../firebase_config';
 import {
   collection, onSnapshot, doc, writeBatch,
-  serverTimestamp, addDoc, getDoc
+  serverTimestamp, getDoc
 } from 'firebase/firestore';
 import { ArrowDownToLine, Save, Plus, Trash2, Search, Mail, X, Printer, CheckCircle } from 'lucide-react';
 import { jsPDF } from 'jspdf';
@@ -14,18 +14,14 @@ const Receiving = () => {
   const [locations, setLocations] = useState([]);
   const [clients, setClients] = useState([]);
   const [globalCc, setGlobalCc] = useState([]);
-  const [vendors, setVendors] = useState([]);
 
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [poNumber, setPoNumber] = useState('');
-  const [vendor, setVendor] = useState('');
-  const [notifyClient, setNotifyClient] = useState('');
+  const [emailClient, setEmailClient] = useState(false);
   const [receivingNotes, setReceivingNotes] = useState('');
   const [receivedLines, setReceivedLines] = useState([{ skuInput: '', qty: '', location: '' }]);
   const [loading, setLoading] = useState(false);
   const [successReport, setSuccessReport] = useState(null); // for post-submit receipt preview
-
-  const [showVendorModal, setShowVendorModal] = useState(false);
-  const [newVendorName, setNewVendorName] = useState('');
 
   const printRef = useRef(null);
 
@@ -35,13 +31,12 @@ const Receiving = () => {
     const u1 = onSnapshot(collection(db, 'inv_items'), snap => setItems(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
     const u2 = onSnapshot(collection(db, 'inv_locations'), snap => setLocations(snap.docs.map(d => d.data().fullName)));
     const u3 = onSnapshot(collection(db, 'inv_clients'), snap => setClients(snap.docs.map(d => ({ id: d.id, ...d.data() }))));
-    const u4 = onSnapshot(collection(db, 'inv_vendors'), snap => setVendors(snap.docs.map(d => ({ id: d.id, name: d.data().name }))));
 
     getDoc(doc(db, 'config', 'inv_settings')).then(snap => {
       if (snap.exists()) setGlobalCc(snap.data().alwaysCc || []);
     });
 
-    return () => { u1(); u2(); u3(); u4(); };
+    return () => { u1(); u2(); u3(); };
   }, []);
 
   const addLine = () => setReceivedLines([...receivedLines, { skuInput: '', qty: '', location: '' }]);
@@ -53,31 +48,20 @@ const Receiving = () => {
     setReceivedLines(newLines);
   };
 
-  const handleAddVendor = async (e) => {
-    e.preventDefault();
-    if (!newVendorName.trim()) return;
-    try {
-      await addDoc(collection(db, 'inv_vendors'), { name: newVendorName.trim() });
-      setVendor(newVendorName.trim());
-      setShowVendorModal(false);
-      setNewVendorName('');
-    } catch (e) { alert(e.message); }
-  };
-
   // Validate all lines before submitting
   const validateLines = () => {
-    if (!vendor) return 'Please select a vendor.';
+    if (!selectedClientId) return 'Please select a client.';
     if (!poNumber.trim()) return 'Please enter a PO number.';
     for (const line of receivedLines) {
       if (!line.skuInput.trim()) return 'Fill in all SKU fields.';
       if (!items.find(i => i.sku === line.skuInput)) return `SKU "${line.skuInput}" not found in item master.`;
       if (!line.qty || Number(line.qty) <= 0) return 'All quantities must be greater than 0.';
-      if (!line.location.trim()) return 'All lines need a bin location.';
+      if (!line.location.trim()) return 'All lines need a destination bin.';
     }
     return null;
   };
 
-  const generateReceiptPDF = (reportId, populatedLines) => {
+  const generateReceiptPDF = (reportId, populatedLines, clientName) => {
     const pdf = new jsPDF();
     pdf.setFontSize(20);
     pdf.text('make', 14, 20);
@@ -88,7 +72,7 @@ const Receiving = () => {
     pdf.text('Item Receipt', 150, 20);
     pdf.text(`DATE: ${new Date().toLocaleDateString()}`, 150, 26);
     pdf.text(`PO #: ${poNumber || reportId}`, 150, 32);
-    pdf.text(`VENDOR: ${vendor}`, 150, 38);
+    pdf.text(`CLIENT: ${clientName}`, 150, 38);
 
     const tableBody = populatedLines.map(l => [l.sku, `${l.name}\nBin: ${l.location}`, l.qty.toString()]);
     pdf.autoTable({
@@ -115,10 +99,10 @@ const Receiving = () => {
     const validationError = validateLines();
     if (validationError) return alert(validationError);
 
-    // Email confirmation prompt (only if a client is selected)
-    let clientData = null;
-    if (notifyClient) {
-      clientData = clients.find(c => c.id === notifyClient);
+    const clientData = clients.find(c => c.id === selectedClientId);
+
+    // Email confirmation prompt
+    if (emailClient) {
       const proceed = window.confirm(
         `This will instantly email the Receiving Report PDF to ${clientData.name} and all internal CC recipients.\n\nProceed?`
       );
@@ -132,7 +116,7 @@ const Receiving = () => {
       const populatedLines = [];
 
       let htmlEmailBody = `<p><strong>Receiving Report: ${reportId}</strong></p>
-        <p><strong>Vendor:</strong> ${vendor}<br/><strong>PO:</strong> ${poNumber}</p>`;
+        <p><strong>Client:</strong> ${clientData.name}<br/><strong>PO:</strong> ${poNumber}</p>`;
       if (receivingNotes) htmlEmailBody += `<p>${receivingNotes.replace(/\n/g, '<br/>')}</p>`;
       htmlEmailBody += `<hr/><p>Make USA LLC Operations</p>`;
 
@@ -141,7 +125,9 @@ const Receiving = () => {
         batch.set(doc(collection(db, 'inv_transactions')), {
           type: 'RECEIVING',
           reportId,
-          vendor,
+          vendor: clientData.name, // Maintained field for backwards compatibility in ledger
+          client: clientData.name,
+          clientId: clientData.id,
           poNumber,
           itemId: itemData.id,
           sku: itemData.sku,
@@ -153,8 +139,8 @@ const Receiving = () => {
         populatedLines.push({ sku: itemData.sku, name: itemData.name, qty: line.qty, location: line.location });
       });
 
-      if (notifyClient && clientData) {
-        const base64PDF = generateReceiptPDF(reportId, populatedLines);
+      if (emailClient) {
+        const base64PDF = generateReceiptPDF(reportId, populatedLines, clientData.name);
         batch.set(doc(collection(db, 'inv_emails')), {
           to: clientData.emails || [],
           cc: globalCc || [],
@@ -174,10 +160,10 @@ const Receiving = () => {
       await batch.commit();
 
       // Show success summary instead of alert
-      setSuccessReport({ reportId, populatedLines, vendor, poNumber, notifiedClient: clientData?.name || null });
+      setSuccessReport({ reportId, populatedLines, clientName: clientData.name, poNumber, notifiedClient: emailClient ? clientData.name : null });
 
       // Reset form
-      setVendor(''); setPoNumber(''); setNotifyClient(''); setReceivingNotes('');
+      setSelectedClientId(''); setPoNumber(''); setEmailClient(false); setReceivingNotes('');
       setReceivedLines([{ skuInput: '', qty: '', location: '' }]);
     } catch (error) {
       alert('Receiving failed: ' + error.message);
@@ -202,7 +188,7 @@ const Receiving = () => {
                 Receipt Logged — {successReport.reportId}
               </p>
               <p style={{ margin: '0 0 10px', color: '#15803d', fontSize: '14px' }}>
-                {successReport.vendor} · PO {successReport.poNumber}
+                {successReport.clientName} · PO {successReport.poNumber}
                 {successReport.notifiedClient && ` · Email sent to ${successReport.notifiedClient}`}
               </p>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
@@ -231,45 +217,25 @@ const Receiving = () => {
         </div>
 
         <datalist id="item-skus-rec">{items.map(i => <option key={i.id} value={i.sku}>{i.name}</option>)}</datalist>
-        <datalist id="location-list-rec">{locations.map(l => <option key={l} value={l} />)}</datalist>
 
         <form onSubmit={handleReceive}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '20px', marginBottom: '20px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', marginBottom: '20px' }}>
 
-            {/* Vendor */}
+            {/* Client */}
             <div>
-              <label style={styles.lbl}>Vendor *</label>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <select required value={vendor} onChange={e => setVendor(e.target.value)} style={{ ...styles.inp, flex: 1 }}>
-                  <option value="">Select Vendor...</option>
-                  {vendors.map(v => <option key={v.id} value={v.name}>{v.name}</option>)}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => setShowVendorModal(true)}
-                  title="Add new vendor"
-                  style={styles.iconBtn}
-                >
-                  <Plus size={17} />
-                </button>
-              </div>
+              <label style={styles.lbl}>Client *</label>
+              <select required value={selectedClientId} onChange={e => setSelectedClientId(e.target.value)} style={styles.inp}>
+                <option value="">Select Client...</option>
+                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
             </div>
 
+            {/* PO Number */}
             <div>
               <label style={styles.lbl}>PO Number *</label>
               <input required value={poNumber} onChange={e => setPoNumber(e.target.value)} style={styles.inp} placeholder="e.g. PO-2024-001" />
             </div>
 
-            <div>
-              <label style={styles.lbl}>
-                Notify Client
-                <span style={{ fontWeight: 'normal', color: '#94a3b8', marginLeft: '6px' }}>(triggers email)</span>
-              </label>
-              <select value={notifyClient} onChange={e => setNotifyClient(e.target.value)} style={styles.inp}>
-                <option value="">Do Not Send Email</option>
-                {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
           </div>
 
           <div style={{ marginBottom: '24px' }}>
@@ -317,14 +283,20 @@ const Receiving = () => {
                   onChange={e => handleLineChange(index, 'qty', e.target.value)}
                   style={styles.inp}
                 />
-                <input
-                  list="location-list-rec"
+                
+                {/* Changed from text input with datalist to a true select dropdown */}
+                <select
                   required
-                  placeholder="Select bin..."
                   value={line.location}
                   onChange={e => handleLineChange(index, 'location', e.target.value)}
                   style={styles.inp}
-                />
+                >
+                  <option value="">Select bin...</option>
+                  {locations.map(loc => (
+                    <option key={loc} value={loc}>{loc}</option>
+                  ))}
+                </select>
+
                 <button
                   type="button"
                   onClick={() => removeLine(index)}
@@ -346,23 +318,37 @@ const Receiving = () => {
             </button>
           </div>
 
+          {/* Email Checkbox */}
+          <div style={{ marginBottom: '20px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <input
+              type="checkbox"
+              id="emailClient"
+              checked={emailClient}
+              onChange={e => setEmailClient(e.target.checked)}
+              style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+            />
+            <label htmlFor="emailClient" style={{ fontSize: '15px', color: '#334155', cursor: 'pointer', fontWeight: '500' }}>
+              Email receipt to client upon save
+            </label>
+          </div>
+
           {/* Submit */}
           <button
             disabled={loading}
             type="submit"
             style={{
-              background: notifyClient ? '#ea580c' : '#16a34a',
+              background: emailClient ? '#ea580c' : '#16a34a',
               color: 'white', border: 'none', padding: '14px', width: '100%',
               borderRadius: '8px', fontSize: '15px', fontWeight: '700', cursor: loading ? 'not-allowed' : 'pointer',
               display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '10px',
               opacity: loading ? 0.7 : 1, transition: 'background 0.2s',
             }}
           >
-            {notifyClient ? <Mail size={20} /> : <Save size={20} />}
+            {emailClient ? <Mail size={20} /> : <Save size={20} />}
             {loading
               ? 'Processing...'
-              : notifyClient
-                ? `Log Ledger & Email ${clients.find(c => c.id === notifyClient)?.name || 'Client'}`
+              : emailClient
+                ? `Log Ledger & Email ${clients.find(c => c.id === selectedClientId)?.name || 'Client'}`
                 : 'Log to Ledger Only'
             }
           </button>
@@ -373,7 +359,7 @@ const Receiving = () => {
       {successReport && (
         <div className="printable-packing-list" ref={printRef} style={{ display: 'none' }}>
           <h2>Item Receipt — {successReport.reportId}</h2>
-          <p>Vendor: {successReport.vendor} | PO: {successReport.poNumber} | Date: {new Date().toLocaleDateString()}</p>
+          <p>Client: {successReport.clientName} | PO: {successReport.poNumber} | Date: {new Date().toLocaleDateString()}</p>
           <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: '20px' }}>
             <thead>
               <tr style={{ background: '#f1f5f9' }}>
@@ -397,30 +383,6 @@ const Receiving = () => {
           {receivingNotes && <p style={{ marginTop: '20px' }}>{receivingNotes}</p>}
         </div>
       )}
-
-      {/* ---- Add Vendor Modal ---- */}
-      {showVendorModal && (
-        <div style={styles.overlay}>
-          <form onSubmit={handleAddVendor} style={styles.modal}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ margin: 0 }}>Add New Vendor</h3>
-              <button type="button" onClick={() => setShowVendorModal(false)} style={styles.btnClose}><X size={20} /></button>
-            </div>
-            <label style={styles.lbl}>Vendor Name *</label>
-            <input
-              required
-              autoFocus
-              value={newVendorName}
-              onChange={e => setNewVendorName(e.target.value)}
-              style={{ ...styles.inp, marginBottom: '20px' }}
-              placeholder="e.g. Uline, Alibaba"
-            />
-            <button type="submit" style={{ background: '#2563eb', color: 'white', border: 'none', padding: '11px', width: '100%', borderRadius: '8px', cursor: 'pointer', fontWeight: '700' }}>
-              Save Vendor
-            </button>
-          </form>
-        </div>
-      )}
     </div>
   );
 };
@@ -430,12 +392,8 @@ const styles = {
   lbl: { display: 'block', fontSize: '12px', fontWeight: '700', color: '#64748b', marginBottom: '6px', textTransform: 'uppercase', letterSpacing: '0.4px' },
   inp: { padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', width: '100%', boxSizing: 'border-box', fontSize: '14px', outline: 'none' },
   colHdr: { fontSize: '11px', fontWeight: '700', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.5px' },
-  iconBtn: { background: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   iconBtnRed: { background: '#fef2f2', color: '#ef4444', border: 'none', padding: '9px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center' },
   btnOutline: { background: 'white', color: '#334155', border: '1px solid #cbd5e1', padding: '8px 14px', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', fontWeight: '600' },
-  overlay: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: 'white', padding: '30px', borderRadius: '12px', width: '420px', boxShadow: '0 20px 25px rgba(0,0,0,0.15)' },
-  btnClose: { background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', display: 'flex' },
 };
 
 export default Receiving;
