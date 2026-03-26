@@ -4,7 +4,7 @@ import './BonusReports.css';
 import { calculateBonuses, getPayDate, getWorkWeekFromPayDate, sanitize } from './calculations/bonuses';
 import { db } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc } from 'firebase/firestore';
-import Loader from '../components/loader'; 
+import Loader from '../components/Loader'; 
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const BonusReports = () => {
