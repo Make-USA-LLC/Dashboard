@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './Kiosk.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db, auth } from './firebase_config.jsx';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { signInWithEmailAndPassword } from 'firebase/auth';
