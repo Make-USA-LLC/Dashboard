@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './StaffManagement.css';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { db } from './firebase_config.jsx';
 import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
