@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { collection, onSnapshot, doc, getDoc, setDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
 import { db, auth } from '../firebase_config';
 import { History, ShieldCheck, UserPlus, ChevronDown, ChevronUp, Copy, Terminal } from 'lucide-react';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 
 export default function PurgeHistory() {
     const [loading, setLoading] = useState(true);
