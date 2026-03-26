@@ -11,7 +11,7 @@ import {
   deleteDoc, 
   getDoc 
 } from 'firebase/firestore';
-import Loader from '../components/loader';
+import Loader from '../components/Loader';
 import { useRole } from './hooks/useRole'; // <-- Import our new hook!
 
 const FEATURES = [
