@@ -10,7 +10,7 @@ import {
 import DomainRouter from './components/DomainRouter';
 import { RoleProvider, useRole } from './hooks/useRole.jsx';
 import RoleRoute from './components/RoleRoute.jsx';
-import Loader from './components/loader';
+import Loader from './components/Loader';
 
 import HRApp from './HR/App'; 
 import TechApp from './Techs/App'; 
