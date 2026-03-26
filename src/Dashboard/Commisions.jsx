@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import './Commisions.css';
 import { db } from './firebase_config.jsx';
 import { collection, query, where, getDocs, doc, getDoc, updateDoc } from 'firebase/firestore';
-import Loader from '../components/loader'; 
+import Loader from '../components/Loader'; 
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
 const Commissions = () => {
