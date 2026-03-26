@@ -4,7 +4,7 @@ import * as XLSX from 'xlsx';
 import './FinancialReport.css';
 import { db } from './firebase_config.jsx';
 import { collection, query, where, orderBy, getDocs, doc, getDoc } from 'firebase/firestore';
-import Loader from '../components/loader'; 
+import Loader from '../components/Loader'; 
 import { useRole } from './hooks/useRole'; 
 
 const FinancialReport = () => {
