@@ -13,7 +13,8 @@ const Input = ({ canEdit = true }) => {
   const { roleData } = useRole();
   const isAdmin = roleData?.tpl === 'Admin' || roleData?.master === true;
   
-  const { appendToExcelAndUpload, msalLoading } = useSharePointExcel();
+  // Extracting the new connect methods
+  const { appendToExcelAndUpload, msalLoading, connectSharePoint, isConnected } = useSharePointExcel();
 
   const [formData, setFormData] = useState({
     client: '',
@@ -21,7 +22,7 @@ const Input = ({ canEdit = true }) => {
     date: new Date().toISOString().split('T')[0],
     orderNumber: '',
     site: 'Shopify',
-    totalItems: 1, // Changed from primary/additional to a single Total
+    totalItems: 1, 
     adminHours: '',
     pallets: '',
     description: ''
@@ -46,7 +47,6 @@ const Input = ({ canEdit = true }) => {
       if(formData.serviceType === 'order') {
           const items = Number(formData.totalItems);
           if (items <= 0) return 0;
-          // 1 is Primary. The rest (n-1) are Secondary.
           return rates.firstItem + ((items - 1) * rates.additionalItem);
       }
       
@@ -101,7 +101,7 @@ const Input = ({ canEdit = true }) => {
       setFormData(p => ({
         ...p,
         orderNumber: '',
-        totalItems: 1, // Reset to 1
+        totalItems: 1, 
         adminHours: '',
         pallets: '',
         description: ''
@@ -116,6 +116,9 @@ const Input = ({ canEdit = true }) => {
 
   const currentTotal = calculateTotal();
 
+  // Determine if the submit button should be disabled (preventing un-connected orders)
+  const isSubmitDisabled = loading || msalLoading || (!isConnected && formData.serviceType === 'order');
+
   return (
     <div style={{ maxWidth: '800px', margin: '0 auto', background: 'white', borderRadius: '12px', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)', overflow: 'hidden' }}>
       <div style={{ padding: '20px', borderBottom: '1px solid #e2e8f0', background: '#fffbeb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -125,7 +128,21 @@ const Input = ({ canEdit = true }) => {
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} style={{ padding: '30px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
+      {/* NEW CONNECTION BANNER */}
+      {!isConnected && (
+          <div style={{ margin: '20px', padding: '15px 20px', background: '#fee2e2', color: '#991b1b', borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontWeight: '500' }}>You must connect to SharePoint to sync Order logs.</span>
+              <button 
+                  type="button" 
+                  onClick={connectSharePoint} 
+                  style={{ background: '#b91c1c', color: 'white', padding: '10px 15px', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+              >
+                  Connect SharePoint
+              </button>
+          </div>
+      )}
+
+      <form onSubmit={handleSubmit} style={{ padding: '30px', paddingTop: isConnected ? '30px' : '10px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
         
         <div>
           <label style={labelStyle}>Client Name</label>
@@ -193,7 +210,7 @@ const Input = ({ canEdit = true }) => {
 
         {canEdit && (
             <div style={{ gridColumn: '1 / -1', paddingTop: '10px' }}>
-               <button disabled={loading || msalLoading} type="submit" style={{...btnStyle, background: '#d97706'}}>
+               <button disabled={isSubmitDisabled} type="submit" style={{...btnStyle, background: isSubmitDisabled ? '#94a3b8' : '#d97706', cursor: isSubmitDisabled ? 'not-allowed' : 'pointer'}}>
                   {msalLoading ? <LinkIcon size={18} className="spin" /> : <Save size={18} />}
                   {loading || msalLoading ? 'Syncing to SharePoint...' : `Log $${currentTotal.toFixed(2)} Entry`}
                </button>
@@ -206,6 +223,6 @@ const Input = ({ canEdit = true }) => {
 
 const labelStyle = { display: 'block', marginBottom: '6px', fontWeight: '600', fontSize: '14px', color: '#475569' };
 const inputStyle = { width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid #cbd5e1', fontSize: '14px', boxSizing: 'border-box' };
-const btnStyle = { width: '100%', padding: '12px', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' };
+const btnStyle = { width: '100%', padding: '12px', color: 'white', border: 'none', borderRadius: '8px', fontSize: '16px', fontWeight: '600', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' };
 
 export default Input;

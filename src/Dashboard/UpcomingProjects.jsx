@@ -3,18 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import './UpcomingProjects.css';
 import Loader from '../components/Loader';
 import { db } from './firebase_config.jsx';
-import { collection, addDoc, updateDoc, deleteDoc, doc, getDoc, query, orderBy, onSnapshot, serverTimestamp } from 'firebase/firestore';
-import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
+import { collection, addDoc, updateDoc, deleteDoc, doc, getDoc, query, orderBy, onSnapshot, serverTimestamp, getDocFromServer } from 'firebase/firestore';
+import { useRole } from './hooks/useRole';
 
 const UpcomingProjects = () => {
     const navigate = useNavigate();
     
-    // --- 1. USE THE HOOK ---
     const { user, hasPerm, isReadOnly, loading: roleLoading } = useRole();
     
     const canView = hasPerm('queue', 'view') || hasPerm('admin', 'view') || isReadOnly;
     const canEdit = (hasPerm('queue', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
-    // We treat 'queue_add' differently from general queue edit to allow more granular control
     const canAdd = (hasPerm('queue_add', 'view') || hasPerm('queue_add', 'edit') || hasPerm('admin', 'edit')) && !isReadOnly;
 
     const [pageLoading, setPageLoading] = useState(true);
@@ -22,7 +20,6 @@ const UpcomingProjects = () => {
     const [options, setOptions] = useState({ companies: [], categories: [], sizes: [] });
     const [jobs, setJobs] = useState([]);
     
-    // Form State
     const [editingId, setEditingId] = useState(null);
     const [form, setForm] = useState({
         company: '', project: '', category: '', size: '', 
@@ -30,47 +27,63 @@ const UpcomingProjects = () => {
     });
     const [timePreview, setTimePreview] = useState("Waiting for input...");
 
-    // --- 2. STREAMLINED INITIALIZATION ---
-    useEffect(() => {
-        if (roleLoading) return;
+    console.log(`🚀 [RENDER] Component rendering. Jobs in state: ${jobs.length}. editingId: ${editingId}`);
 
+    // --- INITIALIZATION & LISTENER ---
+    useEffect(() => {
+        if (roleLoading) {
+            console.log("⏳ [INIT] Waiting for role loading...");
+            return;
+        }
         if (!user || !canView) {
+            console.log("🛑 [INIT] Access Denied. Navigating away.");
             navigate('/dashboard');
             return;
         }
 
-        const initialize = async () => {
-            await Promise.all([loadFinanceConfig(), loadOptions()]);
-            initQueueListener();
-            setPageLoading(false);
-        };
-        initialize();
-    }, [user, canView, roleLoading, navigate]);
-
-    const loadFinanceConfig = async () => {
-        try {
-            const docSnap = await getDoc(doc(db, "config", "finance"));
-            if(docSnap.exists()) setCostPerHour(parseFloat(docSnap.data().costPerHour) || 0);
-        } catch(e) { console.error(e); }
-    };
-
-    const loadOptions = async () => {
-        try {
-            const docSnap = await getDoc(doc(db, "config", "project_options"));
-            if(docSnap.exists()) setOptions(docSnap.data());
-        } catch(e) { console.error(e); }
-    };
-
-    const initQueueListener = () => {
+        console.log("⚙️ [INIT] Starting listener setup...");
+        
+        // 1. Attach Listener
         const q = query(collection(db, "project_queue"), orderBy("createdAt", "asc"));
-        onSnapshot(q, (snap) => {
+        const unsubscribeQueue = onSnapshot(q, (snap) => {
             const list = [];
             snap.forEach(d => list.push({ id: d.id, ...d.data() }));
+            
+            console.log(`📡 [LISTENER FIRED] Received ${list.length} items from Firebase.`);
+            console.log(`📡 [LISTENER IDs] ->`, list.map(j => j.id).join(', '));
+            
             setJobs(list);
+        }, (error) => {
+            console.error("🛑 [LISTENER ERROR]", error);
         });
-    };
 
-    // --- 3. FORM LOGIC ---
+        // 2. Load Configs
+        const loadConfigs = async () => {
+            try {
+                const [finSnap, optSnap] = await Promise.all([
+                    getDoc(doc(db, "config", "finance")),
+                    getDoc(doc(db, "config", "project_options"))
+                ]);
+                if(finSnap.exists()) setCostPerHour(parseFloat(finSnap.data().costPerHour) || 0);
+                if(optSnap.exists()) setOptions(optSnap.data());
+                console.log("✅ [INIT] Configs loaded.");
+            } catch (e) { 
+                console.error("🛑 [INIT ERROR]", e); 
+            } finally {
+                setPageLoading(false);
+            }
+        };
+        
+        loadConfigs();
+
+        // Cleanup
+        return () => {
+            console.log("🧹 [CLEANUP] Detaching onSnapshot listener.");
+            unsubscribeQueue();
+        };
+    }, [user, canView, roleLoading, navigate]);
+
+    // --- FORM LOGIC ---
     useEffect(() => {
         const qty = parseFloat(form.quantity) || 0;
         const price = parseFloat(form.price) || 0;
@@ -96,8 +109,8 @@ const UpcomingProjects = () => {
     };
 
     const handleSubmit = async () => {
-        if (editingId && !canEdit) return alert("Access Denied: You do not have permission to edit projects.");
-        if (!editingId && !canAdd) return alert("Access Denied: You do not have permission to add new projects.");
+        if (editingId && !canEdit) return alert("Access Denied.");
+        if (!editingId && !canAdd) return alert("Access Denied.");
 
         const { company, project, category, size, quantity, price } = form;
         const qty = parseFloat(quantity) || 0;
@@ -105,8 +118,7 @@ const UpcomingProjects = () => {
 
         if (!company || !project || !category || !size) return alert("Fill all fields");
         if (qty <= 0 || pr <= 0) return alert("Invalid Quantity/Price");
-        if (costPerHour <= 0) return alert("Cost Per Hour is 0");
-
+        
         const revenue = qty * pr;
         const hours = revenue / costPerHour;
         const totalSeconds = Math.floor(hours * 3600);
@@ -119,7 +131,6 @@ const UpcomingProjects = () => {
         try {
             if (editingId) {
                 await updateDoc(doc(db, "project_queue", editingId), payload);
-                alert("Project updated!");
                 handleCancel();
             } else {
                 payload.createdAt = serverTimestamp();
@@ -148,18 +159,48 @@ const UpcomingProjects = () => {
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
     };
 
-    const handleDelete = async (id) => {
-        if (!canEdit) return alert("Access Denied: You do not have permission to remove projects.");
-        if (window.confirm("Remove from queue?")) {
-            if (editingId === id) handleCancel();
-            await deleteDoc(doc(db, "project_queue", id));
+    // --- NUCLEAR DELETE WITH EXTREME LOGGING ---
+    // --- STANDARD DELETE WITH TRASH BIN BACKUP ---
+    const handleDelete = async (job) => {
+        if (!canEdit) return alert("Access Denied.");
+        
+        if (window.confirm(`Are you sure you want to remove ${job.project}? It will be moved to the Recycle Bin.`)) {
+            if (editingId === job.id) handleCancel();
+            
+            try {
+                // 1. Clean the data for backup
+                const safeData = JSON.parse(JSON.stringify(job));
+                const docRef = doc(db, "project_queue", job.id);
+                
+                // 2. Save to the existing trash_bin collection
+                await addDoc(collection(db, "trash_bin"), {
+                    originalSystem: "dashboard",
+                    originalFeature: "upcoming_projects",
+                    type: "document",
+                    collection: "project_queue",
+                    originalId: job.id,
+                    displayName: `Queued Project: ${job.project} (${job.company})`,
+                    data: safeData,
+                    deletedAt: new Date().toISOString(),
+                    deletedBy: user?.email || "Unknown"
+                });
+                
+                // 3. Delete from the active queue
+                await deleteDoc(docRef);
+                
+                // 4. CRITICAL FIX: Manually remove it from the React state to prevent the offline "ghost"
+                setJobs(prevJobs => prevJobs.filter(j => j.id !== job.id));
+                
+            } catch (error) {
+                console.error("DELETE ERROR:", error);
+                alert(`Error removing project: ${error.message}`);
+            }
         }
     };
 
     if (roleLoading || pageLoading) return <div style={{height: '100vh', display: 'flex', alignItems: 'center', background: '#f8fafc'}}><Loader message="Loading Queue..." /></div>;
     if (!canView) return null;
 
-    // Logic: Form shows if they have Add Access AND aren't editing anything OR if they specifically clicked Edit.
     const showForm = (canAdd && !editingId) || (editingId !== null);
 
     return (
@@ -275,7 +316,7 @@ const UpcomingProjects = () => {
                                         {canEdit && (
                                             <div style={{display:'flex'}}>
                                                 <button className="btn-edit-small" onClick={() => handleEdit(job)}>Edit</button>
-                                                <button className="btn-red-small" onClick={() => handleDelete(job.id)}>Remove</button>
+                                                <button className="btn-red-small" onClick={() => handleDelete(job)}>Remove</button>
                                             </div>
                                         )}
                                     </div>

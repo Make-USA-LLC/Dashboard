@@ -10,20 +10,38 @@ const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,
 
 export const useSharePointExcel = () => {
     const [msalLoading, setMsalLoading] = useState(false);
+    
+    // Check if user is already connected
+    const [isConnected, setIsConnected] = useState(msalInstance.getAllAccounts().length > 0);
+
+    // Manual connection trigger (Redirects in the same tab)
+    const connectSharePoint = async () => {
+        try {
+            await msalInstance.loginRedirect({ scopes: graphConfig.uploadScope });
+        } catch (error) {
+            console.error("Login redirect failed:", error);
+        }
+    };
 
     const getAccessToken = async () => {
         const accounts = msalInstance.getAllAccounts();
         if (accounts.length === 0) {
-            await msalInstance.loginPopup({ scopes: graphConfig.uploadScope });
+            // Fallback to redirect if somehow triggered while not connected
+            await msalInstance.loginRedirect({ scopes: graphConfig.uploadScope });
+            return null; // Stop execution as the page will redirect
         }
-        const activeAccount = msalInstance.getAllAccounts()[0];
-        const tokenResponse = await msalInstance.acquireTokenSilent({
-            scopes: graphConfig.uploadScope,
-            account: activeAccount
-        }).catch(async (error) => {
-            return await msalInstance.acquireTokenPopup({ scopes: graphConfig.uploadScope });
-        });
-        return tokenResponse.accessToken;
+        
+        const activeAccount = accounts[0];
+        try {
+            const tokenResponse = await msalInstance.acquireTokenSilent({
+                scopes: graphConfig.uploadScope,
+                account: activeAccount
+            });
+            return tokenResponse.accessToken;
+        } catch (error) {
+            // If silent acquisition fails, redirect to log in again
+            await msalInstance.acquireTokenRedirect({ scopes: graphConfig.uploadScope });
+        }
     };
 
     /**
@@ -33,18 +51,21 @@ export const useSharePointExcel = () => {
         setMsalLoading(true);
         try {
             const token = await getAccessToken();
+            if (!token) return false; // Prevent running if it started a redirect
             
             const now = new Date();
             const yearMonth = `${now.getFullYear()}_${String(now.getMonth() + 1).padStart(2, '0')}`;
             const fileName = `3PL_Billing_${yearMonth}.xlsx`;
             
-            // Path: /Documents/Make USA LLC/Production/files/@clientname/3PL/Month/3PL_Billing_2026_01.xlsx
-            const path = `/Documents/Make USA LLC/Production/files/${clientName}/3PL/${yearMonth}/${fileName}`;
+            // Sanitize the client name exactly like the Production and QC modules do
+            const safeCompany = clientName.trim().replace(/[^a-zA-Z0-9 -]/g, "");
+            
+            // Path: /Documents/Production/Files/[SafeCompany]/3PL/[YYYY_MM]/3PL_Billing_YYYY_MM.xlsx
+            const path = `/Documents/Production/Files/${safeCompany}/3PL/${yearMonth}/${fileName}`;
             const encodedPath = encodeURI(path);
             const graphEndpoint = `https://graph.microsoft.com/v1.0/sites/${SITE_ID}/drive/root:${encodedPath}:/content`;
 
             let workbook = new ExcelJS.Workbook();
-            let fileExists = false;
 
             // Try to download the existing file
             try {
@@ -56,13 +77,11 @@ export const useSharePointExcel = () => {
                     if(dlData['@microsoft.graph.downloadUrl']) {
                         const fileBlob = await fetch(dlData['@microsoft.graph.downloadUrl']).then(r => r.arrayBuffer());
                         await workbook.xlsx.load(fileBlob);
-                        fileExists = true;
                     }
                 }
             } catch(e) { console.log("File does not exist yet, creating new."); }
 
-            // Determine Week Tab Name
-            // Simple logic: e.g., "Week_1" (Days 1-7), "Week_2" (8-14)
+            // Determine Week Tab Name (e.g., "Week_1" for Days 1-7)
             const weekNum = Math.ceil(now.getDate() / 7);
             const sheetName = `Week_${weekNum}`;
             
@@ -70,7 +89,7 @@ export const useSharePointExcel = () => {
             
             if (!worksheet) {
                 worksheet = workbook.addWorksheet(sheetName);
-                // Setup Columns matching your CSV example
+                // Setup Columns
                 worksheet.columns = [
                     { header: 'DATE', key: 'date', width: 12 },
                     { header: 'SITE', key: 'site', width: 12 },
@@ -94,7 +113,7 @@ export const useSharePointExcel = () => {
 
             // Re-calculate Total row (if it exists, delete it and put it at the bottom)
             const lastRow = worksheet.lastRow;
-            if(lastRow.getCell('A').value === 'TOTAL') {
+            if(lastRow && lastRow.getCell('A').value === 'TOTAL') {
                  worksheet.spliceRows(lastRow.number, 1);
             }
 
@@ -127,8 +146,19 @@ export const useSharePointExcel = () => {
                 body: buffer
             });
 
-            if (!uploadRes.ok) throw new Error("Failed to upload to SharePoint");
+            if (!uploadRes.ok) {
+                // Try to extract the exact error message from Microsoft Graph
+                const errorData = await uploadRes.json().catch(() => ({}));
+                console.error("FULL GRAPH API ERROR:", errorData);
+                
+                const errorMsg = errorData?.error?.message || uploadRes.statusText;
+                throw new Error(`SharePoint API Error (${uploadRes.status}): ${errorMsg}`);
+            }
             
+            // Optional: Print the success URL to console so you can verify exactly where it landed
+            const successData = await uploadRes.json();
+            console.log("FILE SAVED SUCCESSFULLY AT:", successData.webUrl);
+
             return true;
 
         } catch (error) {
@@ -139,5 +169,5 @@ export const useSharePointExcel = () => {
         }
     };
 
-    return { appendToExcelAndUpload, msalLoading };
+    return { appendToExcelAndUpload, msalLoading, connectSharePoint, isConnected };
 };
