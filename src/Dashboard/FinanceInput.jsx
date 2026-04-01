@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { db, collection, doc, getDoc, getDocs, updateDoc, deleteDoc, query, orderBy, limit } from './firebase_config'; 
+import { db, collection, doc, getDoc, getDocs, updateDoc, deleteDoc, query, orderBy, limit, addDoc } from './firebase_config'; 
 import './FinanceInput.css';
 import Loader from '../components/Loader';
 import { useRole } from './hooks/useRole'; // <-- Imported centralized hook
 
-const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit }) => {
+const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, onReturn, canEdit }) => {
   // Parse Dates
   const dateStr = data.completedAt ? new Date(data.completedAt.seconds * 1000).toLocaleDateString() : 'Unknown';
   
@@ -234,14 +234,34 @@ const ProjectCard = ({ data, agents, companyMap, onProcess, onDelete, canEdit })
         )}
       </div>
 
-      <div className="btn-container">
+      {/* HORIZONTAL BUTTON LAYOUT */}
+      <div className="btn-container" style={{ display: 'flex', gap: '10px', marginTop: '15px', alignItems: 'center' }}>
         {canEdit ? (
           <>
-            <button className="btn btn-red" onClick={() => onDelete(data.id)}>Delete</button>
-            <button className="btn btn-green" onClick={handleProcess}>Finalize & Complete</button>
+            <button 
+              className="btn" 
+              style={{ backgroundColor: '#e74c3c', color: 'white', marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '4px', border: 'none' }} 
+              onClick={() => onDelete(data)}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>delete</span> Trash
+            </button>
+            <button 
+              className="btn" 
+              style={{ backgroundColor: '#e67e22', color: 'white', display: 'flex', alignItems: 'center', gap: '4px', border: 'none' }} 
+              onClick={() => onReturn(data.id)}
+            >
+              <span className="material-icons" style={{ fontSize: '16px' }}>undo</span> Return to Prod
+            </button>
+            <button 
+              className="btn btn-green" 
+              style={{ display: 'flex', alignItems: 'center', gap: '4px' }} 
+              onClick={handleProcess}
+            >
+              Finalize & Complete <span className="material-icons" style={{ fontSize: '16px' }}>check_circle</span>
+            </button>
           </>
         ) : (
-          <div style={{ color: '#999', fontStyle: 'italic' }}>Read Only View</div>
+          <div style={{ color: '#999', fontStyle: 'italic', width: '100%', textAlign: 'center' }}>Read Only View</div>
         )}
       </div>
     </div>
@@ -374,15 +394,45 @@ const FinanceInput = () => {
     }
   };
 
-  const handleDeleteItem = async (id) => {
+  // --- RECYCLE BIN LOGIC ADDED HERE ---
+  const handleDeleteItem = async (projectData) => {
     if (!canEdit) return alert("Read-Only Access");
-    if (window.confirm("Are you sure you want to PERMANENTLY DELETE this report?")) {
+    if (window.confirm("Are you sure you want to move this report to the Trash Bin?")) {
       try {
-        await deleteDoc(doc(db, "reports", id));
+        // 1. Send copy to the trash bin
+        await addDoc(collection(db, "trash_bin"), {
+            type: 'document',
+            collection: 'reports',
+            originalId: projectData.id,
+            data: projectData,
+            displayName: `Finance Report: ${projectData.project} (${projectData.company})`,
+            originalSystem: 'dashboard',
+            originalFeature: 'finance_input',
+            deletedBy: user?.email || user?.name || "Unknown User",
+            deletedAt: new Date().toISOString()
+        });
+
+        // 2. Remove from active records
+        await deleteDoc(doc(db, "reports", projectData.id));
         initData();
       } catch (e) {
         console.error(e);
         alert("Error deleting document.");
+      }
+    }
+  };
+
+  const handleReturnItem = async (id) => {
+    if (!canEdit) return alert("Read-Only Access");
+    if (window.confirm("Are you sure you want to send this back to Production Input?")) {
+      try {
+        await updateDoc(doc(db, "reports", id), {
+          financeStatus: "pending_production"
+        });
+        initData();
+      } catch (e) {
+        console.error(e);
+        alert("Error returning document.");
       }
     }
   };
@@ -416,11 +466,12 @@ const FinanceInput = () => {
             <ProjectCard 
               key={project.id} 
               data={project} 
-              agents={agents}
+              agents={agents} the 
               companyMap={companyMap}
               canEdit={canEdit}
               onProcess={handleProcessItem}
-              onDelete={handleDeleteItem}
+              onDelete={handleDeleteItem} // Passes the function down
+              onReturn={handleReturnItem}
             />
           ))
         )}

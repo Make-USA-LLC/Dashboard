@@ -613,7 +613,7 @@ exports.sendWarehouseBillingEmail = onDocumentCreated('warehouse_billing/{docId}
     const data = snap.data();
 
     // Use the existing shipment billing email env variable, or fallback to SMTP
-    const targetEmail = process.env.SHIPMENT_BILLING_EMAIL || process.env.SMTP_EMAIL;
+    const targetEmail = process.env.WAREHOUSEw_BILLING_EMAIL || process.env.SMTP_EMAIL;
 
     // Calculate total hours
     const totalLaborHours = ((parseFloat(data.hoursSpent) || 0) * (parseFloat(data.peopleCount) || 0)).toFixed(2);

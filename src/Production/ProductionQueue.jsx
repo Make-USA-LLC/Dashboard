@@ -97,10 +97,7 @@ const ProductionQueue = () => {
 
             const SITE_ID = "makeitbuzz.sharepoint.com,5f466306-673d-4008-a8cc-86bdb931024f,eb52fce7-86e8-43c9-b592-cf8da705e9ef";
             const uploadPromises = files.map(async (file) => {
-                // Sanitize the filename to remove #, %, &, and other URL-breaking characters
                 const safeFileName = file.name.replace(/[#%&{}\\<>*?/$!'":@+`|=]/g, "_");
-                
-                // Also use encodeURIComponent to be perfectly safe for the HTTP request
                 const filePath = `/sites/${SITE_ID}/drive/root:${folderPath}/TechSheet_${encodeURIComponent(safeFileName)}:/content?@microsoft.graph.conflictBehavior=rename`;
                 
                 const response = await fetch(`https://graph.microsoft.com/v1.0${filePath}`, {
@@ -247,7 +244,23 @@ const ProductionQueue = () => {
         }
     };
 
+    // Helper function to check if a job has all required fields for the iPad/QC
+    const getMissingFields = (job) => {
+        const missing = [];
+        if (!job.category) missing.push("Category");
+        if (!job.size) missing.push("Size");
+        if (!job.quantity || job.quantity <= 0) missing.push("Quantity");
+        if (!job.price || job.price <= 0) missing.push("Price");
+        // Removed validation for workerCount here
+        return missing;
+    };
+
     const sendToQC = async (job) => {
+        const missing = getMissingFields(job);
+        if (missing.length > 0 || !job.techSheetUploaded || !job.componentsArrived) {
+            return alert("Cannot send to QC. Please fill out all missing fields first.");
+        }
+
         if (confirm(`Send "${job.project}" to QC Module?`)) {
             try {
                 await updateDoc(doc(db, "production_pipeline", job.id), { status: "qc_pending", sentToQcAt: serverTimestamp() });
@@ -271,20 +284,20 @@ const ProductionQueue = () => {
                         {editingId ? "Edit Production Job" : "New Production Job"}
                     </h3>
                     <div style={{display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))', gap:'15px', marginBottom: '15px'}}>
-                        <div><label style={styles.label}>Company</label>
+                        <div><label style={styles.label}>Company *</label>
                             <select style={styles.input} value={form.company} onChange={e=>setForm({...form, company:e.target.value})}><option value="">Select...</option>{options.companies?.map(c=><option key={c} value={c}>{c}</option>)}</select>
                         </div>
-                        <div><label style={styles.label}>Project Name</label><input style={styles.input} value={form.project} onChange={e=>setForm({...form, project:e.target.value})} /></div>
-                        <div><label style={styles.label}>Category</label>
+                        <div><label style={styles.label}>Project Name *</label><input style={styles.input} value={form.project} onChange={e=>setForm({...form, project:e.target.value})} /></div>
+                        <div><label style={styles.label}>Category *</label>
                             <select style={styles.input} value={form.category} onChange={e=>setForm({...form, category:e.target.value})}><option value="">Select...</option>{options.categories?.map(c=><option key={c} value={c}>{c}</option>)}</select>
                         </div>
-                        <div><label style={styles.label}>Size</label>
+                        <div><label style={styles.label}>Size *</label>
                             <select style={styles.input} value={form.size} onChange={e=>setForm({...form, size:e.target.value})}><option value="">Select...</option>{options.sizes?.map(c=><option key={c} value={c}>{c}</option>)}</select>
                         </div>
-                        <div><label style={styles.label}>Quantity</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
-                        <div><label style={styles.label}>Price per Unit</label><input type="number" step="0.01" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
-                        <div><label style={styles.label}>Start Date</label><input type="date" style={styles.input} value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
+                        <div><label style={styles.label}>Quantity *</label><input type="number" style={styles.input} value={form.quantity} onChange={e=>setForm({...form, quantity:e.target.value})} /></div>
+                        <div><label style={styles.label}>Price per Unit *</label><input type="number" step="0.01" style={styles.input} value={form.price} onChange={e=>setForm({...form, price:e.target.value})} /></div>
                         <div><label style={styles.label}>Employees Required</label><input type="number" style={styles.input} value={form.workerCount} onChange={e=>setForm({...form, workerCount:e.target.value})} /></div>
+                        <div><label style={styles.label}>Start Date</label><input type="date" style={styles.input} value={form.startDate} onChange={e=>setForm({...form, startDate:e.target.value})} /></div>
                         
                         {/* Components Array List */}
                         <div style={{gridColumn: '1 / -1', background: '#fff', padding: '15px', borderRadius: '5px', border: '1px solid #cbd5e1', marginTop: '10px'}}>
@@ -343,7 +356,12 @@ const ProductionQueue = () => {
                 </div>
             )}
 
-            {jobs.map(job => (
+            {jobs.map(job => {
+                // Determine if this job is fully ready for QC/iPad
+                const missingFields = getMissingFields(job);
+                const isFullyReady = job.techSheetUploaded && job.componentsArrived && missingFields.length === 0;
+
+                return (
                 <div key={job.id} style={{...styles.card, borderLeft: editingId === job.id ? '5px solid #f39c12' : 'none'}}>
                     <div style={{display:'flex', justifyContent:'space-between'}}>
                         <div style={{maxWidth: '50%'}}>
@@ -423,22 +441,36 @@ const ProductionQueue = () => {
                                 {job.componentsArrived ? "Mark Pending" : "Mark All Arrived"}
                             </button>
                             
-                            <button 
-                                onClick={() => sendToQC(job)} 
-                                disabled={!job.techSheetUploaded || !job.componentsArrived} 
-                                style={{
-                                    ...styles.btn, 
-                                    background: (!job.techSheetUploaded || !job.componentsArrived) ? '#eee' : '#8e44ad', 
-                                    color: (!job.techSheetUploaded || !job.componentsArrived) ? '#999' : 'white'
-                                }}>
-                                Send to QC &rarr;
-                            </button>
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }}>
+                                <button 
+                                    onClick={() => sendToQC(job)} 
+                                    disabled={!isFullyReady} 
+                                    style={{
+                                        ...styles.btn, 
+                                        background: !isFullyReady ? '#e2e8f0' : '#8e44ad', 
+                                        color: !isFullyReady ? '#94a3b8' : 'white',
+                                        cursor: !isFullyReady ? 'not-allowed' : 'pointer',
+                                        opacity: !isFullyReady ? 0.7 : 1
+                                    }}>
+                                    Send to QC &rarr;
+                                </button>
+                                
+                                {/* Show exactly what they need to fix to send to QC */}
+                                {!isFullyReady && (
+                                    <div style={{ fontSize: '10px', color: '#ef4444', textAlign: 'center', maxWidth: '120px', lineHeight: '1.2' }}>
+                                        {!job.techSheetUploaded && <div>Missing: Tech Sheet</div>}
+                                        {!job.componentsArrived && <div>Missing: Components</div>}
+                                        {missingFields.length > 0 && <div>Missing: {missingFields.join(', ')}</div>}
+                                    </div>
+                                )}
+                            </div>
+
                             <button onClick={() => handleEdit(job)} style={{...styles.btn, background: '#f39c12', color: 'white'}}>Edit</button>
                             <button onClick={() => handleDelete(job)} style={{background:'none', border:'none', color:'#ef4444', cursor:'pointer'}}>🗑️</button>
                         </div>
                     </div>
                 </div>
-            ))}
+            )})}
         </div>
     );
 };

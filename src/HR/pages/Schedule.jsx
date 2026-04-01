@@ -4,34 +4,28 @@ import { db } from '../firebase';
 import { useRole } from '../hooks/useRole';
 import { logAudit } from '../utils/logger';
 
-// --- HELPER FUNCTIONS ---
-const getSunday = (date) => {
-  const d = new Date(date);
-  const day = d.getDay(); 
-  const diff = d.getDate() - day; 
-  return new Date(d.setDate(diff));
+// --- TIME & DATE HELPERS ---
+const getSunday = (date) => { const d = new Date(date); const day = d.getDay(); const diff = d.getDate() - day; return new Date(d.setDate(diff)); };
+const addDays = (date, days) => { const result = new Date(date); result.setDate(result.getDate() + days); return result; };
+const toLocalISO = (date) => { const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().split('T')[0]; };
+const formatDateShort = (dateObj) => { return dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' }); };
+const getDayName = (dateStr) => { return new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long' }); };
+const formatDateRange = (start, end) => { return `${start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - ${end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`; };
+const hexToRgba = (hex, alpha) => { if (!hex || typeof hex !== 'string' || hex[0] !== '#') return hex; const r = parseInt(hex.slice(1, 3), 16); const g = parseInt(hex.slice(3, 5), 16); const b = parseInt(hex.slice(5, 7), 16); return `rgba(${r}, ${g}, ${b}, ${alpha})`; };
+
+const parseStartTime = (timeStr) => {
+    if (!timeStr || typeof timeStr !== 'string') return 99;
+    const clean = timeStr.split(/[-–—]/)[0].replace(/\s+/g, '').toUpperCase();
+    const match = clean.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)?$/);
+    if (!match) return 99;
+    let h = parseInt(match[1], 10);
+    const m = match[2] ? parseInt(match[2], 10) : 0;
+    const mer = match[3];
+    if (mer === 'PM' && h < 12) h += 12;
+    if (mer === 'AM' && h === 12) h = 0;
+    return h + (m / 60);
 };
-const addDays = (date, days) => {
-  const result = new Date(date);
-  result.setDate(result.getDate() + days);
-  return result;
-};
-const toLocalISO = (date) => {
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().split('T')[0];
-};
-const formatDateShort = (dateObj) => {
-    return dateObj.toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-};
-const getDayName = (dateStr) => {
-    const d = new Date(dateStr + 'T12:00:00');
-    return d.toLocaleDateString('en-US', { weekday: 'long' }); 
-};
-const formatDateRange = (start, end) => {
-    const s = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    const e = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `${s} - ${e}`;
-};
+
 const parseShiftHours = (timeStr) => {
     if (!timeStr || typeof timeStr !== 'string') return 0;
     const clean = timeStr.replace(/\s+/g, '').toUpperCase();
@@ -55,13 +49,6 @@ const parseShiftHours = (timeStr) => {
     if (diff < 0) diff += 24; 
     return diff;
 };
-const hexToRgba = (hex, alpha) => {
-    if (!hex || typeof hex !== 'string' || hex[0] !== '#') return hex;
-    const r = parseInt(hex.slice(1, 3), 16);
-    const g = parseInt(hex.slice(3, 5), 16);
-    const b = parseInt(hex.slice(5, 7), 16);
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-};
 
 export default function Schedule() {
   const { checkAccess } = useRole();
@@ -75,6 +62,8 @@ export default function Schedule() {
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState("All"); 
   const [deptFilter, setDeptFilter] = useState("All"); 
+  const [shiftFilter, setShiftFilter] = useState("All");
+  const [sortBy, setSortBy] = useState("Name"); 
   const [showWeekend, setShowWeekend] = useState(false); 
 
   const [currentStart, setCurrentStart] = useState(getSunday(new Date()));
@@ -84,6 +73,7 @@ export default function Schedule() {
   const [shifts, setShifts] = useState([]);
   const [departments, setDepartments] = useState([]); 
   const [shiftColorRules, setShiftColorRules] = useState([]); 
+  const [shiftCategories, setShiftCategories] = useState([]);
 
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [paintArea, setPaintArea] = useState("");
@@ -93,23 +83,14 @@ export default function Schedule() {
 
   const [isQuickOpen, setIsQuickOpen] = useState(false);
   const [quickForm, setQuickForm] = useState({
-      targetIds: [], 
-      startDate: toLocalISO(new Date()),
-      endDate: toLocalISO(addDays(new Date(), 4)), 
-      area: "",
-      time: "",
-      mode: "range"
+      targetIds: [], startDate: toLocalISO(new Date()), endDate: toLocalISO(addDays(new Date(), 4)), 
+      area: "", time: "", mode: "range"
   });
-  
-  const [recurDays, setRecurDays] = useState({
-      Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false
-  });
+  const [recurDays, setRecurDays] = useState({ Monday: true, Tuesday: true, Wednesday: true, Thursday: true, Friday: true, Saturday: false, Sunday: false });
 
   useEffect(() => {
     const days = [];
-    for (let i = 0; i < 7; i++) {
-        days.push(addDays(currentStart, i));
-    }
+    for (let i = 0; i < 7; i++) days.push(addDays(currentStart, i));
     setWeekDates(days);
 
     const fetchSchedule = async () => {
@@ -134,27 +115,14 @@ export default function Schedule() {
               setDepartments(data.departments || []);
               if(data.lunchDuration) setLunchDed(data.lunchDuration);
               setShiftColorRules(data.shiftColorRules || []); 
+              setShiftCategories(data.shiftCategories || []);
           }
       });
       const unsub = onSnapshot(collection(db, "employees"), (snap) => {
-          const list = snap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => e.status !== 'Inactive');
-          list.sort((a,b) => a.lastName.localeCompare(b.lastName));
-          setEmployees(list);
+          setEmployees(snap.docs.map(d => ({id: d.id, ...d.data()})).filter(e => e.status !== 'Inactive'));
       });
       return () => unsub();
   }, []);
-
-  const filteredEmployees = employees.filter(e => {
-      const term = searchTerm.toLowerCase();
-      const matchesSearch = e.firstName.toLowerCase().includes(term) || e.lastName.toLowerCase().includes(term);
-      const matchesType = typeFilter === "All" || e.type === typeFilter;
-      const matchesDept = deptFilter === "All" || e.department === deptFilter;
-      return matchesSearch && matchesType && matchesDept;
-  });
-
-  const changeWeek = (offset) => {
-      setCurrentStart(addDays(currentStart, offset * 7));
-  };
 
   const getCellData = (dateStr, emp) => {
       const override = schedule[dateStr]?.[emp.id];
@@ -166,81 +134,120 @@ export default function Schedule() {
       return {};
   };
 
+  const visibleDates = weekDates.filter((d, i) => showWeekend ? true : i !== 0 && i !== 6);
+
+  // --- SMART FILTERING WITH OVERNIGHT LOGIC ---
+  const filteredEmployees = employees.filter(e => {
+      const term = searchTerm.toLowerCase();
+      const matchesSearch = e.firstName.toLowerCase().includes(term) || e.lastName.toLowerCase().includes(term);
+      const matchesType = typeFilter === "All" || e.type === typeFilter;
+      const matchesDept = deptFilter === "All" || e.department === deptFilter;
+      
+      let matchesShift = true;
+      if (shiftFilter !== "All") {
+          const category = shiftCategories.find(c => c.name === shiftFilter);
+          if (category) {
+              matchesShift = visibleDates.some(d => {
+                  const cell = getCellData(toLocalISO(d), e);
+                  if (!cell.time) return false;
+                  const startDec = parseStartTime(cell.time);
+                  
+                  // FIXED OVERNIGHT LOGIC
+                  if (category.start <= category.end) {
+                      return startDec >= category.start && startDec < category.end;
+                  } else {
+                      return startDec >= category.start || startDec < category.end;
+                  }
+              });
+          }
+      }
+
+      return matchesSearch && matchesType && matchesDept && matchesShift;
+  });
+
+  filteredEmployees.sort((a, b) => {
+      if (sortBy === "Name") return a.lastName.localeCompare(b.lastName);
+      if (sortBy === "Shift") {
+          const getEarliestShift = (emp) => {
+              let earliest = 99;
+              visibleDates.forEach(d => {
+                  const cell = getCellData(toLocalISO(d), emp);
+                  if (cell.time) {
+                      const start = parseStartTime(cell.time);
+                      if (start < earliest) earliest = start;
+                  }
+              });
+              return earliest;
+          };
+          const aShift = getEarliestShift(a);
+          const bShift = getEarliestShift(b);
+          if (aShift === bShift) return a.lastName.localeCompare(b.lastName);
+          return aShift - bShift;
+      }
+      return 0;
+  });
+
   const getNetHours = (timeStr) => {
       const gross = parseShiftHours(timeStr);
-      if (gross > 5) {
-          const deduction = lunchDed / 60; 
-          return Math.max(0, gross - deduction);
-      }
-      return gross;
+      return gross > 5 ? Math.max(0, gross - (lunchDed / 60)) : gross;
   };
 
+  // --- SMART COLOR SELECTION WITH OVERNIGHT LOGIC ---
   const getShiftColor = (timeStr, areaStr) => {
     if (!timeStr || !shiftColorRules.length) return null;
-    const clean = timeStr.split(/[-–—]/)[0].replace(/\s+/g, '').toUpperCase();
-    const match = clean.match(/^(\d{1,2})(?::(\d{2}))?(AM|PM)?$/);
-    if (!match) return null;
-    let h = parseInt(match[1], 10);
-    const m = match[2] ? parseInt(match[2], 10) : 0;
-    const mer = match[3];
-    if (mer === 'PM' && h < 12) h += 12;
-    if (mer === 'AM' && h === 12) h = 0;
-    const startDecimal = h + (m / 60);
+    const startDecimal = parseStartTime(timeStr);
 
-    const rule = shiftColorRules.find(r => {
-        const timeMatch = startDecimal >= r.start && startDecimal < r.end;
-        const areaMatch = !r.areas || r.areas.length === 0 || (areaStr && r.areas.includes(areaStr));
-        return timeMatch && areaMatch;
+    const timeMatches = shiftColorRules.filter(r => {
+        // FIXED OVERNIGHT LOGIC
+        if (r.start <= r.end) return startDecimal >= r.start && startDecimal < r.end;
+        return startDecimal >= r.start || startDecimal < r.end;
     });
-    return rule ? rule.color : null;
+
+    if (!timeMatches.length) return null;
+
+    // Specific Area Match
+    const exactMatch = timeMatches.find(r => r.areas && r.areas.includes(areaStr));
+    if (exactMatch) return exactMatch.color;
+
+    // General Fallback
+    const generalMatch = timeMatches.find(r => !r.areas || r.areas.length === 0);
+    return generalMatch ? generalMatch.color : null;
   };
 
-  // NEW: Calculates total hours dynamically based strictly on currently filtered employees
   const calculateDailyHours = (dateStr) => {
-      let total = 0;
-      filteredEmployees.forEach(emp => {
+      return filteredEmployees.reduce((sum, emp) => {
           const cell = getCellData(dateStr, emp);
-          if (cell.time) {
-              total += getNetHours(cell.time);
-          }
-      });
-      return total;
+          return cell.time ? sum + getNetHours(cell.time) : sum;
+      }, 0);
   };
 
-  // UPDATED: Now uses filteredEmployees instead of employees
   const calculateDailyCost = (dateStr) => {
       if (!canSeeMoney) return 0;
-      let total = 0;
-      filteredEmployees.forEach(emp => {
+      return filteredEmployees.reduce((sum, emp) => {
           const cell = getCellData(dateStr, emp);
           if (cell.time) {
-              const hours = getNetHours(cell.time);
               const rate = parseFloat(emp.compensation) || 0;
               const hourlyRate = emp.type === "Salary" ? (rate / 2080) : rate;
-              total += (hourlyRate * hours);
+              return sum + (hourlyRate * getNetHours(cell.time));
           }
-      });
-      return total;
+          return sum;
+      }, 0);
   };
 
   const applyChange = async (dateStr, empId, area, time, isDelete) => {
       if (!canEdit) return;
-      const emp = employees.find(e => e.id === empId);
-      const empName = emp ? `${emp.firstName} ${emp.lastName}` : empId;
+      const empName = employees.find(e => e.id === empId)?.firstName || empId;
 
       setSchedule(prev => {
           const dayData = { ...(prev[dateStr] || {}) };
-          if (isDelete) { delete dayData[empId]; } 
-          else { dayData[empId] = { area, time }; }
+          if (isDelete) delete dayData[empId]; 
+          else dayData[empId] = { area, time };
           return { ...prev, [dateStr]: dayData };
       });
       
       const docRef = doc(db, "schedules", dateStr);
       if (isDelete) {
-          try { 
-              await updateDoc(docRef, { [`allocations.${empId}`]: deleteField() }); 
-              logAudit("Schedule Change", dateStr, `Removed shift for ${empName}`); 
-          } catch (e) { }
+          try { await updateDoc(docRef, { [`allocations.${empId}`]: deleteField() }); logAudit("Schedule Change", dateStr, `Removed shift for ${empName}`); } catch (e) { }
       } else {
           const payload = { allocations: {} };
           payload.allocations[empId] = { area, time };
@@ -251,26 +258,18 @@ export default function Schedule() {
 
   const onMouseDown = (dateStr, empId) => { 
       if (!canEdit) return;
-      const isPaintMode = paintArea || paintTime || isEraser;
-      if (isPaintMode) {
+      if (paintArea || paintTime || isEraser) {
           setIsMouseDown(true); 
           applyChange(dateStr, empId, paintArea, paintTime, isEraser);
       } else {
           const current = getCellData(dateStr, employees.find(e => e.id === empId));
-          setEditingCell({
-              dateStr, empId, 
-              name: employees.find(e => e.id === empId)?.firstName,
-              area: current.area || "", time: current.time || ""
-          });
+          setEditingCell({ dateStr, empId, name: employees.find(e => e.id === empId)?.firstName, area: current.area || "", time: current.time || "" });
       }
   };
 
   const onMouseEnter = (dateStr, empId) => { 
-      if (isMouseDown && canEdit && (paintArea || paintTime || isEraser)) {
-          applyChange(dateStr, empId, paintArea, paintTime, isEraser);
-      }
+      if (isMouseDown && canEdit && (paintArea || paintTime || isEraser)) applyChange(dateStr, empId, paintArea, paintTime, isEraser);
   };
-
   const onMouseUp = () => setIsMouseDown(false);
 
   const handleModalSave = async () => {
@@ -287,7 +286,7 @@ export default function Schedule() {
 
   const handleQuickAssign = async (e) => {
       e.preventDefault();
-      if (!quickForm.area && !quickForm.time) return alert("Select an Area or Time");
+      if (!quickForm.area && !quickForm.time) return alert("Select Area or Time");
       const targets = quickForm.targetIds === 'ALL' ? filteredEmployees.map(e => e.id) : quickForm.targetIds;
       if (targets.length === 0) return alert("No employees selected");
 
@@ -299,10 +298,12 @@ export default function Schedule() {
           targets.forEach(empId => {
               const empRef = doc(db, "employees", empId);
               daysToSet.forEach(dayName => {
-                  if (quickForm.area === "CLEAR" || quickForm.time === "CLEAR") {
-                      batch.update(empRef, { [`defaultSchedule.${dayName}`]: null });
-                  } else {
-                      batch.update(empRef, { [`defaultSchedule.${dayName}`]: { area: quickForm.area, time: quickForm.time } });
+                  if (quickForm.area === "CLEAR" || quickForm.time === "CLEAR") batch.update(empRef, { [`defaultSchedule.${dayName}`]: null });
+                  else {
+                      const updateData = {};
+                      if (quickForm.area) updateData.area = quickForm.area;
+                      if (quickForm.time) updateData.time = quickForm.time;
+                      batch.set(empRef, { defaultSchedule: { [dayName]: updateData } }, { merge: true });
                   }
               });
           });
@@ -314,47 +315,27 @@ export default function Schedule() {
 
       let start = new Date(quickForm.startDate + 'T12:00:00');
       let end = new Date(quickForm.endDate + 'T12:00:00');
-      const datesToUpdate = [];
       while (start <= end) {
-          datesToUpdate.push(toLocalISO(start));
-          start.setDate(start.getDate() + 1);
-      }
-
-      for (const dateStr of datesToUpdate) {
+          const dateStr = toLocalISO(start);
           const docRef = doc(db, "schedules", dateStr);
           let currentAlloc = {}; 
           targets.forEach(empId => {
               if (!currentAlloc[empId]) currentAlloc[empId] = {};
-              if (quickForm.area) currentAlloc[empId].area = quickForm.area;
-              if (quickForm.time) currentAlloc[empId].time = quickForm.time;
+              if (quickForm.area) currentAlloc[empId].area = quickForm.area === "CLEAR" ? deleteField() : quickForm.area;
+              if (quickForm.time) currentAlloc[empId].time = quickForm.time === "CLEAR" ? deleteField() : quickForm.time;
           });
           batch.set(docRef, { allocations: currentAlloc }, { merge: true });
+          start.setDate(start.getDate() + 1);
       }
       await batch.commit();
-      logAudit("Schedule Range", "Bulk Update", `Updated schedule for ${targets.length} staff (${quickForm.startDate} to ${quickForm.endDate})`);
+      logAudit("Schedule Range", "Bulk Update", `Updated schedule for ${targets.length} staff`);
       window.location.reload();
   };
 
-  const visibleDates = weekDates.filter((d, i) => {
-      if (showWeekend) return true;
-      return i !== 0 && i !== 6; 
-  });
-
-  // Calculate Group Grand Totals
   const totalWeekHours = visibleDates.reduce((sum, d) => sum + calculateDailyHours(toLocalISO(d)), 0);
   const totalWeekCost = visibleDates.reduce((sum, d) => sum + calculateDailyCost(toLocalISO(d)), 0);
 
-  const printStyle = `
-    @media print {
-        body * { visibility: hidden; }
-        .schedule-container, .schedule-container * { visibility: visible; }
-        .schedule-container { position: absolute; left: 0; top: 0; width: 100vw; font-size: 10px; }
-        .no-print { display: none !important; }
-        .no-shift-row { display: none !important; }
-        th, td { border: 1px solid #000 !important; color: black !important; padding: 2px !important; }
-        th { background-color: #eee !important; -webkit-print-color-adjust: exact; }
-    }
-  `;
+  const printStyle = `@media print { body * { visibility: hidden; } .schedule-container, .schedule-container * { visibility: visible; } .schedule-container { position: absolute; left: 0; top: 0; width: 100vw; font-size: 10px; } .no-print { display: none !important; } .no-shift-row { display: none !important; } th, td { border: 1px solid #000 !important; color: black !important; padding: 2px !important; } th { background-color: #eee !important; -webkit-print-color-adjust: exact; } }`;
 
   return (
     <div className="animate-fade schedule-container" onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
@@ -365,32 +346,38 @@ export default function Schedule() {
           <div style={{display:'flex', alignItems:'center', gap: 10, borderRight:'1px solid #e2e8f0', paddingRight: 15}}>
               <h2 style={{margin:0, fontSize:'20px', color:'#1e293b'}}>Schedule</h2>
               <div style={{display:'flex', alignItems:'center', background:'#f8fafc', border:'1px solid #cbd5e1', borderRadius: 6}}>
-                  <button onClick={() => changeWeek(-1)} style={{border:'none', background:'transparent', padding:'4px 8px', cursor:'pointer', fontWeight:'bold'}}>&lt;</button>
+                  <button onClick={() => setCurrentStart(addDays(currentStart, -7))} style={{border:'none', background:'transparent', padding:'4px 8px', cursor:'pointer', fontWeight:'bold'}}>&lt;</button>
                   <span style={{fontSize:'13px', fontWeight:'600', color:'#334155', minWidth: 110, textAlign:'center'}}>{weekDates.length > 0 ? formatDateRange(weekDates[0], weekDates[6]) : "Loading..."}</span>
-                  <button onClick={() => changeWeek(1)} style={{border:'none', background:'transparent', padding:'4px 8px', cursor:'pointer', fontWeight:'bold'}}>&gt;</button>
+                  <button onClick={() => setCurrentStart(addDays(currentStart, 7))} style={{border:'none', background:'transparent', padding:'4px 8px', cursor:'pointer', fontWeight:'bold'}}>&gt;</button>
               </div>
           </div>
-          <div style={{display:'flex', gap: 8, flex: 1, alignItems:'center'}}>
-              <input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', width: 120, fontSize:'13px'}} />
-              <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', fontSize:'13px', maxWidth: 110}}><option value="All">All Depts</option>{departments.map(d => <option key={d} value={d}>{d}</option>)}</select>
-              <select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', fontSize:'13px', width: 90}}><option value="All">All Types</option><option value="Hourly">Hourly</option><option value="Salary">Salary</option></select>
+          <div style={{display:'flex', gap: 8, flex: 1, alignItems:'center', flexWrap: 'wrap'}}>
+              <input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', width: 110, fontSize:'13px'}} />
+              <select value={deptFilter} onChange={e => setDeptFilter(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', fontSize:'13px', maxWidth: 100}}><option value="All">All Depts</option>{departments.map(d => <option key={d} value={d}>{d}</option>)}</select>
+              
+              {/* THE FILTER DROPDOWN */}
+              <select value={shiftFilter} onChange={e => setShiftFilter(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', fontSize:'13px', maxWidth: 120}}>
+                  <option value="All">All Shifts</option>
+                  {shiftCategories.map(c => <option key={c.name} value={c.name}>{c.name}</option>)}
+              </select>
+
+              <select value={sortBy} onChange={e => setSortBy(e.target.value)} style={{padding: '6px', borderRadius: 4, border:'1px solid #cbd5e1', fontSize:'13px', maxWidth: 130}}><option value="Name">Sort: A-Z</option><option value="Shift">Sort: Earliest Shift</option></select>
               <label style={{display:'flex', alignItems:'center', gap: 5, fontSize:'12px', cursor:'pointer', marginLeft: 5, userSelect:'none'}}><input type="checkbox" checked={showWeekend} onChange={e => setShowWeekend(e.target.checked)} /> Wknd</label>
           </div>
           <div style={{display:'flex', gap: 10}}>
-              {canEdit && <button onClick={() => { setQuickForm({ ...quickForm, targetIds: [], startDate: toLocalISO(addDays(currentStart, 1)), endDate: toLocalISO(addDays(currentStart, 5)) }); setIsQuickOpen(true); }} className="primary" style={{padding:'6px 12px', fontSize:'13px'}}>⚡ Quick Add</button>}
+              {canEdit && <button onClick={() => { setIsQuickOpen(true); }} className="primary" style={{padding:'6px 12px', fontSize:'13px'}}>⚡ Quick Add</button>}
               <button onClick={() => window.print()} style={{background:'white', border:'1px solid #cbd5e1', cursor:'pointer', padding:'6px 12px', borderRadius:4, fontWeight:'bold', fontSize:'13px'}}>🖨 Print</button>
           </div>
       </div>
 
-      {/* TOOLBAR */}
+      {/* ONE-LINE DYNAMIC TOOLBAR FIX */}
       {canEdit && (
-          <div className="no-print" style={{marginBottom: 10, background:'#eff6ff', padding: '8px 15px', borderRadius: 6, border:'1px solid #bfdbfe', display:'flex', alignItems:'center', gap: 15}}>
+          <div className="no-print" style={{marginBottom: 10, background:'#eff6ff', padding: '8px 15px', borderRadius: 6, border:'1px solid #bfdbfe', display:'flex', alignItems:'center', gap: 15, overflowX: 'auto', whiteSpace: 'nowrap'}}>
               <div 
                 onClick={() => { setPaintArea(""); setPaintTime(""); setIsEraser(false); }}
                 style={{
                     display:'flex', alignItems:'center', gap: 5, cursor:'pointer',
-                    background: (!paintArea && !paintTime && !isEraser) ? '#2563eb' : 'white',
-                    color: (!paintArea && !paintTime && !isEraser) ? 'white' : '#1e40af',
+                    background: (!paintArea && !paintTime && !isEraser) ? '#2563eb' : 'white', color: (!paintArea && !paintTime && !isEraser) ? 'white' : '#1e40af',
                     padding: '5px 10px', borderRadius: 4, border: '1px solid #2563eb', fontWeight:'bold', fontSize:'12px'
                 }}
               >
@@ -400,7 +387,7 @@ export default function Schedule() {
               <span style={{fontSize:'12px', fontWeight:'bold', color:'#1e40af', textTransform:'uppercase'}}>Paint:</span>
               <select value={paintArea} onChange={e => {setPaintArea(e.target.value); setIsEraser(false);}} style={{padding: '5px', borderRadius: 4, border:'1px solid #93c5fd', fontSize:'13px'}}><option value="">-- Area --</option>{areas.map(a => <option key={a} value={a}>{a}</option>)}</select>
               <select value={paintTime} onChange={e => {setPaintTime(e.target.value); setIsEraser(false);}} style={{padding: '5px', borderRadius: 4, border:'1px solid #93c5fd', fontSize:'13px'}}><option value="">-- Shift --</option>{shifts.map(s => <option key={s} value={s}>{s}</option>)}</select>
-              <button onClick={() => setIsEraser(!isEraser)} style={{background: isEraser ? '#ef4444' : 'white', color: isEraser ? 'white' : '#ef4444', border:'1px solid #ef4444', padding:'4px 10px', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:'12px'}}>{isEraser ? "Eraser ON" : "Eraser"}</button>
+              <button onClick={() => { setIsEraser(!isEraser); setPaintArea(""); setPaintTime(""); }} style={{background: isEraser ? '#ef4444' : 'white', color: isEraser ? 'white' : '#ef4444', border:'1px solid #ef4444', padding:'4px 10px', borderRadius:4, cursor:'pointer', fontWeight:'bold', fontSize:'12px'}}>{isEraser ? "Eraser ON" : "Eraser"}</button>
           </div>
       )}
 
@@ -459,23 +446,17 @@ export default function Schedule() {
                       )
                   })}
 
-                  {/* NEW ROW: Dynamic Total Hours for the Filtered Group */}
                   <tr className="no-print" style={{background:'#f8fafc', borderTop:'2px solid #e2e8f0'}}>
                       <td style={{padding: '10px 15px', fontWeight:'bold', color:'#334155', textAlign:'right', position:'sticky', left:0, background:'#f8fafc'}}>
                           Total Hrs (Group)
                       </td>
                       {visibleDates.map(d => {
                           const hrs = calculateDailyHours(toLocalISO(d));
-                          return (
-                              <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#334155', borderLeft:'1px solid #e2e8f0'}}>
-                                  {hrs > 0 ? hrs.toFixed(1) : '-'}
-                              </td>
-                          );
+                          return <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#334155', borderLeft:'1px solid #e2e8f0'}}>{hrs > 0 ? hrs.toFixed(1) : '-'}</td>;
                       })}
                       <td style={{textAlign:'center', fontSize:'13px', fontWeight:'bold', color:'#334155', borderLeft:'2px solid #e2e8f0'}}>{totalWeekHours.toFixed(1)}</td>
                   </tr>
 
-                  {/* UPDATED ROW: Dynamic Daily Cost for the Filtered Group */}
                   {canSeeMoney && (
                       <tr className="no-print" style={{background:'#f0fdf4', borderTop:'1px solid #bbf7d0'}}>
                           <td style={{padding: '10px 15px', fontWeight:'bold', color:'#166534', textAlign:'right', position:'sticky', left:0, background:'#f0fdf4'}}>
@@ -483,11 +464,7 @@ export default function Schedule() {
                           </td>
                           {visibleDates.map(d => {
                               const cost = calculateDailyCost(toLocalISO(d)); 
-                              return (
-                                  <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#14532d', borderLeft:'1px solid #dcfce7'}}>
-                                      ${cost.toFixed(2)}
-                                  </td>
-                              )
+                              return <td key={d} style={{textAlign:'center', fontSize:'12px', fontWeight:'bold', color:'#14532d', borderLeft:'1px solid #dcfce7'}}>${cost.toFixed(2)}</td>;
                           })}
                           <td style={{textAlign:'center', fontSize:'13px', fontWeight:'bold', color:'#14532d', borderLeft:'2px solid #dcfce7'}}>${totalWeekCost.toFixed(2)}</td>
                       </tr>
@@ -502,10 +479,19 @@ export default function Schedule() {
               <div className="modal" style={{maxWidth:'300px'}}>
                   <h4 style={{marginTop:0, marginBottom: 5}}>{editingCell.name}</h4>
                   <div style={{fontSize:'12px', color:'#64748b', marginBottom: 15}}>{editingCell.dateStr}</div>
+                  
                   <label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Area</label>
-                  <select value={editingCell.area} onChange={e => setEditingCell({...editingCell, area: e.target.value})} style={{width:'100%', marginBottom: 10, padding: 8}}><option value="">-- None --</option>{areas.map(a => <option key={a} value={a}>{a}</option>)}</select>
+                  <select value={editingCell.area} onChange={e => setEditingCell({...editingCell, area: e.target.value})} style={{width:'100%', marginBottom: 15, padding: 8, borderRadius: 4, border: '1px solid #cbd5e1'}}>
+                      <option value="">-- None --</option>
+                      {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                  
                   <label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Shift</label>
-                  <select value={editingCell.time} onChange={e => setEditingCell({...editingCell, time: e.target.value})} style={{width:'100%', marginBottom: 20, padding: 8}}><option value="">-- None --</option>{shifts.map(s => <option key={s} value={s}>{s}</option>)}</select>
+                  <select value={editingCell.time} onChange={e => setEditingCell({...editingCell, time: e.target.value})} style={{width:'100%', marginBottom: 20, padding: 8, borderRadius: 4, border: '1px solid #cbd5e1'}}>
+                      <option value="">-- None --</option>
+                      {shifts.map(s => <option key={s} value={s}>{s}</option>)}
+                  </select>
+
                   <div style={{display:'flex', gap: 10}}>
                       <button onClick={() => setEditingCell(null)} style={{flex:1, padding: 8}}>Cancel</button>
                       <button onClick={handleModalSave} className="primary" style={{flex:1, padding: 8}}>Save</button>
@@ -520,39 +506,58 @@ export default function Schedule() {
           <div className="modal-overlay" onClick={(e) => { if(e.target.className === 'modal-overlay') setIsQuickOpen(false) }}>
               <div className="modal" style={{maxWidth:'500px'}}>
                   <h3 style={{marginTop:0}}>⚡ Quick Schedule</h3>
-                  <select style={{width:'100%', marginBottom: 15, padding: 10}} value={quickForm.targetIds === 'ALL' ? 'ALL' : (quickForm.targetIds.length === 1 ? quickForm.targetIds[0] : '')} onChange={(e) => { const val = e.target.value; if (val === 'ALL') setQuickForm({...quickForm, targetIds: 'ALL'}); else setQuickForm({...quickForm, targetIds: [val]}); }}>
-                      <option value="">-- Select One --</option>
+                  <select style={{width:'100%', marginBottom: 15, padding: 10, borderRadius: 6, border: '1px solid #cbd5e1'}} value={quickForm.targetIds === 'ALL' ? 'ALL' : (quickForm.targetIds.length === 1 ? quickForm.targetIds[0] : '')} onChange={(e) => { const val = e.target.value; if (val === 'ALL') setQuickForm({...quickForm, targetIds: 'ALL'}); else setQuickForm({...quickForm, targetIds: [val]}); }}>
+                      <option value="">-- Select Employee(s) --</option>
                       <option value="ALL">All Visible Employees ({filteredEmployees.length})</option>
                       {filteredEmployees.map(e => <option key={e.id} value={e.id}>{e.lastName}, {e.firstName}</option>)}
                   </select>
+                  
                   <div style={{display:'flex', gap: 10, marginBottom: 15}}>
-                      <label style={{flex:1, cursor:'pointer', border: quickForm.mode === 'range' ? '2px solid #2563eb' : '1px solid #e2e8f0', padding: 10, borderRadius: 6, background: quickForm.mode === 'range' ? '#eff6ff' : 'white'}}><input type="radio" name="mode" value="range" checked={quickForm.mode === 'range'} onChange={() => setQuickForm({...quickForm, mode: 'range'})} style={{marginRight: 5}} /> Range</label>
-                      <label style={{flex:1, cursor:'pointer', border: quickForm.mode === 'indefinite' ? '2px solid #2563eb' : '1px solid #e2e8f0', padding: 10, borderRadius: 6, background: quickForm.mode === 'indefinite' ? '#eff6ff' : 'white'}}><input type="radio" name="mode" value="indefinite" checked={quickForm.mode === 'indefinite'} onChange={() => setQuickForm({...quickForm, mode: 'indefinite'})} style={{marginRight: 5}} /> Recurring</label>
+                      <label style={{flex:1, cursor:'pointer', border: quickForm.mode === 'range' ? '2px solid #2563eb' : '1px solid #e2e8f0', padding: 10, borderRadius: 6, background: quickForm.mode === 'range' ? '#eff6ff' : 'white'}}><input type="radio" name="mode" value="range" checked={quickForm.mode === 'range'} onChange={() => setQuickForm({...quickForm, mode: 'range'})} style={{marginRight: 5}} /> Single / Range</label>
+                      <label style={{flex:1, cursor:'pointer', border: quickForm.mode === 'indefinite' ? '2px solid #2563eb' : '1px solid #e2e8f0', padding: 10, borderRadius: 6, background: quickForm.mode === 'indefinite' ? '#eff6ff' : 'white'}}><input type="radio" name="mode" value="indefinite" checked={quickForm.mode === 'indefinite'} onChange={() => setQuickForm({...quickForm, mode: 'indefinite'})} style={{marginRight: 5}} /> Indefinite (Recurring)</label>
                   </div>
+                  
                   {quickForm.mode === 'range' ? (
                       <div style={{display:'flex', gap: 15, marginBottom: 15}}>
-                          <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>From</label><input type="date" value={quickForm.startDate} onChange={e => setQuickForm({...quickForm, startDate: e.target.value})} style={{width:'100%', padding: 10}} /></div>
-                          <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>To</label><input type="date" value={quickForm.endDate} onChange={e => setQuickForm({...quickForm, endDate: e.target.value})} style={{width:'100%', padding: 10}} /></div>
+                          <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>From</label><input type="date" value={quickForm.startDate} onChange={e => setQuickForm({...quickForm, startDate: e.target.value})} style={{width:'100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1'}} /></div>
+                          <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>To</label><input type="date" value={quickForm.endDate} onChange={e => setQuickForm({...quickForm, endDate: e.target.value})} style={{width:'100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1'}} /></div>
                       </div>
                   ) : (
                       <div style={{marginBottom: 20}}>
                           <label style={{display:'block', fontSize:'12px', marginBottom: 8}}>Recurring Days</label>
                           <div style={{display:'flex', gap: 5, flexWrap:'wrap'}}>
                               {['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'].map(day => (
-                                  <label key={day} style={{display:'flex', alignItems:'center', background: recurDays[day] ? '#2563eb' : '#f1f5f9', color: recurDays[day] ? 'white' : '#64748b', padding:'5px 10px', borderRadius:20, fontSize:'12px', cursor:'pointer', border: '1px solid #e2e8f0'}}>
+                                  <label key={day} style={{display:'flex', alignItems:'center', background: recurDays[day] ? '#2563eb' : '#f1f5f9', color: recurDays[day] ? 'white' : '#64748b', padding:'6px 12px', borderRadius:20, fontSize:'12px', cursor:'pointer', border: '1px solid #e2e8f0'}}>
                                       <input type="checkbox" checked={recurDays[day]} onChange={() => setRecurDays({...recurDays, [day]: !recurDays[day]})} style={{display:'none'}} /> {day.substring(0,3)}
                                   </label>
                               ))}
                           </div>
                       </div>
                   )}
+
                   <div style={{display:'flex', gap: 15, marginBottom: 25}}>
-                      <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Area</label><select value={quickForm.area} onChange={e => setQuickForm({...quickForm, area: e.target.value})} style={{width:'100%', padding: 10}}><option value="">-- No Change --</option><option value="CLEAR" style={{color:'red'}}>Clear</option>{areas.map(a => <option key={a} value={a}>{a}</option>)}</select></div>
-                      <div style={{flex:1}}><label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Shift</label><select value={quickForm.time} onChange={e => setQuickForm({...quickForm, time: e.target.value})} style={{width:'100%', padding: 10}}><option value="">-- No Change --</option><option value="CLEAR" style={{color:'red'}}>Clear</option>{shifts.map(s => <option key={s} value={s}>{s}</option>)}</select></div>
+                      <div style={{flex:1}}>
+                          <label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Area</label>
+                          <select value={quickForm.area} onChange={e => setQuickForm({...quickForm, area: e.target.value})} style={{width:'100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1'}}>
+                              <option value="">-- No Change --</option>
+                              <option value="CLEAR" style={{color:'red'}}>Clear Area</option>
+                              {areas.map(a => <option key={a} value={a}>{a}</option>)}
+                          </select>
+                      </div>
+                      
+                      <div style={{flex:1}}>
+                          <label style={{display:'block', fontSize:'12px', marginBottom: 5}}>Shift</label>
+                          <select value={quickForm.time} onChange={e => setQuickForm({...quickForm, time: e.target.value})} style={{width:'100%', padding: 10, borderRadius: 6, border: '1px solid #cbd5e1'}}>
+                              <option value="">-- No Change --</option>
+                              <option value="CLEAR" style={{color:'red'}}>Clear Shift</option>
+                              {shifts.map(s => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                      </div>
                   </div>
+
                   <div style={{display:'flex', gap: 10}}>
                       <button onClick={() => setIsQuickOpen(false)} style={{flex:1, padding: 12}}>Cancel</button>
-                      <button onClick={handleQuickAssign} className="primary" style={{flex:1, padding: 12}}>{quickForm.mode === 'indefinite' ? "Set Defaults" : "Apply"}</button>
+                      <button onClick={handleQuickAssign} className="primary" style={{flex:1, padding: 12}}>{quickForm.mode === 'indefinite' ? "Set Defaults" : "Apply to Schedule"}</button>
                   </div>
               </div>
           </div>
