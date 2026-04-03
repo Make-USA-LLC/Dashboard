@@ -27,30 +27,26 @@ const UpcomingProjects = () => {
     });
     const [timePreview, setTimePreview] = useState("Waiting for input...");
 
-    console.log(`🚀 [RENDER] Component rendering. Jobs in state: ${jobs.length}. editingId: ${editingId}`);
-
     // --- INITIALIZATION & LISTENER ---
     useEffect(() => {
-        if (roleLoading) {
-            console.log("⏳ [INIT] Waiting for role loading...");
-            return;
-        }
+        if (roleLoading) return;
         if (!user || !canView) {
-            console.log("🛑 [INIT] Access Denied. Navigating away.");
             navigate('/dashboard');
             return;
         }
 
-        console.log("⚙️ [INIT] Starting listener setup...");
-        
         // 1. Attach Listener
         const q = query(collection(db, "project_queue"), orderBy("createdAt", "asc"));
         const unsubscribeQueue = onSnapshot(q, (snap) => {
             const list = [];
-            snap.forEach(d => list.push({ id: d.id, ...d.data() }));
-            
-            console.log(`📡 [LISTENER FIRED] Received ${list.length} items from Firebase.`);
-            console.log(`📡 [LISTENER IDs] ->`, list.map(j => j.id).join(', '));
+            snap.forEach(d => {
+                const data = d.data();
+                // 🔥 THE NUCLEAR FIX: Strip out any fake 'id' field from the data payload
+                const { id: fakeId, ...cleanData } = data; 
+                
+                // Push the clean data and force the True Firebase Document ID
+                list.push({ ...cleanData, id: d.id });
+            });
             
             setJobs(list);
         }, (error) => {
@@ -66,7 +62,6 @@ const UpcomingProjects = () => {
                 ]);
                 if(finSnap.exists()) setCostPerHour(parseFloat(finSnap.data().costPerHour) || 0);
                 if(optSnap.exists()) setOptions(optSnap.data());
-                console.log("✅ [INIT] Configs loaded.");
             } catch (e) { 
                 console.error("🛑 [INIT ERROR]", e); 
             } finally {
@@ -76,11 +71,7 @@ const UpcomingProjects = () => {
         
         loadConfigs();
 
-        // Cleanup
-        return () => {
-            console.log("🧹 [CLEANUP] Detaching onSnapshot listener.");
-            unsubscribeQueue();
-        };
+        return () => unsubscribeQueue();
     }, [user, canView, roleLoading, navigate]);
 
     // --- FORM LOGIC ---
@@ -159,8 +150,7 @@ const UpcomingProjects = () => {
         setForm({ company: '', project: '', category: '', size: '', quantity: '', price: '' });
     };
 
-    // --- NUCLEAR DELETE WITH EXTREME LOGGING ---
-    // --- STANDARD DELETE WITH TRASH BIN BACKUP ---
+    // --- STANDARD DELETE WITH GHOST HANDLING ---
     const handleDelete = async (job) => {
         if (!canEdit) return alert("Access Denied.");
         
@@ -188,12 +178,18 @@ const UpcomingProjects = () => {
                 // 3. Delete from the active queue
                 await deleteDoc(docRef);
                 
-                // 4. CRITICAL FIX: Manually remove it from the React state to prevent the offline "ghost"
+                // 4. Manually remove it from the React state
                 setJobs(prevJobs => prevJobs.filter(j => j.id !== job.id));
                 
             } catch (error) {
-                console.error("DELETE ERROR:", error);
-                alert(`Error removing project: ${error.message}`);
+                // THE GHOST TRAP
+                if (error.code === 'not-found') {
+                    console.log("👻 Ghost busted! Document was already deleted on the server.");
+                    setJobs(prevJobs => prevJobs.filter(j => j.id !== job.id));
+                } else {
+                    console.error("DELETE ERROR:", error);
+                    alert(`Error removing project: ${error.message}`);
+                }
             }
         }
     };

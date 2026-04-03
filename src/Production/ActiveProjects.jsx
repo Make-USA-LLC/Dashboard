@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase_config';
-import { collection, onSnapshot, query } from 'firebase/firestore';
+import { db, auth } from '../firebase_config'; // Added auth for logging
+import { collection, onSnapshot, query, doc, deleteDoc, addDoc } from 'firebase/firestore'; // Added addDoc
 import { styles } from './styles';
 import Loader from '../components/Loader';
 
@@ -17,18 +17,76 @@ const ActiveProjects = () => {
     useEffect(() => {
         const qPipe = query(collection(db, "production_pipeline"));
         const unsubPipe = onSnapshot(qPipe, (snap) => {
-            setPipelineJobs(snap.docs.map(d => ({ id: d.id, ...d.data(), source: 'pipeline' })));
+            setPipelineJobs(snap.docs.map(d => {
+                // Strip out the fake ID from data payload
+                const { id: fakeId, ...cleanData } = d.data();
+                return { ...cleanData, id: d.id, source: 'pipeline' };
+            }));
         });
 
         const qQueue = query(collection(db, "project_queue"));
         const unsubQueue = onSnapshot(qQueue, (snap) => {
-            setQueueJobs(snap.docs.map(d => ({ id: d.id, ...d.data(), source: 'queue' })));
+            setQueueJobs(snap.docs.map(d => {
+                // Strip out the fake ID from data payload
+                const { id: fakeId, ...cleanData } = d.data();
+                return { ...cleanData, id: d.id, source: 'queue' };
+            }));
         });
 
         setTimeout(() => setLoading(false), 800);
 
         return () => { unsubPipe(); unsubQueue(); };
     }, []);
+
+    // --- DELETE WITH RECYCLE BIN BACKUP ---
+    const handleDelete = async (job) => {
+        const col = job.source === 'pipeline' ? 'production_pipeline' : 'project_queue';
+        
+        if (window.confirm(`Move ${job.project} to the Recycle Bin?`)) {
+            try {
+                // 1. Prepare data for backup
+                const safeData = JSON.parse(JSON.stringify(job));
+                const docRef = doc(db, col, job.id);
+                
+                // 2. Save to the trash_bin collection
+                await addDoc(collection(db, "trash_bin"), {
+                    originalSystem: "dashboard",
+                    originalFeature: "active_projects",
+                    type: "document",
+                    collection: col,
+                    originalId: job.id,
+                    displayName: `Active Project: ${job.project} (${job.company})`,
+                    data: safeData,
+                    deletedAt: new Date().toISOString(),
+                    deletedBy: auth?.currentUser?.email || "Unknown"
+                });
+
+                // 3. Delete from the active collection
+                await deleteDoc(docRef);
+                
+                // 4. Remove from React state immediately
+                if (job.source === 'pipeline') {
+                    setPipelineJobs(prev => prev.filter(j => j.id !== job.id));
+                } else {
+                    setQueueJobs(prev => prev.filter(j => j.id !== job.id));
+                }
+                
+            } catch (error) {
+                // THE GHOST TRAP
+                if (error.code === 'not-found') {
+                    console.log("👻 Ghost busted! Removing from UI.");
+                    if (job.source === 'pipeline') {
+                        setPipelineJobs(prev => prev.filter(j => j.id !== job.id));
+                    } else {
+                        setQueueJobs(prev => prev.filter(j => j.id !== job.id));
+                    }
+                } else {
+                    console.error("DELETE FAILED:", error);
+                    alert(`FAILED: ${error.message}`);
+                }
+            }
+        }
+    };
 
     if (loading) return <Loader message="Loading Active Projects..." />;
 
@@ -59,7 +117,15 @@ const ActiveProjects = () => {
 
     const showDbInfo = (job) => {
         const collectionName = job.source === 'pipeline' ? 'production_pipeline' : 'project_queue';
-        alert(`Document ID: ${job.id}\nDatabase Collection: ${collectionName}`);
+        const activeProjectId = db.app.options.projectId; 
+        
+        alert(
+            `REAL-TIME DATABASE DEBUG:\n` +
+            `---------------------------\n` +
+            `Project ID: ${activeProjectId}\n` +
+            `Collection: ${collectionName}\n` +
+            `Document ID: ${job.id}\n`
+        );
     };
 
     // Combine, Filter, and Sort
@@ -143,18 +209,17 @@ const ActiveProjects = () => {
                                 <div style={{color:'#666'}}>
                                     {job.company} • {job.quantity || job.expectedUnits || 'N/A'} units
                                 </div>
-                                
-                                {/* Show arrived components if any were checked off */}
-                                {job.requiredComponents && job.requiredComponents.filter(c => c.arrived).length > 0 && (
-                                    <div style={{fontSize: '12px', color: '#047857', marginTop: '6px', background: '#ecfdf5', padding: '4px 8px', borderRadius: '4px', display: 'inline-block'}}>
-                                        📦 <strong>Arrived:</strong> {job.requiredComponents.filter(c => c.arrived).map(c => c.name).join(', ')}
-                                    </div>
-                                )}
                             </div>
-                            <div style={{textAlign: 'right'}}>
+                            <div style={{textAlign: 'right', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '10px'}}>
                                 <div style={{fontSize: '12px', color: '#555', background: '#f8fafc', padding: '5px 10px', borderRadius: '5px', border: '1px solid #e2e8f0'}}>
                                     ⏱️ Allotted: <strong>{getDisplayHours(job)}</strong>
                                 </div>
+                                <button 
+                                    onClick={() => handleDelete(job)}
+                                    style={{ background: '#fee2e2', color: '#ef4444', border: '1px solid #fecaca', padding: '5px 12px', borderRadius: '6px', fontSize: '11px', fontWeight: 'bold', cursor: 'pointer' }}
+                                >
+                                    REMOVE (TRASH)
+                                </button>
                             </div>
                         </div>
                     </div>
