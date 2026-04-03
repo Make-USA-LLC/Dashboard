@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase_config';
-import { collection, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, getDocs, updateDoc, doc, onSnapshot, serverTimestamp } from 'firebase/firestore'; // Added serverTimestamp
 import { CheckCircle, Search, DollarSign } from 'lucide-react';
 
 const BillingFinance = ({ canBill }) => {
@@ -51,15 +51,24 @@ const BillingFinance = ({ canBill }) => {
     const unbilledEntries = entries.filter(e => e.status !== 'Billed');
     if (unbilledEntries.length === 0) return alert("No unbilled entries found for this month.");
 
-    if (!window.confirm(`Mark ${unbilledEntries.length} entries as Billed?`)) return;
+    // --- NEW: Ask for an Invoice Number before proceeding ---
+    const invoiceNum = window.prompt(`You are about to mark ${unbilledEntries.length} entries as Billed.\n\nPlease enter the Invoice/Bill Number for this batch:`);
+    
+    // If user clicks Cancel or leaves it completely blank, abort the operation
+    if (invoiceNum === null) return; 
+    if (invoiceNum.trim() === '') return alert("You must provide an invoice number to mark these entries as billed.");
 
     setLoading(true);
     try {
       const promises = unbilledEntries.map(entry => 
-        updateDoc(doc(db, "tpl_billing_history", entry.id), { status: 'Billed' })
+        updateDoc(doc(db, "tpl_billing_history", entry.id), { 
+            status: 'Billed',
+            invoiceNumber: invoiceNum.trim(),
+            billedAt: serverTimestamp() // Save the exact time it was billed
+        })
       );
       await Promise.all(promises);
-      alert("Entries marked as Billed successfully!");
+      alert(`Success! Attached Invoice #${invoiceNum.trim()} to ${unbilledEntries.length} entries.`);
       handleSearch(); // Refresh list
     } catch (error) {
       alert("Error marking as billed: " + error.message);
@@ -141,6 +150,11 @@ const BillingFinance = ({ canBill }) => {
                                         }}>
                                             {entry.status}
                                         </span>
+                                        {entry.invoiceNumber && (
+                                            <div style={{ fontSize: '11px', color: '#64748b', marginTop: '4px' }}>
+                                                Inv: {entry.invoiceNumber}
+                                            </div>
+                                        )}
                                     </td>
                                 </tr>
                             ))}
