@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { collection, onSnapshot, doc, setDoc, deleteDoc, updateDoc, arrayUnion, addDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '../firebase_config';
 import { useRole } from '../hooks/useRole';
-import { Trash2, RefreshCcw, AlertTriangle, ShieldAlert, History } from 'lucide-react';
+import { Trash2, RefreshCcw, AlertTriangle, ShieldAlert, History, ShieldBan } from 'lucide-react'; // Added ShieldBan
 import Loader from '../components/Loader';
 
 export default function DeletedItems() {
@@ -41,6 +41,11 @@ export default function DeletedItems() {
     }, [roleLoading, hasAccess, navigate]);
 
     const handleRestore = async (item) => {
+        // --- NEW: Hard stop for unrestorable audit logs ---
+        if (item.restorable === false) {
+            return alert("This is an unrestorable audit log. It must be manually re-entered into the system.");
+        }
+
         if (access?.readOnly === true) return alert("Read-Only Mode active.");
         if (!isMasterAdminLocal && !checkAccess(item.originalSystem, item.originalFeature, 'edit')) {
             return alert("Missing permissions for original module.");
@@ -174,9 +179,21 @@ export default function DeletedItems() {
                                         {isOld && <span style={{ color: '#ef4444', marginLeft: '8px', fontWeight: 'bold' }}>! Purgeable</span>}
                                     </td>
                                     <td style={{ padding: '15px', textAlign: 'right' }}>
-                                        <button onClick={() => handleRestore(item)} style={{ background: '#10b981', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
-                                            <RefreshCcw size={16} /> Restore
-                                        </button>
+                                        
+                                        {/* --- NEW: Visual handling for unrestorable items --- */}
+                                        {item.restorable === false ? (
+                                            <div style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                                                <span style={{ color: '#ef4444', fontWeight: 'bold', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <ShieldBan size={14} /> UNRESTORABLE
+                                                </span>
+                                                <span style={{ color: '#64748b', fontSize: '11px', marginTop: '2px' }}>Audit Record</span>
+                                            </div>
+                                        ) : (
+                                            <button onClick={() => handleRestore(item)} style={{ background: '#10b981', color: 'white', border: 'none', padding: '8px 16px', borderRadius: '6px', fontWeight: 'bold', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                                                <RefreshCcw size={16} /> Restore
+                                            </button>
+                                        )}
+
                                     </td>
                                 </tr>
                             )
@@ -203,7 +220,7 @@ export default function DeletedItems() {
                                     "I UNDERSTAND THAT THIS ACTION CANNOT BE UNDONE.",
                                     "I UNDERSTAND THAT THESE ITEMS WILL BE WIPED FROM THE SERVER ENTIRELY AND PERMENANTLY.",
                                     "I CONFIRM THAT I AM AUTHORIZED TO DELETE COMPANY DATA.",
-				    "I CONFIRM THAT NO BACKUP EXISTS FOR PURGED DATA.",
+                                    "I CONFIRM THAT NO BACKUP EXISTS FOR PURGED DATA.",
                                     "I TAKE FULL RESPONSIBILITY FOR THIS DATA DESTRUCTION."
                                 ].map((text, i) => (
                                     <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontSize: '13px', color: '#334155' }}>
