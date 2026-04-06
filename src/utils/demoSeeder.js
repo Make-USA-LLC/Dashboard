@@ -3,9 +3,10 @@ import { db } from '../firebase_config';
 import { faker } from '@faker-js/faker';
 
 export const resetAndSeedDemo = async () => {
-  console.log("Starting Comprehensive Demo Wipe & Seed...");
+  console.log("Starting the Ultimate Demo Wipe & Seed...");
   const now = Timestamp.now();
   const pastDate = (days) => Timestamp.fromDate(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+  const futureDate = (days) => Timestamp.fromDate(new Date(Date.now() + days * 24 * 60 * 60 * 1000));
   
   let batches = [];
   let currentBatch = writeBatch(db);
@@ -63,222 +64,154 @@ export const resetAndSeedDemo = async () => {
 
   const getRef = (path) => doc(collection(db, path));
 
-  // --- 2. GLOBAL CONFIGURATIONS (Fixes Org Chart, 5S Audits, Financials) ---
-  
-  // Org Chart & General HR Settings
-  safeSet(doc(db, 'settings', 'global_options'), { 
-      departments: ['Production', 'Warehouse', 'Quality Control', 'Blending', 'Admin'], 
-      departmentManagers: { 'Production': 'TOP_LEVEL', 'Warehouse': 'TOP_LEVEL' } 
-  });
+  // --- 2. CONFIG, SETTINGS & ROLES ---
+  safeSet(doc(db, 'settings', 'global_options'), { departments: ['Production', 'Warehouse', 'Quality Control', 'Blending', 'Admin', 'Sales', 'Maintenance'], departmentManagers: { 'Production': 'TOP_LEVEL', 'Warehouse': 'TOP_LEVEL', 'Quality Control': 'TOP_LEVEL' } });
+  safeSet(doc(db, 'config', 'finance'), { costPerHour: 25.50, agents: [{ name: 'Sarah Sales', comm: 5 }, { name: 'Mike Market', comm: 7 }, { name: 'Unassigned', comm: 0 }] });
+  safeSet(doc(db, 'config', 'project_options'), { companies: ['Acme Corp', 'Globex', 'Soylent', 'Initech', 'Umbrella Corp'], categories: ['Assembly', 'Liquid Fill', 'Powder Fill', 'Labeling', 'Kitting'], sizes: ['1oz', '4oz', '8oz', '16oz', '32oz', '1 Gallon', 'Tote'] });
+  safeSet(doc(db, 'qc_settings', 'five_s_config'), { alertThreshold: 3, categories: [{ name: 'Sort (Seiri)', minScore: 1, maxScore: 5, questions: ['Unneeded items removed?', 'Aisles clear?'] }, { name: 'Set In Order (Seiton)', minScore: 1, maxScore: 5, questions: ['Tools labeled and in place?'] }]});
+  safeSet(doc(db, 'config_routing', 'paths'), { defaultHome: '/dashboard', fallback: '/404' });
+  safeSet(doc(db, 'client_settings', 'default'), { portalTheme: 'light', allowSampleRequests: true });
+  safeSet(doc(db, 'qc_settings', 'thresholds'), { minPh: 6.5, maxPh: 7.5, allowOverrides: false });
+  safeSet(doc(db, 'settings', 'global'), { companyName: 'Make USA LLC', timezone: 'America/New_York' });
+  safeSet(doc(db, 'roles', 'admin'), { name: 'Administrator', permissions: ['all'] });
+  safeSet(doc(db, 'client_roles', 'standard_client'), { name: 'Standard Client', maxSamples: 5 });
 
-  // Financial Report Settings
-  safeSet(doc(db, 'config', 'finance'), { 
-      costPerHour: 25.50, 
-      agents: [{ name: 'Sarah Sales', comm: 5 }, { name: 'Mike Market', comm: 7 }] 
-  });
-  
-  // Production Dropdowns
-  safeSet(doc(db, 'config', 'project_options'), {
-      companies: ['Acme Corp', 'Globex', 'Soylent', 'Initech'],
-      categories: ['Assembly', 'Liquid Fill', 'Powder Fill', 'Labeling'],
-      sizes: ['1oz', '4oz', '8oz', '16oz', '1 Gallon']
-  });
-
-  // 5S Audit Configuration
-  safeSet(doc(db, 'qc_settings', 'five_s_config'), {
-      alertThreshold: 3,
-      categories: [
-          { name: 'Sort (Seiri)', minScore: 1, maxScore: 5, questions: ['Are unneeded items removed from the workspace?', 'Are aisles and walkways clear?'] },
-          { name: 'Set In Order (Seiton)', minScore: 1, maxScore: 5, questions: ['Are tools properly labeled and in their designated places?'] }
-      ]
-  });
-
-  // 5S Audit Owners
-  safeSet(doc(db, 'qc_settings', 'owners'), {
-      list: [{ name: 'Jane Supervisor', email: 'jane@makeusa.us' }, { name: 'Bob Lead', email: 'bob@makeusa.us' }]
-  });
-
-  // --- 3. CORE INFRASTRUCTURE & HR ---
-  const lineIds = [];
-  for (let i = 1; i <= 5; i++) {
-    const ref = getRef('lines');
-    lineIds.push({ id: ref.id, name: `Line ${i}` });
-    safeSet(ref, { name: `Line ${i}`, status: 'Operational' });
+  // --- 3. CLIENTS, CRM & CLIENT SAMPLES ---
+  const clients = [];
+  for (let i = 0; i < 5; i++) {
+      const clientName = faker.company.name();
+      clients.push(clientName);
+      const cId = getRef('clients').id;
+      safeSet(doc(db, 'clients', cId), { name: clientName, contact: faker.person.fullName(), emails: faker.internet.email(), phones: faker.phone.number(), status: 'Active', isActive: true });
+      safeSet(getRef('crm_contacts'), { clientId: cId, name: faker.person.fullName(), role: 'Buyer', email: faker.internet.email() });
+      safeSet(getRef('crm_deals'), { clientName: clientName, value: faker.number.int({min: 5000, max: 150000}), stage: faker.helpers.arrayElement(['Lead', 'Qualified', 'Proposal', 'Won', 'Lost']), probability: faker.number.int({min: 10, max: 100}), agent: faker.helpers.arrayElement(['Sarah Sales', 'Mike Market']), expectedCloseDate: futureDate(faker.number.int({min: 5, max: 60})) });
+      // Client Samples
+      safeSet(getRef('client_samples'), { clientName: clientName, product: `${clientName} Custom Blend`, status: faker.helpers.arrayElement(['Requested', 'In Lab', 'Shipped', 'Approved', 'Rejected']), requestedDate: pastDate(faker.number.int({min: 1, max: 30})), trackingInfo: `1Z${faker.string.alphanumeric(10).toUpperCase()}` });
   }
 
+  // --- 4. HR, EMPLOYEES & WORKFORCE ---
   const workerData = [];
+  const lineIds = [];
+  for (let i = 1; i <= 5; i++) {
+      const ref = getRef('lines');
+      lineIds.push({ id: ref.id, name: `Line ${i}` });
+      safeSet(ref, { name: `Line ${i}`, status: faker.helpers.arrayElement(['Operational', 'Maintenance', 'Down']) });
+  }
+
   for (let i = 0; i < 15; i++) {
     const cardId = faker.string.numeric(6);
     const firstName = faker.person.firstName();
     const lastName = faker.person.lastName();
     const empRef = getRef('employees');
     
-    // Detailed HR Data for Org Chart and Detail Views
-    safeSet(empRef, { 
-        name: `${firstName} ${lastName}`, 
-        firstName, 
-        lastName, 
-        email: faker.internet.email(), 
-        department: faker.helpers.arrayElement(['Production', 'Warehouse', 'Quality Control']), 
-        status: 'Active', 
-        type: 'Hourly', 
-        cardId: cardId,
-        managerId: 'TOP_LEVEL', // Makes them show up correctly on the Org Chart Root
-        startDate: pastDate(faker.number.int({min: 30, max: 1000})).toDate().toISOString().split('T')[0],
-        compensation: `$${faker.number.int({min: 15, max: 35})}.00/hr`,
-        payRate: faker.number.int({min: 15, max: 35})
-    });
+    safeSet(empRef, { name: `${firstName} ${lastName}`, firstName, lastName, email: faker.internet.email(), department: faker.helpers.arrayElement(['Production', 'Warehouse', 'Quality Control', 'Blending', 'Admin']), status: faker.helpers.arrayElement(['Active', 'Active', 'Active', 'On Leave', 'Terminated']), type: i % 4 === 0 ? 'Salary' : 'Hourly', cardId: cardId, managerId: i % 5 === 0 ? 'TOP_LEVEL' : 'SomeManagerID', startDate: pastDate(faker.number.int({min: 30, max: 2000})).toDate().toISOString().split('T')[0], payRate: faker.number.int({min: 15, max: 40}) });
     safeSet(doc(db, 'workers', cardId), { name: `${firstName} ${lastName}`, active: true, pin: faker.string.numeric(4), employeeDocId: empRef.id });
-    workerData.push({ id: cardId, name: `${firstName} ${lastName}`, empId: empRef.id });
+    workerData.push({ id: cardId, name: `${firstName} ${lastName}` });
 
-    // HR Assets, Keys, Lockers, Reviews
-    safeSet(getRef('assets'), { type: 'Tablet', serialId: `TAB-${faker.string.alphanumeric(6).toUpperCase()}`, assignedTo: `${firstName} ${lastName}`, dateIssued: pastDate(10) });
-    safeSet(getRef('keys'), { keyNumber: `K-${faker.number.int({min:100, max:999})}`, assignedTo: `${firstName} ${lastName}`, doorAccess: 'Main Floor' });
-    safeSet(getRef('lockers'), { lockerNumber: `${i+1}A`, assignedTo: `${firstName} ${lastName}`, combination: faker.string.numeric(4) });
+    // Global Active Workers (For kiosks)
+    if (i < 5) safeSet(doc(db, 'global_active_workers', cardId), { name: `${firstName} ${lastName}`, clockedInAt: now, currentLine: lineIds[i%5].name });
     
-    // Performance Reviews
-    if (i % 3 === 0) {
-        safeSet(getRef('reviews'), { 
-            employeeId: empRef.id, employeeName: `${firstName} ${lastName}`, reviewer: 'Admin', score: faker.number.int({min:3, max:5}), 
-            status: 'Completed', notes: 'Great performance this quarter.', date: pastDate(5) 
-        });
+    // HR Extras
+    safeSet(getRef('assets'), { type: faker.helpers.arrayElement(['Tablet', 'Radio', 'Laptop']), serialId: `AST-${faker.string.alphanumeric(6).toUpperCase()}`, assignedTo: `${firstName} ${lastName}`, dateIssued: pastDate(faker.number.int({min: 1, max: 100})) });
+    safeSet(getRef('keys'), { keyNumber: `K-${faker.number.int({min:100, max:999})}`, assignedTo: `${firstName} ${lastName}`, doorAccess: faker.helpers.arrayElement(['Main Floor', 'Warehouse', 'Server Room']) });
+    safeSet(getRef('lockers'), { lockerNumber: `${i+1}${faker.helpers.arrayElement(['A','B','C'])}`, assignedTo: `${firstName} ${lastName}`, combination: faker.string.numeric(4) });
+    safeSet(getRef('reviews'), { employeeId: empRef.id, employeeName: `${firstName} ${lastName}`, reviewer: 'Admin', score: faker.number.int({min:1, max:5}), status: 'Completed', notes: 'Routine review.', date: pastDate(faker.number.int({min:5, max:90})) });
+    
+    // Schedules
+    for(let d=0; d<3; d++) {
+        safeSet(getRef('schedules'), { employeeName: `${firstName} ${lastName}`, employeeId: empRef.id, date: futureDate(d).toDate().toISOString().split('T')[0], shift: faker.helpers.arrayElement(['1st Shift (6AM-2PM)', '2nd Shift (2PM-10PM)']), department: 'Production' });
     }
   }
 
-  // --- 4. PRODUCTION PIPELINE (Fixing the stages) ---
-  
-  // A. "Waiting for Components" (production status, componentsArrived: false)
-  for (let i = 0; i < 3; i++) {
-      safeSet(getRef('production_pipeline'), { 
-          company: 'Acme Corp', project: `Acme New Build ${i}`, category: 'Assembly', size: '8oz', quantity: 5000,
-          status: 'production', componentsArrived: false, techSheetUploaded: false, requiresBlending: false, createdAt: pastDate(1)
-      });
+  // Tablets / iPads Tracking
+  for(let i=0; i<3; i++) {
+      safeSet(getRef('ipads'), { deviceId: `IPAD-${i+1}`, location: lineIds[i].name, batteryLevel: faker.number.int({min: 20, max: 100}), lastPing: now });
   }
 
-  // B. "In Production / Ready" (componentsArrived: true)
-  for (let i = 0; i < 3; i++) {
-      safeSet(getRef('production_pipeline'), { 
-          company: 'Globex', project: `Globex Run ${i}`, category: 'Liquid Fill', size: '16oz', quantity: 2500,
-          status: 'production', componentsArrived: true, techSheetUploaded: true, requiresBlending: true, blendingStatus: 'completed', createdAt: pastDate(2)
-      });
+  // Issue Reports
+  for(let i=0; i<4; i++) {
+      safeSet(getRef('issue_reports'), { type: faker.helpers.arrayElement(['Safety Hazard', 'Machine Breakdown', 'Facility Maintenance']), description: faker.lorem.sentence(), priority: faker.helpers.arrayElement(['Low', 'Medium', 'High', 'Critical']), status: faker.helpers.arrayElement(['Open', 'In Progress', 'Resolved']), reportedBy: workerData[i].name, date: pastDate(i) });
   }
 
-  // C. "QC Pending" (Sent to QC)
-  for (let i = 0; i < 3; i++) {
-      safeSet(getRef('production_pipeline'), { 
-          company: 'Soylent', project: `Soylent Green ${i}`, category: 'Powder Fill', size: '1 Gallon', quantity: 1000,
-          status: 'qc_pending', componentsArrived: true, techSheetUploaded: true, sentToQcAt: pastDate(1)
-      });
+  // --- 5. PRODUCTION, BLENDING & QC ---
+  // Project Queue (Incoming pre-pipeline)
+  for(let i=0; i<3; i++) {
+      safeSet(getRef('project_queue'), { client: clients[i], requestedCategory: 'Assembly', targetQuantity: faker.number.int({min: 5000, max: 50000}), status: 'Pending Review', submittedAt: pastDate(i) });
   }
 
-  // --- 5. FINANCIAL REPORTS & IPAD FINISHED PROJECTS ---
-  // To populate FinancialReport.jsx
-  for (let i = 0; i < 6; i++) {
-      safeSet(getRef('reports'), { 
-          company: faker.helpers.arrayElement(['Acme Corp', 'Globex', 'Initech']),
-          project: `Finished Run ${i}`,
-          projectType: 'Assembly',
-          leader: workerData[i].name,
-          agentName: 'Sarah Sales',
-          financeStatus: 'complete',
-          completedAt: pastDate(i),
-          originalSeconds: faker.number.int({min: 36000, max: 72000}), // Est time
-          finalSeconds: faker.number.int({min: 20000, max: 35000}), // Actual time (creates profit margin)
-          totalUnits: faker.number.int({min: 1000, max: 5000}),
-          invoiceAmount: faker.number.int({min: 2000, max: 10000}),
-          commissionExcluded: 0
-      });
-  }
-
-  // --- 6. SHIPMENT BILLING HISTORY ---
-  // To populate PastBills.jsx
-  for (let i = 0; i < 5; i++) {
-      safeSet(getRef('shipments'), { 
-          vendor: faker.company.name(), 
-          carrier: 'FedEx', 
-          trackingNumber: `1Z${faker.string.alphanumeric(10).toUpperCase()}`,
-          shippingCost: faker.number.float({ min: 50, max: 500, fractionDigits: 2 }),
-          dutiesAmount: faker.number.float({ min: 10, max: 100, fractionDigits: 2 }),
-          status: 'Billed', 
-          billedDate: pastDate(i), 
-          billedBy: 'Demo Admin',
-          billingInvoiceNumber: `INV-${faker.string.numeric(5)}`
-      });
-  }
-
-  // --- 7. MACHINES & QC ---
-  for (let i = 0; i < 4; i++) {
-      // Setup Reports
-      safeSet(getRef('machine_setup_reports'), { 
-          line: lineIds[0].name, machine: 'Filler A', technician: workerData[i].name, status: 'Completed', verified: true, date: pastDate(i) 
-      });
-      // Downtime Reports
-      safeSet(getRef('downtime_reports'), { 
-          line: lineIds[1].name, machine: 'Capper B', minutes: faker.number.int({min: 15, max: 120}), reason: 'Jammed belt', reportedBy: workerData[i+1].name, date: pastDate(i) 
-      });
-      
-      // Actual 5S Audits
-      safeSet(getRef('five_s_audits'), {
-          status: 'submitted',
-          timestamp: pastDate(i),
-          results: {
-              "0-0": { points: "4", action: "Looks good" },
-              "0-1": { points: "2", action: "Aisle blocked by pallets", owner: "jane@makeusa.us", dueDate: pastDate(-2).toDate().toISOString().split('T')[0] },
-              "1-0": { points: "5", action: "Perfect" }
-          }
-      });
-  }
-
-  // --- 8. LOGS ---
-  for (let i = 0; i < 10; i++) {
-      safeSet(getRef('audit_logs'), { action: 'Updated Record', user: 'Admin', timestamp: pastDate(i) });
-      safeSet(getRef('security_logs'), { event: 'Login Success', ip: '192.168.1.1', timestamp: pastDate(i) });
-  }
-
-  // --- 9. CLIENTS ---
-  for (let i = 0; i < 5; i++) {
-      safeSet(getRef('clients'), { 
-          name: faker.company.name(), 
-          contact: faker.person.fullName(), 
-          emails: faker.internet.email(), 
-          phones: faker.phone.number(), 
-          status: 'Active', 
-          isActive: true 
-      });
-  }
-
-// --- 10. ACCESS, CONFIG & SYSTEM COLLECTIONS ---
-  const demoEmail = 'demo@makeusa.us';
-  const accessModules = [
-    'blending_access', 'client_access', 'machine_access', 'master_admin_access', 
-    'production_access', 'qc_access', 'shed_access', 'shipment_access', 
-    'tech_access', 'wifi_access', 'authorized_users'
-  ];
-
-  accessModules.forEach(module => {
-      safeSet(doc(db, module, demoEmail), { 
-          enabled: true, 
-          // Sets role to 'Admin' for shipments, 'admin' for everything else
-          role: module === 'shipment_access' ? 'Admin' : 'admin', 
-          email: demoEmail, 
-          lastUpdated: now 
-      });
+  // Production Pipeline Exhaustive
+  const prodStatuses = ['planning', 'waiting_components', 'ready', 'production', 'qc_pending', 'qc_failed', 'completed', 'canceled'];
+  prodStatuses.forEach((status, i) => {
+      safeSet(getRef('production_pipeline'), { company: faker.helpers.arrayElement(clients), project: `Project ${status.toUpperCase()} ${i}`, category: 'Liquid Fill', size: '16oz', quantity: faker.number.int({min: 500, max: 20000}), status: status, componentsArrived: faker.datatype.boolean(), techSheetUploaded: true, requiresBlending: true, createdAt: pastDate(30 - i) });
   });
 
-  safeSet(doc(db, 'users', demoEmail), { role: 'admin', email: demoEmail, allowPassword: true, name: 'Demo Admin' });
+  // Exhaustive Blending Data
+  const blendStatuses = ['queued', 'measuring', 'mixing', 'testing', 'approved', 'rejected'];
+  blendStatuses.forEach((status) => {
+      const formulaId = `FORM-${faker.string.alphanumeric(4).toUpperCase()}`;
+      // Queue
+      safeSet(getRef('blending_queue'), { formulaId, client: faker.helpers.arrayElement(clients), targetGallons: faker.number.int({min: 50, max: 1000}), status: status, assignedTech: workerData[0].name, createdAt: pastDate(2) });
+      // Production Track
+      if (['mixing', 'testing', 'approved'].includes(status)) {
+          safeSet(getRef('blending_production'), { formulaId, batchNumber: `BAT-${faker.string.numeric(5)}`, currentStep: faker.number.int({min: 1, max: 5}), totalSteps: 5, status: status, startedAt: pastDate(1) });
+      }
+      // R&D Samples
+      safeSet(getRef('blending_samples'), { formulaId, purpose: 'Client Match', technician: workerData[1].name, phLevel: faker.number.float({min: 5.5, max: 8.5}), viscosity: 'Medium', status: faker.helpers.arrayElement(['In Testing', 'Completed']), date: pastDate(i) });
+  });
+
+  // Machine Logs & Audits
+  for (let i = 0; i < 6; i++) {
+      safeSet(getRef('machine_setup_reports'), { line: faker.helpers.arrayElement(lineIds).name, machine: faker.helpers.arrayElement(['Filler', 'Capper', 'Labeler']), technician: workerData[i].name, status: 'Completed', verified: true, date: pastDate(i) });
+      safeSet(getRef('downtime_reports'), { line: faker.helpers.arrayElement(lineIds).name, machine: 'Capper', minutes: faker.number.int({min: 15, max: 240}), reason: faker.helpers.arrayElement(['Jammed belt', 'No air pressure', 'Sensor failure']), reportedBy: workerData[i].name, date: pastDate(i) });
+      safeSet(getRef('five_s_audits'), { status: 'submitted', timestamp: pastDate(i), line: faker.helpers.arrayElement(lineIds).name, results: { "0-0": { points: "4" }, "0-1": { points: "2", action: "Blocked path", owner: "admin@makeusa.us" } } });
+  }
+
+  // --- 6. WAREHOUSE, SHED & INVENTORY ---
+  const invTypes = ['Raw Material', 'Packaging', 'Finished Good'];
+  invTypes.forEach(type => {
+      safeSet(getRef('inventory'), { sku: `SKU-${faker.string.numeric(5)}`, name: `${type} Normal`, type: type, quantity: faker.number.int({min: 1000, max: 5000}), reorderLevel: 500, location: 'Warehouse A' });
+      safeSet(getRef('inventory'), { sku: `SKU-${faker.string.numeric(5)}`, name: `${type} Low`, type: type, quantity: faker.number.int({min: 10, max: 400}), reorderLevel: 500, location: 'Warehouse B' });
+      safeSet(getRef('inventory'), { sku: `SKU-${faker.string.numeric(5)}`, name: `${type} OOS`, type: type, quantity: 0, reorderLevel: 200, location: 'Warehouse C' });
+  });
   
-  // Roles
-  safeSet(doc(db, 'roles', 'admin'), { name: 'Administrator', permissions: ['all'] });
-  safeSet(doc(db, 'client_roles', 'standard_client'), { name: 'Standard Client', maxSamples: 5 });
+  // Shed Inventory
+  for(let i=0; i<5; i++) {
+      safeSet(getRef('shed_inventory_v1'), { itemCode: `SHED-${faker.string.numeric(4)}`, description: faker.helpers.arrayElement(['Empty Totes', 'Pallets', 'Drums', 'Cleaning Chems']), quantity: faker.number.int({min: 5, max: 100}), lastChecked: pastDate(i) });
+  }
 
-  // Settings & Config
-  safeSet(doc(db, 'config', 'general'), { maintenanceMode: false, currentVersion: 'v2.1.0' });
-  safeSet(doc(db, 'config_routing', 'paths'), { defaultHome: '/dashboard', fallback: '/404' });
-  safeSet(doc(db, 'client_settings', 'default'), { portalTheme: 'light', allowSampleRequests: true });
-  safeSet(doc(db, 'qc_settings', 'thresholds'), { minPh: 6.5, maxPh: 7.5, allowOverrides: false });
-  safeSet(doc(db, 'settings', 'global'), { companyName: 'Make USA LLC', timezone: 'America/New_York' });
+  // --- 7. SHIPMENTS, BILLING & FINANCIAL REPORTS ---
+  const shipStatuses = ['Pending', 'In Transit', 'Delivered', 'Billed', 'Cancelled'];
+  shipStatuses.forEach((status, i) => {
+      safeSet(getRef('shipments'), { vendor: faker.company.name(), carrier: faker.helpers.arrayElement(['FedEx', 'UPS', 'USPS', 'Freight']), trackingNumber: `1Z${faker.string.alphanumeric(10).toUpperCase()}`, shippingCost: faker.number.float({ min: 50, max: 1500, fractionDigits: 2 }), status: status, shippedDate: status !== 'Pending' ? pastDate(faker.number.int({min: 1, max: 10})) : null, billedDate: status === 'Billed' ? pastDate(1) : null, billedBy: status === 'Billed' ? 'Demo Admin' : null, billingInvoiceNumber: status === 'Billed' ? `INV-${faker.string.numeric(5)}` : null });
+  });
 
+  for (let i = 0; i < 6; i++) {
+      safeSet(getRef('reports'), { company: faker.helpers.arrayElement(clients), project: `Finished Run ${i}`, projectType: 'Assembly', leader: faker.helpers.arrayElement(workerData).name, agentName: faker.helpers.arrayElement(['Sarah Sales', 'Mike Market']), financeStatus: i % 2 === 0 ? 'complete' : 'pending', completedAt: pastDate(i), totalUnits: faker.number.int({min: 1000, max: 5000}), invoiceAmount: faker.number.int({min: 2000, max: 10000}) });
+  }
+
+  // --- 8. ARCHIVE, WIFI & SYSTEM LOGS ---
+  for (let i = 0; i < 8; i++) {
+      safeSet(getRef('archive'), { originalCollection: 'production_pipeline', documentName: `Old Project ${i}`, purgedAt: pastDate(i), purgedBy: 'System' });
+      safeSet(getRef('audit_logs'), { action: faker.helpers.arrayElement(['Created Item', 'Deleted Record', 'Updated Status']), module: faker.helpers.arrayElement(['Inventory', 'HR', 'Production']), user: 'Admin', timestamp: pastDate(i) });
+      safeSet(getRef('security_logs'), { event: faker.helpers.arrayElement(['Login Success', 'Failed Password', 'Password Reset']), ip: faker.internet.ipv4(), userEmail: 'demo@makeusa.us', timestamp: pastDate(i) });
+  }
+
+  // --- 9. SECURITY CLEARANCES & ACCESS ---
+  // We setup personas to test different access levels across the app
+  const personas = [
+      { email: 'demo@makeusa.us', name: 'Master Admin', role: 'admin', modules: ['blending_access', 'client_access', 'machine_access', 'master_admin_access', 'production_access', 'qc_access', 'shed_access', 'shipment_access', 'tech_access', 'wifi_access', 'authorized_users'] },
+      { email: 'sales@makeusa.us', name: 'Sales Agent', role: 'sales', modules: ['client_access', 'authorized_users'] },
+      { email: 'tech@makeusa.us', name: 'Floor Tech', role: 'tech', modules: ['machine_access', 'tech_access', 'qc_access', 'authorized_users'] }
+  ];
+
+  personas.forEach(persona => {
+      safeSet(doc(db, 'users', persona.email), { role: persona.role, email: persona.email, allowPassword: true, name: persona.name });
+      persona.modules.forEach(module => {
+          safeSet(doc(db, module, persona.email), { enabled: true, role: persona.role, email: persona.email, lastUpdated: now });
+      });
+  });
+  
   // Final flush of remaining writes
   await commitBatches();
-  console.log("Comprehensive Demo Environment successfully seeded!");
+  console.log("Ultimate Demo Environment successfully seeded. All sub-modules populated.");
 };
